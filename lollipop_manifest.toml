@@ -1,0 +1,74 @@
+[project]
+name = "lollipop"
+sdk_version = "0.10.1"
+game_root = "../LollipopChainsaw-private/game"
+
+[entrypoint]
+file_path = "../LollipopChainsaw-private/game/default.xex"
+out_directory_path = "../LollipopChainsaw-private/generated"
+# Verified register save/restore pair in this executable's generated PPC listing.
+setjmp_address = 0x82BD89D0
+longjmp_address = 0x82BD8590
+
+# Direct tail-call targets rejected by the initial v0.10.1 analysis.
+[entrypoint.functions]
+0x82CA8D30 = {}
+0x82CBEC90 = {}
+# First boot: missing indirect-call target reported by the dispatcher.
+0x82A3EC70 = {}
+
+# Missing function entries with aligned pointers confirmed in the loaded image.
+# Comments identify one data reference, not an inferred function name.
+0x82D218A8 = {} # 0x82063738
+0x82C0FF10 = {} # 0x8203D0DC
+0x828BE3C0 = {} # 0x8216E4E4
+0x82B063A8 = {} # 0x8202AB9C
+0x82832530 = {} # 0x8215D1A4
+0x82DCE748 = {} # 0x82073060
+0x8288C2F0 = {} # 0x820AB21C
+0x82305038 = {} # 0x820A4E40
+0x8244B068 = {} # 0x82085334
+0x82AA17D0 = {} # 0x82024460
+0x824366E0 = {} # 0x820D6F20
+0x826616F0 = {} # 0x8212D060
+0x82DCE750 = {} # 0x82073064
+0x82B751A0 = {} # 0x82030D24
+0x82D00F78 = {} # 0x82062408
+0x8222F568 = {} # 0x8208E810
+0x82D4AC30 = {} # 0x8206D3CC
+0x82CE67B0 = {} # 0x82058E84
+0x82B062E8 = {} # 0x8202AB94
+0x82B063C0 = {} # 0x8202ABA0
+0x82B644F0 = {} # 0x82030ABC
+0x8227A568 = {} # 0x832BBF14
+0x82D015C0 = {} # 0x8206241C
+0x82DCE758 = {} # 0x82073070
+0x82A14D50 = {} # 0x82000CE4
+0x82A20810 = {} # 0x82001424
+0x8226B778 = {} # 0x832BBB24
+0x82A1BB18 = {} # 0x820010D4
+0x82A7E110 = {} # 0x82022F38
+0x82C27CA0 = {} # 0x8203EFD0
+0x82C0FFA8 = {} # 0x8203D0D8
+0x82A1A728 = {} # 0x8200105C
+
+# Computed function pointers: lis/addi pairs in executable code.
+0x82282770 = {} # 0x82283400 / 0x82283410; also observed on boot 3
+0x82439528 = {} # 0x824392F4 / 0x82439314
+0x82C587B8 = {} # 0x82C5B014 / 0x82C5B028
+
+[[entrypoint.midasm_hook]]
+address = 0x829EAA14
+name = "lollipop_present_interval"
+registers = ["r11"]
+
+[[entrypoint.midasm_hook]]
+address = 0x8253A7E0
+name = "lollipop_tick_limit"
+registers = ["f1"]
+after_instruction = true
+
+[[entrypoint.midasm_hook]]
+address = 0x829D0CF8
+name = "lollipop_tick_trace"
+registers = ["r3", "f1"]

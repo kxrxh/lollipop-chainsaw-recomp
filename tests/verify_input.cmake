@@ -1,0 +1,7 @@
+if(NOT EXISTS "${GAME_XEX}")
+    message(FATAL_ERROR "Missing game executable: ${GAME_XEX}")
+endif()
+file(SHA256 "${GAME_XEX}" actual_hash)
+if(NOT actual_hash STREQUAL "a687f47d537b011600146c665e59f5d2b4d4243284799d84fee7da45cdd2df26")
+    message(FATAL_ERROR "Unsupported default.xex: ${actual_hash}. Function addresses require the verified disc build.")
+endif()
