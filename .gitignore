@@ -12,6 +12,9 @@
 *.usm
 /assets/*
 !/assets/banner.png
+!/assets/lollipop.png
+!/assets/lollipop.ico
+!/assets/lollipop.rc
 /generated/
 /out/
 /logs/

@@ -31,6 +31,9 @@ adapted from the supplied RePOP promotional artwork, with the subtitle
 changed to RECOMP; that artwork is excluded from the project code license.
 This is an unofficial project and does not imply endorsement.
 
+The LC application icon follows the supplied game logo's art style and is
+also excluded from the project code license.
+
 The repository and source kit contain no disc images, extracted game data,
 original executable, or generated translations of the game's code. Those
 files are produced locally from the user's own game copy.
