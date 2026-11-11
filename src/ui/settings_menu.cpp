@@ -1,11 +1,12 @@
 #include "settings_menu.h"
-#include "pc_settings.h"
-#include "timing_hooks.h"
+#include "settings/pc_settings.h"
+#include "game/timing_hooks.h"
 #include "settings_resources.h"
-#include "keyboard_controls.h"
-#include "game_settings.h"
+#include "input/prompt_artwork.h"
+#include "game/game_settings.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cassert>
@@ -28,6 +29,7 @@
 
 REXCVAR_DEFINE_BOOL(lollipop_pc_settings, false, "Lollipop", "Open PC settings");
 
+namespace lollipop {
 namespace {
 std::atomic<unsigned char*> guest_memory{};
 std::array<ImFont*, 4> menu_fonts{};
@@ -446,7 +448,10 @@ class settings_menu final : public rex::ui::ImGuiDialog {
 }  // namespace
 
 void configure_settings_fonts(ImFontAtlas* atlas) {
-  const auto menu = std::filesystem::path("C:/Windows/Fonts/arialbd.ttf");
+  std::array<wchar_t, MAX_PATH> windows{};
+  const auto length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
+  if (!length || length >= windows.size()) return;
+  const auto menu = std::filesystem::path(windows.data()) / "Fonts" / "arialbd.ttf";
   constexpr float sizes[] = {32, 48, 64, 96};
   for (size_t i = 0; i < menu_fonts.size(); ++i) {
     if (std::filesystem::exists(menu)) menu_fonts[i] = atlas->AddFontFromFileTTF(menu.string().c_str(), sizes[i]);
@@ -474,8 +479,10 @@ void settings_movie_unloaded(uint32_t player) {
   cancel_game_options(player);
 }
 
+}  // namespace lollipop
+
 // UGFxFSCmdHandler_Kismet::execFSCommand: r6 is the decoded command FString.
 void lollipop_options_command(PPCRegister& command) {
-  const auto name = guest_string(command.u32);
+  const auto name = lollipop::guest_string(command.u32);
   REXLOG_DEBUG("Menu command: {}", name);
 }

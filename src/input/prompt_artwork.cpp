@@ -1,4 +1,4 @@
-#include "keyboard_controls.h"
+#include "prompt_artwork.h"
 
 #include <algorithm>
 #include <array>
@@ -23,34 +23,9 @@
 #include <rex/system/lzx.h>
 #include <rex/system/gpu_plugin.h>
 
+namespace lollipop {
 namespace {
-struct binding {
-  const char *flag;
-  const char *keys;
-};
-constexpr binding bindings[] = {
-    {"mnk_mode", "true"},
-    {"mnk_mouse", "true"},
-    {"mnk_mouse_deadzone", "0.2"},
-    {"mnk_sensitivity", "18.0"},
-    {"mnk_gameplay_modifiers", "true"},
-    {"keybind_a", "MMB,Return"},
-    {"keybind_b", "Space,Backspace"},
-    {"keybind_x", "RMB"},
-    {"keybind_y", "LMB"},
-    {"keybind_left_trigger", "Shift"},
-    {"keybind_right_trigger", "V,Shift+LMB"},
-    {"keybind_left_shoulder", "Q"},
-    {"keybind_right_shoulder", "E"},
-    {"keybind_lstick_press", "R"},
-    {"keybind_rstick_press", "F"},
-    {"keybind_back", "Tab"},
-    {"keybind_start", "Escape"},
-    {"keybind_dpad_up", "C,1"},
-    {"keybind_dpad_down", "2"},
-    {"keybind_dpad_left", "3"},
-    {"keybind_dpad_right", "4"},
-};
+
 
 uint32_t read32(std::span<const uint8_t> bytes, size_t offset) {
   if (offset > bytes.size() || bytes.size() - offset < 4)
@@ -571,14 +546,6 @@ std::unique_ptr<rex::filesystem::Device> make_keyboard_game_device(
   return std::make_unique<keyboard_game_device>(game, cache);
 }
 
-void configure_keyboard_controls() {
-  for (const auto &bind : bindings) {
-    if (rex::cvar::GetFlagSource(bind.flag) == rex::cvar::Source::kDefault &&
-        !rex::cvar::SetFlagByName(bind.flag, bind.keys))
-      throw std::runtime_error(std::string("Could not set keyboard binding: ") +
-                               bind.flag);
-  }
-}
 
 std::vector<uint8_t> make_keyboard_prompts(std::span<const uint8_t> startup,
                                            bool controller) {
@@ -908,3 +875,5 @@ void install_keyboard_prompts(rex::Runtime &runtime,
       !vfs->RegisterSymbolicLink("d:", "\\Device\\LollipopGame"))
     throw std::runtime_error("Could not install keyboard artwork override");
 }
+
+}  // namespace lollipop

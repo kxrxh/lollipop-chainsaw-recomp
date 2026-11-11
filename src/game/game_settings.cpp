@@ -20,6 +20,7 @@ REXCVAR_DEFINE_BOOL(lollipop_camera_invert_y, false, "Lollipop", "Invert vertica
 REXCVAR_DEFINE_BOOL(lollipop_camera_invert_x, false, "Lollipop", "Invert horizontal camera");
 REXCVAR_DEFINE_BOOL(lollipop_manual_aim, false, "Lollipop", "Manual blaster aim");
 
+namespace lollipop {
 namespace {
 std::atomic<bool> ready{};
 std::atomic<bool> loaded{};
@@ -225,3 +226,5 @@ void update_game_settings(rex::Runtime& runtime, PPCContext& context) {
     if (close) guest.invoke(object, close);
   }
 }
+
+}  // namespace lollipop

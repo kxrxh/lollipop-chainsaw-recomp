@@ -1,11 +1,11 @@
 [project]
 name = "lollipop"
 sdk_version = "0.10.1"
-game_root = "../LollipopChainsaw-private/game"
+game_root = "game"
 
 [entrypoint]
-file_path = "../LollipopChainsaw-private/game/default.xex"
-out_directory_path = "../LollipopChainsaw-private/generated"
+file_path = "game/default.xex"
+out_directory_path = "out/generated"
 # Verified register save/restore pair in this executable's generated PPC listing.
 setjmp_address = 0x82BD89D0
 longjmp_address = 0x82BD8590

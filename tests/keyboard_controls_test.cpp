@@ -1,4 +1,5 @@
-#include "keyboard_controls.h"
+#include "input/keyboard_controls.h"
+#include "input/prompt_artwork.h"
 
 #include <algorithm>
 #include <array>
@@ -17,8 +18,21 @@
 #include <rex/input/input_system.h>
 #include <rex/ui/ui_event.h>
 
+// The headless test does not load the GPU plugin that normally owns these flags.
+REXCVAR_DEFINE_BOOL(readback_memexport, true, "GPU", "Test GPU readback default");
+REXCVAR_DEFINE_BOOL(readback_memexport_fast, true, "GPU", "Test delayed readback default");
+
 using rex::X_RESULT;
 using rex::X_STATUS;
+
+using lollipop::configure_keyboard_controls;
+using lollipop::make_keyboard_prompts;
+using lollipop::make_prompt_variants;
+using lollipop::select_prompt_artwork;
+using lollipop::make_keyboard_title;
+using lollipop::pack_keyboard_prompts;
+using lollipop::make_keyboard_game_device;
+using lollipop::make_settings_prompt_artwork;
 
 namespace {
 void check(bool condition, const char *message) {
@@ -29,6 +43,9 @@ void check(bool condition, const char *message) {
 int main(int argc, char **argv) try {
   check(argc == 3, "Expected source and output paths");
   configure_keyboard_controls();
+  check(rex::cvar::Query<bool>("readback_memexport") &&
+            !rex::cvar::Query<bool>("readback_memexport_fast"),
+        "Native prompt switching reads current GPU icon copies");
   check(rex::cvar::Query<double>("mnk_sensitivity") == 18.0,
         "Higher mouse camera sensitivity by default");
   rex::input::ActiveDeviceTracker tracker;
@@ -80,6 +97,12 @@ int main(int argc, char **argv) try {
   configure_keyboard_controls();
   check(rex::cvar::GetFlagByName("keybind_b") == "Space,Backspace,J",
         "Preserve user bindings");
+  rex::cvar::SetFlagByName("readback_memexport_fast", "true");
+  rex::cvar::SetFlagByName("readback_memexport", "false");
+  configure_keyboard_controls();
+  check(rex::cvar::Query<bool>("readback_memexport_fast") &&
+            !rex::cvar::Query<bool>("readback_memexport"),
+        "Explicit renderer overrides are preserved");
 
   rex::input::mnk::MnkInputDriver driver(nullptr, 0);
   check(driver.Setup() == X_STATUS_SUCCESS, "Driver setup");

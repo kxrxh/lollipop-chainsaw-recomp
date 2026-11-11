@@ -23,7 +23,7 @@ try {
     [IO.File]::WriteAllText($unsupported, 'not an archive')
     Expect-Failure { & $importer -InputPath $unsupported } 'Input must be'
 
-    $existingGame = Join-Path $temporary 'LollipopChainsaw-private/game'
+    $existingGame = Join-Path $fixture 'game'
     New-Item -ItemType Directory -Path $existingGame -Force | Out-Null
     $canary = Join-Path $existingGame 'preserve.txt'
     [IO.File]::WriteAllText($canary, 'preserve')
@@ -31,6 +31,11 @@ try {
     [IO.File]::WriteAllText($iso, 'not a real disc image')
     Expect-Failure { & $importer -InputPath $iso } 'will not be overwritten'
     if ([IO.File]::ReadAllText($canary) -ne 'preserve') { throw 'Existing game was modified' }
+    $customGame = Join-Path $temporary 'custom game'
+    New-Item -ItemType Directory -Path $customGame | Out-Null
+    [IO.File]::WriteAllText((Join-Path $customGame 'preserve.txt'), 'custom')
+    Expect-Failure { & $importer -InputPath $iso -Destination $customGame } 'will not be overwritten'
+    if ([IO.File]::ReadAllText((Join-Path $customGame 'preserve.txt')) -ne 'custom') { throw 'Custom game was modified' }
 } finally {
     $resolved = [IO.Path]::GetFullPath($temporary)
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar

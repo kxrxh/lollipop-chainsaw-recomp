@@ -3,10 +3,23 @@
 ## Source boundaries
 
 The manifest records verified entrypoints and timing hooks. `src/` contains the
-handwritten host; translated game code belongs in the private sibling `generated/`
-directory. Keep disc images, assets, generated C++, saves, caches and GPU captures
+handwritten host; translated game code belongs in ignored `out/generated/`.
+Keep disc images, extracted game assets, generated C++, saves, caches and GPU captures
 out of Git. The SDK patch targets the commit pinned in [BUILDING.md](BUILDING.md).
 Preserve upstream notices when modifying or redistributing it.
+
+Host code uses `namespace lollipop`, with headers beside implementations:
+
+- `app/`: application lifecycle; `main.cpp` only registers the application factory.
+- `game/`: native settings bridge and timing hooks.
+- `input/`: keyboard bindings, prompt artwork and live menu hints.
+- `settings/`: the settings catalog, validation and persistence.
+- `ui/`: settings rendering and interaction.
+- `testing/`: the optional local input/control bridge.
+
+Generated-code hook symbols remain global to preserve their ABI. Host headers
+compile independently as part of the normal build. See [AGENTS.md](../AGENTS.md)
+for project code and tooling conventions.
 
 ## Launch profile and controls
 
@@ -62,6 +75,11 @@ unbound keyboard keys. XInput and test drivers fall back to meaningful state
 changes. Held inputs and idle stick drift do not take over the hints. The
 renderer refreshes resident textures, including hints already visible in an
 open menu, without reloading the level.
+Mixed keyboard/controller hints require current CPU copies of the game's GPU
+icon transfers. Startup enables memory-export readback and disables delayed
+readback for this mode. Explicit renderer overrides are preserved; disabling
+readback or enabling `readback_memexport_fast` can leave native hints stale.
+Synchronous readback adds GPU/CPU synchronization during memory-export draws.
 They are generated from the bindings at launch into `cache/keyboard-prompts`;
 the original disc files are never edited. Restart after rebinding to refresh
 the artwork. Prompts show the first binding; Enter/Backspace remain menu aliases.
@@ -135,7 +153,7 @@ missing original options after native save loading rather than resetting them.
 Apply also calls the original options-save routine. Disc assets are unchanged.
 Key binding edits remain in the existing F6 advanced settings/config path.
 
-Verification includes 14 CTests and 18 live D3D12 behavior cases: controller, mouse
+Verification includes CTest regression checks and 18 live D3D12 behavior cases: controller, mouse
 and keyboard navigation, native option read-back, repeated original Options
 entry/Back, staged defaults, Apply/Discard/Cancel, unwritable-profile recovery,
 display Keep/Revert/timeout, resized mouse targets, input-release blocking and
@@ -152,8 +170,8 @@ in place when settings closes over it.
 ## Frame and engine measurements
 
 ```powershell
-./run.ps1 --perf_log_csv=../LollipopChainsaw-private/frames.csv --lollipop_tick_trace_csv=../LollipopChainsaw-private/ticks.csv
-./scripts/measure-frames.ps1 -Path ../LollipopChainsaw-private/frames.csv
+./run.ps1 --perf_log_csv=out/frames.csv --lollipop_tick_trace_csv=out/ticks.csv
+./scripts/measure-frames.ps1 -Path out/frames.csv
 ```
 
 CSV allows concurrent readers. `-AfterFrame <cursor>` selects samples after an
@@ -170,7 +188,7 @@ cadence. The hook does not clamp the game's delta.
 Use a separate **copy** of the save directory for automation:
 
 ```powershell
-./run.ps1 --user_data_root=../LollipopChainsaw-private/user-perf-lab --lollipop_test_directory=../LollipopChainsaw-private/test-control --window_hidden=true --fullscreen=false --audio_mute=true --no-mnk_mode --perf_log_csv=../LollipopChainsaw-private/lab-frames.csv
+./run.ps1 -UserDirectory out/user-perf-lab --lollipop_test_directory=out/test-control --window_hidden=true --fullscreen=false --audio_mute=true --no-mnk_mode --perf_log_csv=out/lab-frames.csv
 ```
 
 The bridge is absent unless its directory is supplied. Injected input shares
@@ -201,7 +219,7 @@ Guest captures exclude SDK overlays.
 After visually confirming live gameplay:
 
 ```powershell
-./scripts/benchmark-gameplay.ps1 -Path ../LollipopChainsaw-private/lab-frames.csv -OutputDirectory ../LollipopChainsaw-private/benchmark-new
+./scripts/benchmark-gameplay.ps1 -Path out/lab-frames.csv -OutputDirectory out/benchmark-new
 ```
 
 The 60-second sequence records idle, camera, movement and attack phases, with

@@ -10,7 +10,8 @@ graphics and build validation.
 - Git for Windows, available on PATH.
 - Visual Studio 2022 Build Tools with **Desktop development with C++**, the
   MSVC x64 libraries, a Windows SDK, and CMake/Ninja tools.
-- [LLVM 20.1.8 for Windows x64](https://github.com/llvm/llvm-project/releases/tag/llvmorg-20.1.8).
+- [LLVM 20.1.8 for Windows x64](https://github.com/llvm/llvm-project/releases/tag/llvmorg-20.1.8),
+  on PATH or supplied with `-LlvmDirectory`.
 - A supported Xbox 360 disc dump that you provide locally.
 - Enough free space for the extracted game, SDK build and translated C++.
 
@@ -19,28 +20,26 @@ Use `pwsh`, not Windows PowerShell 5.
 
 ## Local directories
 
-Paths are relative to the source folder; no particular drive letter or account
-name is required:
+All defaults are inside the checkout. These data and output folders are ignored
+by Git; they do not need to exist before setup:
 
 ```text
-your-work-folder/
-├── Lollipop Chainsaw Recomp/       this repository
-├── LollipopChainsaw-private/
-│   ├── game/                       extracted game, including default.xex
-│   ├── generated/                  translated C++; generated locally
-│   ├── user/                       saves and runtime settings
-│   └── cache/                      shader/pipeline caches
-└── LollipopChainsaw-tools/
-    ├── llvm-20.1.8/bin/             clang.exe and clang++.exe
-    ├── rexglue-source/             pinned SDK source
-    ├── extract-xiso/artifacts/     optional extract-xiso.exe
-    └── rexglue-sdk-0.10.1-lollipop/win-amd64/  installed patched SDK
+repository/
+├── game/                         your extracted disc files
+├── user/                         saves and runtime settings
+├── cache/                        shader and artwork caches
+└── out/
+    ├── generated/                translated C++; generated locally
+    ├── tools/rexglue-source/     downloaded pinned SDK source
+    ├── sdk/                      installed patched SDK
+    └── build/
+        ├── sdk/                  SDK build output
+        └── win-amd64-release/    game executable and tests
 ```
 
-Install or unpack LLVM into the location above. The scripts use that exact
-toolchain location. Keep the repository and sibling directories together if
-moving the working folder. Existing CMake caches contain absolute paths and
-must be regenerated after relocation.
+Scripts resolve their defaults from their own location, including when the
+checkout path contains spaces. Existing CMake caches contain absolute paths;
+use a fresh build directory after moving a checkout.
 
 ## Supported game
 
@@ -64,30 +63,36 @@ For an extracted disc folder containing `default.xex`, `AshGame/` and `Engine/`:
 ```
 
 For an ISO, obtain [extract-xiso](https://github.com/XboxDev/extract-xiso)
-separately and specify its executable, or put it in the tools directory above:
+separately and put it on PATH or specify its executable:
 
 ```powershell
 ./prepare-game.ps1 -InputPath "D:/Disc Dumps/Lollipop Chainsaw.iso" -ExtractXiso "D:/Tools/extract-xiso.exe"
 ```
 
 Unpack `.7z` or `.zip` archives first. Import preserves the original input,
-checks the executable and refuses to overwrite an existing private `game/`
-directory. Failed extraction remains in a private `import-*` folder for inspection.
+checks the executable and refuses to overwrite an existing `game/` directory.
+Failed extraction remains in an ignored `import-*` folder for inspection.
 To verify files already in the expected location, pass that folder as `-InputPath`.
+Use `-Destination` to select another import location.
 
 ## 2. Build the patched SDK
 
 From the repository directory:
 
 ```powershell
-git clone --branch v0.10.1 --depth 1 https://github.com/rexglue/rexglue-sdk.git ../LollipopChainsaw-tools/rexglue-source
 ./build-sdk.ps1
 ```
 
 Expected SDK commit: `bd833a2ab69d305f99ddf57418fc38ffec8af93d`.
-The script applies [the SDK patch](../patches/rexglue-fixes.patch), fetches the
-required submodules and installs a separate Release SDK. Conflicting local
-SDK source changes are rejected.
+The script clones the pinned public SDK when absent, applies
+[the SDK patch](../patches/rexglue-fixes.patch), fetches the required submodules
+and installs a Release SDK in `out/sdk/`. Conflicting local SDK source changes
+are rejected. If LLVM is not on PATH, pass its bin directory:
+
+```powershell
+./build-sdk.ps1 -LlvmDirectory "C:/Program Files/LLVM/bin"
+./build.ps1 -LlvmDirectory "C:/Program Files/LLVM/bin"
+```
 
 ## 3. Recompile and run
 
@@ -99,14 +104,31 @@ SDK source changes are rejected.
 `build.ps1` validates the executable, generates code, compiles and runs the
 checks. The locally generated game executable is
 `out/build/win-amd64-release/lollipop.exe`. Prefer `run.ps1`: it supplies the
-private game, save and cache paths plus the tested profile.
+checkout's game, save and cache paths plus the tested profile.
+
+Existing installations can be reused without copying data or changing the
+repository's manifest. For example:
+
+```powershell
+./build.ps1 -GameDirectory "E:/Games/My Disc Dump" -SdkDirectory "E:/SDKs/rexglue"
+./run.ps1 -GameDirectory "E:/Games/My Disc Dump"
+```
+
+`build.ps1` also accepts `-GeneratedDirectory` and `-BuildDirectory`;
+`build-sdk.ps1` accepts `-SourceDirectory`, `-InstallDirectory` and
+`-BuildDirectory`. Custom build directories contain their own game executable.
+`run.ps1` accepts `-GameDirectory`, `-UserDirectory` and `-CacheDirectory`;
+use these for filesystem paths and append native flags such as `--lollipop_fps=90`.
+For direct CMake use, set `LOLLIPOP_GAME_DIR`, `LOLLIPOP_GENERATED_DIR` and
+`rexglue_DIR` as needed. A configured codegen manifest is written only to build
+output; the checked-in manifest retains portable defaults.
 
 New scenes may create shader pipelines. Offline Xbox LIVE dialogs can be
 dismissed by declining the connection attempt and confirming offline play.
 
 ## Updating and removal
 
-Keep `LollipopChainsaw-private/user/` to preserve saves, and keep the original
+Keep `user/` (or your custom save directory) to preserve saves, and keep the original
 disc dump separately. Generated code and build products can be rebuilt and are
 excluded from the source kit. SDK version changes require fresh patch and
 address validation.

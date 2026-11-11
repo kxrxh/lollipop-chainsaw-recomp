@@ -2,6 +2,9 @@
 
 ## Unreleased · WIP
 
+- Fixed stale keyboard hints during controller play in native menus, cutscenes and gameplay.
+- Organized host code into focused modules with project namespaces and independently checked headers.
+- Made setup/build/run scripts portable, with local defaults, explicit directory overrides and pinned SDK checkout.
 - Unified the original Options menu with display, graphics, audio, camera and controller settings.
 - Added per-user Apply/Discard, automatic pause/resume and a 15-second display rollback timer.
 - Added 30/60/90/120 FPS limits with matching engine/vblank pacing and legacy-profile migration.

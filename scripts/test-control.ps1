@@ -1,7 +1,7 @@
 #requires -Version 7.2
 param(
     [Parameter(Mandatory)][string]$Command,
-    [string]$Directory = ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../LollipopChainsaw-private/test-control')))
+    [string]$Directory = ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../out/test-control')))
 )
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {

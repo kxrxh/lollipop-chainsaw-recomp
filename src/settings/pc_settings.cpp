@@ -12,6 +12,8 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
+namespace lollipop {
+
 std::span<const pc_setting> pc_settings() {
   static const pc_setting settings[] = {
       {"window_width", "Window resolution", "Fullscreen uses your desktop resolution.", "2560", 0,
@@ -173,3 +175,5 @@ void configure_pc_settings(const std::filesystem::path& path) {
       rex::cvar::SetFlagByName(name, value);
   }
 }
+
+}  // namespace lollipop

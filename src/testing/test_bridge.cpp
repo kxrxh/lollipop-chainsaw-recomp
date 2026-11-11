@@ -1,5 +1,5 @@
 #include "test_bridge.h"
-#include "game_settings.h"
+#include "game/game_settings.h"
 
 #include <array>
 #include <fstream>
@@ -17,6 +17,7 @@
 #include <rex/ui/renderdoc_api.h>
 #include <rex/ui/window.h>
 
+namespace lollipop {
 namespace {
 using rex::X_RESULT;
 using rex::X_STATUS;
@@ -313,3 +314,5 @@ std::jthread start_test_bridge(rex::input::InputSystem& input,
     controls->active.store(false);
   });
 }
+
+}  // namespace lollipop

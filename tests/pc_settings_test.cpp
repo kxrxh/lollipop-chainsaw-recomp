@@ -1,4 +1,4 @@
-#include "pc_settings.h"
+#include "settings/pc_settings.h"
 
 #include <fstream>
 #include <iostream>
@@ -9,6 +9,12 @@
 static void check(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
 }
+
+using lollipop::pc_settings;
+using lollipop::pc_values;
+using lollipop::validate_pc_settings;
+using lollipop::save_pc_settings;
+using lollipop::configure_pc_settings;
 
 int main(int argc, char** argv) try {
   check(argc == 2 || argc == 3, "Expected test config path");

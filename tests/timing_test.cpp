@@ -1,9 +1,12 @@
-#include "timing_hooks.h"
+#include "game/timing_hooks.h"
 
 #include <fstream>
 #include <string>
 
 #include <rex/cvar.h>
+
+using lollipop::configure_frame_rate;
+using lollipop::set_settings_pause;
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string_view(argv[1]).starts_with("--")) {

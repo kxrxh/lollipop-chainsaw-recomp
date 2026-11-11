@@ -1,6 +1,6 @@
-#include "keyboard_controls.h"
-#include "settings_menu.h"
-#include "game_settings.h"
+#include "live_prompts.h"
+#include "ui/settings_menu.h"
+#include "game/game_settings.h"
 
 #include <atomic>
 #include <cstring>
@@ -36,7 +36,7 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
   auto* runtime = prompt_runtime.load();
   if (!runtime) return;
   // Native settings can wait on guest threads that also need the runtime lock.
-  update_game_settings(*runtime, ctx);
+  lollipop::update_game_settings(*runtime, ctx);
   if (!rex::cvar::Query<bool>("mnk_mode")) return;
   // Advance can unload its own movie; check ownership again before touching it.
   movie_state movie;
@@ -122,6 +122,8 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
 }
 }  // namespace
 
+namespace lollipop {
+
 void install_live_prompt_updates(rex::Runtime& runtime) {
   std::lock_guard lock(movie_mutex);
   movies.clear();
@@ -132,8 +134,10 @@ void install_live_prompt_updates(rex::Runtime& runtime) {
 
 void stop_live_prompt_updates() { prompt_runtime.store(nullptr); }
 
+}  // namespace lollipop
+
 void lollipop_watch_movie(PPCRegister& player, PPCRegister& path) {
-  settings_movie_loaded(player.u32, path.u32);
+  lollipop::settings_movie_loaded(player.u32, path.u32);
   auto* runtime = prompt_runtime.load();
   if (!runtime) return;
   auto* memory = runtime->memory();
@@ -160,7 +164,7 @@ void lollipop_watch_movie(PPCRegister& player, PPCRegister& path) {
 }
 
 void lollipop_unwatch_movie(PPCRegister& player, PPCRegister& unload) {
-  if (unload.u32) settings_movie_unloaded(player.u32);
+  if (unload.u32) lollipop::settings_movie_unloaded(player.u32);
   if (!unload.u32 || !prompt_runtime.load()) return;
   auto global_lock = rex::thread::global_critical_region::AcquireDirect();
   std::lock_guard lock(movie_mutex);

@@ -1,11 +1,12 @@
 #requires -Version 7.2
 param(
     [Parameter(Mandatory)][string]$InputPath,
-    [string]$ExtractXiso = (Join-Path $PSScriptRoot '../LollipopChainsaw-tools/extract-xiso/artifacts/extract-xiso.exe')
+    [string]$Destination = (Join-Path $PSScriptRoot 'game'),
+    [string]$ExtractXiso = 'extract-xiso.exe'
 )
 $ErrorActionPreference = 'Stop'
-$privateDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../LollipopChainsaw-private'))
-$destination = Join-Path $privateDirectory 'game'
+$destination = [IO.Path]::GetFullPath($Destination)
+$stagingDirectory = Split-Path $destination -Parent
 $inputItem = Get-Item -LiteralPath $InputPath
 
 function Assert-SupportedGame([string]$Directory) {
@@ -31,21 +32,23 @@ if ($inputItem.PSIsContainer) {
         return
     }
     $sourcePrefix = $inputItem.FullName.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    if ($privateDirectory.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase) -or
-        $privateDirectory -eq $inputItem.FullName.TrimEnd('\', '/')) {
+    if ($stagingDirectory.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase) -or
+        $stagingDirectory -eq $inputItem.FullName.TrimEnd('\', '/')) {
         throw 'The import staging directory cannot be inside the input directory.'
     }
 } elseif ($inputItem.Extension -ne '.iso') {
     throw 'Input must be an extracted game directory or an Xbox 360 .iso file. Unpack archives first.'
 }
 if (Test-Path -LiteralPath $destination) {
-    throw 'The private game directory already exists. It will not be overwritten.'
+    throw 'The game directory already exists. It will not be overwritten.'
 }
-if (-not $inputItem.PSIsContainer -and -not (Test-Path -LiteralPath $ExtractXiso -PathType Leaf)) {
-    throw 'extract-xiso.exe was not found. Supply -ExtractXiso or use an extracted game directory.'
+if (-not $inputItem.PSIsContainer) {
+    $extractor = Get-Command $ExtractXiso -ErrorAction SilentlyContinue
+    if (-not $extractor) { throw 'extract-xiso.exe was not found. Supply -ExtractXiso or use an extracted game directory.' }
+    $ExtractXiso = $extractor.Source
 }
-New-Item -ItemType Directory -Path $privateDirectory -Force | Out-Null
-$staging = Join-Path $privateDirectory ('import-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $stagingDirectory -Force | Out-Null
+$staging = Join-Path $stagingDirectory ('import-' + [Guid]::NewGuid().ToString('N'))
 try {
     if ($inputItem.PSIsContainer) {
         Copy-Item -LiteralPath $inputItem.FullName -Destination $staging -Recurse

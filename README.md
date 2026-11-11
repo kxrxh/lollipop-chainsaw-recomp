@@ -49,8 +49,9 @@ these commands from PowerShell 7 in the project directory:
 
 The build accepts one verified disc executable. Check the
 [supported version and SHA-256](docs/BUILDING.md#supported-game) before starting.
-Game data, generated translations, saves and shader caches stay outside the
-repository in a private sibling directory.
+Game data, saves and caches live in ignored `game/`, `user/` and `cache/` folders;
+generated code, tools and builds live under `out/`. The scripts accept custom
+paths when you want to keep an existing installation elsewhere.
 
 ### Current status · WIP
 
@@ -63,11 +64,11 @@ See [compatibility and measurements](docs/COMPATIBILITY.md) for the test limits.
 ### Repository layout
 
 ```text
-assets/       README artwork
+assets/       Application and settings artwork
 docs/         Build, compatibility and development guides
 patches/      ReXGlue fixes and upstream license notices
 scripts/      Benchmark, frame analysis and local test controls
-src/          Host application and timing hooks
+src/          App, game hooks, input, settings, UI and test tooling
 tests/        Input, timing, bridge and tooling checks
 ```
 

@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory)][string]$Path,
     [Parameter(Mandatory)][string]$OutputDirectory,
-    [string]$Directory = ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../LollipopChainsaw-private/test-control')))
+    [string]$Directory = ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../out/test-control')))
 )
 $ErrorActionPreference = 'Stop'
 # Run only after checking that the game is in live gameplay on the lab save.

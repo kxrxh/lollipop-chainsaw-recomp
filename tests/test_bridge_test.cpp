@@ -1,4 +1,4 @@
-#include "test_bridge.h"
+#include "testing/test_bridge.h"
 
 #include <rex/cvar.h>
 #include <rex/input/input_system.h>
@@ -8,6 +8,11 @@ using rex::X_RESULT;
 REXCVAR_DEFINE_BOOL(bridge_test_flag, true, "Test", "Test hot setting");
 REXCVAR_DEFINE_INT32(bridge_test_restart, 1, "Test", "Test restart setting")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
+using lollipop::test_controls;
+using lollipop::execute_test_command;
+using lollipop::make_test_driver;
+using lollipop::make_test_assignment;
 
 int main() {
   auto controls = std::make_shared<test_controls>();

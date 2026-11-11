@@ -25,6 +25,7 @@
 /logs/
 /private/
 /game/
+/import-*/
 /user/
 /cache/
 /dist/

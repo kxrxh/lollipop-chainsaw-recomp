@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+namespace lollipop {
+
 struct pc_choice {
   const char* value;
   const char* label;
@@ -27,3 +29,5 @@ bool validate_pc_settings(const pc_values& values);
 bool save_pc_settings(const std::filesystem::path& path, const pc_values& values,
                       std::string& error);
 void configure_pc_settings(const std::filesystem::path& path);
+
+} // namespace lollipop

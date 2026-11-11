@@ -30,7 +30,7 @@ std::atomic<bool> settings_paused{false};
 std::atomic<int> frame_rate{60};
 }
 
-void configure_frame_rate() {
+void lollipop::configure_frame_rate() {
   using rex::cvar::Source;
   const auto source = rex::cvar::GetFlagSource("lollipop_fps");
   const auto legacy = rex::cvar::GetFlagSource("lollipop_60fps");
@@ -45,7 +45,7 @@ void configure_frame_rate() {
     rex::cvar::SetFlagByName("video_mode_refresh_rate", std::to_string(std::max(60, fps)));
 }
 
-void set_settings_pause(bool paused) {
+void lollipop::set_settings_pause(bool paused) {
   settings_paused.store(paused, std::memory_order_relaxed);
 }
 
