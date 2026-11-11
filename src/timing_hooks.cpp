@@ -1,6 +1,8 @@
 #include "timing_hooks.h"
 
 #include <chrono>
+#include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -12,21 +14,55 @@
 
 REXCVAR_DEFINE_BOOL(
     lollipop_60fps, true, "Lollipop",
-    "Use one vblank per frame and set the engine limit to 60 FPS");
+    "Legacy 30/60 FPS switch; use lollipop_fps instead")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
+REXCVAR_DEFINE_INT32(lollipop_fps, 60, "Lollipop", "Frame limit: 30, 60, 90 or 120 FPS")
+    .allowed({"30", "60", "90", "120"})
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 REXCVAR_DEFINE_STRING(lollipop_tick_trace_csv, "", "Lollipop",
                       "Opt-in candidate engine Tick timing log")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+namespace {
+std::atomic<bool> settings_paused{false};
+std::atomic<int> frame_rate{60};
+}
+
+void configure_frame_rate() {
+  using rex::cvar::Source;
+  const auto source = rex::cvar::GetFlagSource("lollipop_fps");
+  const auto legacy = rex::cvar::GetFlagSource("lollipop_60fps");
+  if (source == Source::kDefault ||
+      (legacy == Source::kCommandLine && source != Source::kCommandLine) ||
+      (legacy == Source::kEnvironment && source != Source::kCommandLine && source != Source::kEnvironment))
+    rex::cvar::SetFlagByName("lollipop_fps", REXCVAR_GET(lollipop_60fps) ? "60" : "30");
+  const auto fps = REXCVAR_GET(lollipop_fps);
+  frame_rate.store(fps, std::memory_order_relaxed);
+  const auto refresh_source = rex::cvar::GetFlagSource("video_mode_refresh_rate");
+  if (refresh_source == Source::kDefault || refresh_source == Source::kRuntime)
+    rex::cvar::SetFlagByName("video_mode_refresh_rate", std::to_string(std::max(60, fps)));
+}
+
+void set_settings_pause(bool paused) {
+  settings_paused.store(paused, std::memory_order_relaxed);
+}
+
+void lollipop_settings_pause(PPCRegister &paused) {
+  if (settings_paused.load(std::memory_order_relaxed)) paused.u64 = 1;
+}
+
 void lollipop_present_interval(PPCRegister &interval) {
-  if (REXCVAR_GET(lollipop_60fps)) {
+  if (frame_rate.load(std::memory_order_relaxed) > 30) {
     interval.u64 = 1;
   }
 }
 
 void lollipop_tick_limit(PPCRegister &limit) {
-  if (REXCVAR_GET(lollipop_60fps)) {
-    limit.f64 = 60.0;
+  const auto fps = frame_rate.load(std::memory_order_relaxed);
+  if (fps > 30) {
+    limit.f64 = double(fps);
   }
 }
 

@@ -15,6 +15,11 @@
 !/assets/lollipop.png
 !/assets/lollipop.ico
 !/assets/lollipop.rc
+!/assets/settings_resources.h
+!/assets/settings/
+/assets/settings/*
+!/assets/settings/panel.png
+!/assets/settings/controls.png
 /generated/
 /out/
 /logs/

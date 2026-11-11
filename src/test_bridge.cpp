@@ -1,4 +1,5 @@
 #include "test_bridge.h"
+#include "game_settings.h"
 
 #include <array>
 #include <fstream>
@@ -21,16 +22,8 @@ using rex::X_RESULT;
 using rex::X_STATUS;
 constexpr auto device_id =
     static_cast<rex::input::DeviceId>(0x4C4F4C4C49544553);
-
-class test_assignment final : public rex::input::DeviceAssignment {
- public:
-  void OnDevicesChanged(const std::vector<rex::input::DeviceInfo>&) override {}
-  void DevicesForUser(uint32_t user,
-                      std::vector<rex::input::DeviceId>& out) const override {
-    out.clear();
-    if (user == 0) out.push_back(device_id);
-  }
-};
+constexpr auto gamepad_id =
+    static_cast<rex::input::DeviceId>(0x4C4F4C4C49544554);
 
 class test_driver final : public rex::input::InputDriver {
  public:
@@ -40,22 +33,27 @@ class test_driver final : public rex::input::InputDriver {
   void EnumerateDevices(std::vector<rex::input::DeviceInfo>& out) override {
     rex::input::DeviceInfo device;
     device.id = device_id;
-    device.name = "Lollipop test controller";
+    device.name = "Lollipop test keyboard/mouse";
     device.synthetic = true;
+    out.push_back(device);
+    device.id = gamepad_id;
+    device.name = "Lollipop test gamepad";
+    device.synthetic = false;
     out.push_back(std::move(device));
   }
-  rex::X_RESULT GetDeviceState(rex::input::DeviceId,
+  rex::X_RESULT GetDeviceState(rex::input::DeviceId id,
                                rex::input::X_INPUT_STATE* state) override {
     if (!state) return X_ERROR_BAD_ARGUMENTS;
     std::lock_guard lock(controls_->mutex);
-    if (controls_->release_at != std::chrono::steady_clock::time_point{} &&
-        std::chrono::steady_clock::now() >= controls_->release_at) {
-      controls_->state.gamepad = {};
-      controls_->state.packet_number =
-          uint32_t(controls_->state.packet_number) + 1;
-      controls_->release_at = {};
+    auto& value = id == gamepad_id ? controls_->gamepad_state : controls_->state;
+    auto& release = id == gamepad_id ? controls_->gamepad_release_at : controls_->release_at;
+    if (release != std::chrono::steady_clock::time_point{} &&
+        std::chrono::steady_clock::now() >= release) {
+      value.gamepad = {};
+      value.packet_number = uint32_t(value.packet_number) + 1;
+      release = {};
     }
-    *state = controls_->state;
+    *state = value;
     return X_ERROR_SUCCESS;
   }
   rex::X_RESULT GetDeviceCapabilities(
@@ -123,7 +121,7 @@ std::unique_ptr<rex::input::InputDriver> make_test_driver(
 }
 
 std::unique_ptr<rex::input::DeviceAssignment> make_test_assignment() {
-  return std::make_unique<test_assignment>();
+  return std::make_unique<rex::input::SharedAssignment>();
 }
 
 std::string execute_test_command(test_controls& controls,
@@ -132,6 +130,36 @@ std::string execute_test_command(test_controls& controls,
   std::istringstream words(command);
   std::string operation;
   words >> operation;
+  if (operation == "game_settings_state") {
+    if (!(words >> std::ws).eof()) return "error game_settings_state takes no arguments";
+    return "ok " + game_settings_state();
+  }
+  if (operation == "ui_key") {
+    std::string key;
+    int down = -1;
+    words >> key >> down;
+    const std::pair<const char*, ImGuiKey> keys[] = {
+        {"enter", ImGuiKey_Enter}, {"escape", ImGuiKey_Escape},
+        {"backspace", ImGuiKey_Backspace}, {"tab", ImGuiKey_Tab},
+        {"up", ImGuiKey_UpArrow}, {"down", ImGuiKey_DownArrow},
+        {"left", ImGuiKey_LeftArrow}, {"right", ImGuiKey_RightArrow}};
+    for (const auto& [name, code] : keys) {
+      if (key != name) continue;
+      if (!words || !(words >> std::ws).eof() || down < 0 || down > 1) break;
+      std::lock_guard lock(controls.mutex);
+      controls.key_event = std::array{int(code), down};
+      return "ok key";
+    }
+    return "error ui_key expects a navigation key and down (0 or 1)";
+  }
+  if (operation == "input_device") {
+    std::string device;
+    if (!(words >> device) || !(words >> std::ws).eof() ||
+        (device != "keyboard" && device != "gamepad"))
+      return "error input_device expects keyboard or gamepad";
+    controls.keyboard_input.store(device == "keyboard");
+    return "ok " + device;
+  }
   if (operation == "ui_mouse") {
     int x, y, down;
     if (!(words >> x >> y >> down) || !(words >> std::ws).eof() || x < 0 ||
@@ -152,13 +180,15 @@ std::string execute_test_command(test_controls& controls,
       return "error input expects buttons lx ly rx ry duration_ms (0..10000)";
     }
     std::lock_guard lock(controls.mutex);
-    controls.state.packet_number = uint32_t(controls.state.packet_number) + 1;
-    controls.state.gamepad.buttons = uint16_t(buttons);
-    controls.state.gamepad.thumb_lx = int16_t(lx);
-    controls.state.gamepad.thumb_ly = int16_t(ly);
-    controls.state.gamepad.thumb_rx = int16_t(rx);
-    controls.state.gamepad.thumb_ry = int16_t(ry);
-    controls.release_at =
+    auto& state = controls.keyboard_input.load() ? controls.state : controls.gamepad_state;
+    auto& release = controls.keyboard_input.load() ? controls.release_at : controls.gamepad_release_at;
+    state.packet_number = uint32_t(state.packet_number) + 1;
+    state.gamepad.buttons = uint16_t(buttons);
+    state.gamepad.thumb_lx = int16_t(lx);
+    state.gamepad.thumb_ly = int16_t(ly);
+    state.gamepad.thumb_rx = int16_t(rx);
+    state.gamepad.thumb_ry = int16_t(ry);
+    release =
         std::chrono::steady_clock::now() + std::chrono::milliseconds(duration);
     return "ok input";
   }
@@ -217,7 +247,8 @@ std::jthread start_test_bridge(rex::input::InputSystem& input,
             result = "ok status=" + std::to_string(status) +
                      " guest_buttons=" + std::to_string(uint16_t(guest.gamepad.buttons)) +
                      " ui_status=" + std::to_string(ui_status) +
-                     " ui_buttons=" + std::to_string(uint16_t(ui.gamepad.buttons));
+                     " ui_buttons=" + std::to_string(uint16_t(ui.gamepad.buttons)) +
+                     " hints=" + (input.IsKeyboardActive() ? "keyboard" : "gamepad");
           } else if (command == "gpu_capture_start" || command == "gpu_capture_stop") {
             const auto capture = rex::ui::RenderDocAPI::CreateIfConnected();
             if (!capture) {
@@ -255,6 +286,11 @@ std::jthread start_test_bridge(rex::input::InputSystem& input,
               io.AddMousePosEvent(float(event[0]), float(event[1]));
               io.AddMouseButtonEvent(0, event[2] != 0);
               controls->mouse_event.reset();
+            } else if (result == "ok key") {
+              std::lock_guard lock(controls->mutex);
+              const auto event = *controls->key_event;
+              drawer.GetIO().AddKeyEvent(static_cast<ImGuiKey>(event[0]), event[1] != 0);
+              controls->key_event.reset();
             }
           }
           std::ofstream response(directory / "response.txt", std::ios::trunc);

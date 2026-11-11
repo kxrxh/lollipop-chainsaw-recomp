@@ -22,7 +22,10 @@ the game's executable and assets are supplied by you.
 
 - Ahead-of-time PowerPC recompilation through [ReXGlue](https://github.com/rexglue/rexglue-sdk).
 - A 1440p / 60 FPS launch profile, with 16× anisotropic filtering.
+- Optional 90 and 120 FPS limits in Graphics settings (restart required).
+- Unified comic-style Options with display, graphics, audio, camera and controller settings; F4 also opens it.
 - Input synchronization, UI wait and graphics fixes in a reproducible SDK patch.
+- RePOP-style keyboard/mouse controls and comic-style keycaps in menus and QTEs.
 - Local frame analysis and optional background gameplay controls for development.
 
 **Windows x64 is the currently tested platform.** macOS and Linux support are

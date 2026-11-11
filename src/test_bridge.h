@@ -25,10 +25,14 @@ class InputSystem;
 
 struct test_controls {
   std::atomic<bool> active{true};
+  std::atomic<bool> keyboard_input{true};
   std::mutex mutex;
   rex::input::X_INPUT_STATE state{};
+  rex::input::X_INPUT_STATE gamepad_state{};
   std::optional<std::array<int, 3>> mouse_event;
+  std::optional<std::array<int, 2>> key_event;
   std::chrono::steady_clock::time_point release_at{};
+  std::chrono::steady_clock::time_point gamepad_release_at{};
 };
 
 std::string execute_test_command(test_controls& controls,

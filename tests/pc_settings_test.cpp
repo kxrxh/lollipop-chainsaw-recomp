@@ -1,0 +1,87 @@
+#include "pc_settings.h"
+
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <rex/cvar.h>
+
+static void check(bool value, const char* message) {
+  if (!value) throw std::runtime_error(message);
+}
+
+int main(int argc, char** argv) try {
+  check(argc == 2 || argc == 3, "Expected test config path");
+  // GPU cvars live in a plugin; register only the missing ones for this storage test.
+  for (const auto& setting : pc_settings()) {
+    if (rex::cvar::GetFlagInfo(setting.name)) continue;
+    auto value = std::make_shared<std::string>(setting.recommended);
+    rex::cvar::RegisterFlag({.name = setting.name, .type = rex::cvar::FlagType::String,
+        .setter = [value](std::string_view text) { *value = text; return true; },
+        .getter = [value] { return *value; }, .default_value = *value});
+  }
+  pc_values values;
+  for (const auto& setting : pc_settings()) values[setting.name] = setting.recommended;
+  values["window_height"] = "1440";
+  check(validate_pc_settings(values), "Recommended profile validates");
+  const std::filesystem::path path = argv[1];
+  if (argc == 3) {
+    std::filesystem::create_directories(path.parent_path());
+    const bool duplicate = std::string_view(argv[2]) == "--duplicate";
+    const bool legacy60 = std::string_view(argv[2]) == "--legacy-60";
+    const bool precedence = std::string_view(argv[2]) == "--fps-precedence";
+    if (precedence) rex::cvar::SetFlagFromCommandLine("lollipop_fps", "120");
+    {
+      std::ofstream file(path);
+      file << "vsync = \"false\"\n";
+      if (duplicate) file << "lollipop_music_volume = \"6\"\nlollipop_music_volume = \"4\"\n";
+      else file << "lollipop_60fps = \"" << (legacy60 ? "true" : "false") << "\"\n";
+    }
+    configure_pc_settings(path);
+    check(rex::cvar::GetFlagByName("vsync") == (duplicate ? "true" : "false") &&
+          rex::cvar::GetFlagByName("lollipop_music_volume") == "10" &&
+          rex::cvar::GetFlagSource("lollipop_music_volume") == rex::cvar::Source::kDefault,
+          "Missing game settings stay eligible for native import; duplicate profiles cannot partially apply");
+    check(rex::cvar::GetFlagByName("lollipop_fps") == (precedence ? "120" : legacy60 || duplicate ? "60" : "30"),
+          "Legacy FPS profiles migrate; explicit FPS launch flag wins");
+    return 0;
+  }
+  std::string error;
+  check(save_pc_settings(path, values, error), "Can write settings");
+  for (const char* fps : {"30", "60", "90", "120"}) {
+    auto selected = values;
+    selected["lollipop_fps"] = fps;
+    check(save_pc_settings(path, selected, error), "All frame limits can be saved");
+  }
+  check(save_pc_settings(path, values, error), "Restore recommended profile");
+  const std::pair<const char*, const char*> invalid_values[] = {
+      {"mnk_sensitivity", "nan"}, {"mnk_sensitivity", "51"},
+      {"lollipop_music_volume", "11"}, {"lollipop_sfx_volume", "-1"},
+      {"lollipop_music_volume", "5.5"}, {"lollipop_subtitles", "maybe"},
+      {"lollipop_fps", "45"}, {"lollipop_fps", "121"}, {"lollipop_fps", "90.5"},
+      {"swap_post_effect", "dlss"}, {"window_height", "-1"}, {"vsync", "true\nsecret = 1"}};
+  for (const auto& [name, bad] : invalid_values) {
+    auto invalid = values;
+    invalid[name] = bad;
+    check(!save_pc_settings(path, invalid, error), "Reject invalid input before saving");
+  }
+  auto unknown = values;
+  unknown["game_data_root"] = "unexpected";
+  check(!validate_pc_settings(unknown), "Only curated settings can be saved");
+  rex::cvar::SetFlagFromCommandLine("window_width", "1920");
+  configure_pc_settings(path);
+  check(rex::cvar::GetFlagByName("window_width") == "1920", "Explicit launch flag wins");
+  check(rex::cvar::GetFlagByName("swap_post_effect") == "fxaa", "Graphics profile round trips");
+  check(rex::cvar::Query<int32_t>("window_height") == 1440, "Invalid writes preserved the last good file");
+  {
+    std::ofstream file(path);
+    file << "audio_mute = \"true\"\nwindow_height = \"-1\"\n";
+  }
+  const auto mute = rex::cvar::GetFlagByName("audio_mute");
+  configure_pc_settings(path);
+  check(rex::cvar::GetFlagByName("audio_mute") == mute, "Malformed profile cannot partially apply");
+  check(rex::cvar::Query<int32_t>("window_height") == 1440, "Malformed profile leaves valid settings intact");
+} catch (const std::exception& error) {
+  std::cerr << error.what() << '\n';
+  return 1;
+}

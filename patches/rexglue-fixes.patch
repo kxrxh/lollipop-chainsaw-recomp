@@ -17,6 +17,21 @@ index c9dfc17..d14b351 100644
  endif()
  
  # Graphics backend selection
+diff --git a/include/rex/filesystem/devices/host_path_device.h b/include/rex/filesystem/devices/host_path_device.h
+index 48100be..7ca0903 100644
+--- a/include/rex/filesystem/devices/host_path_device.h
++++ b/include/rex/filesystem/devices/host_path_device.h
+@@ -36,6 +36,10 @@ class HostPathDevice : public Device {
+   // and read-only devices leave it off (see a5c3a963 ghost-file fix).
+   bool allow_share_delete() const { return allow_share_delete_; }
+   const std::filesystem::path& host_path() const { return host_path_; }
++  // Redirect individual read-only assets while preserving directory and relative opens.
++  virtual std::filesystem::path ResolveHostPath(const std::filesystem::path& path) const {
++    return path;
++  }
+ 
+   const std::string& name() const override { return name_; }
+   uint32_t attributes() const override { return 0; }
 diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
 index 96d362b..9217aaa 100644
 --- a/include/rex/graphics/d3d12/command_processor.h
@@ -71,8 +86,52 @@ index ac6b056..52c2c10 100644
  
    RegisterFile* register_file() { return &register_file_; }
    CommandProcessor* command_processor() const { return command_processor_.get(); }
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 4d85a2b..c9c41fa 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -29,6 +29,7 @@ class SharedMemory {
+   static constexpr uint32_t kBufferSize = 1 << kBufferSizeLog2;
+ 
+   virtual ~SharedMemory();
++  memory::Memory& guest_memory() const { return memory_; }
+   // Call in the implementation-specific ClearCache.
+   virtual void ClearCache();
+   void SetSystemPageBlocksValidWithGpuDataWritten();
+diff --git a/include/rex/input/input_driver.h b/include/rex/input/input_driver.h
+index 52116f1..e26caaa 100644
+--- a/include/rex/input/input_driver.h
++++ b/include/rex/input/input_driver.h
+@@ -27,6 +27,9 @@ namespace rex::input {
+ 
+ class InputSystem;
+ 
++// Record real input events without waiting for guest state polling.
++void NotifyInputActivity(bool keyboard);
++
+ class InputDriver {
+  public:
+   virtual ~InputDriver() = default;
+@@ -38,6 +41,9 @@ class InputDriver {
+   virtual void EnumerateDevices(std::vector<DeviceInfo>& out) = 0;
+ 
+   virtual X_RESULT GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) = 0;
++  virtual X_RESULT GetDeviceStateForUI(DeviceId id, X_INPUT_STATE* out_state) {
++    return GetDeviceState(id, out_state);
++  }
+   virtual X_RESULT GetDeviceCapabilities(DeviceId id, uint32_t flags,
+                                          X_INPUT_CAPABILITIES* out_caps) = 0;
+   virtual X_RESULT SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) = 0;
+@@ -45,6 +51,7 @@ class InputDriver {
+                                       X_INPUT_KEYSTROKE* out_keystroke) = 0;
+ 
+   virtual void OnWindowAvailable(rex::ui::Window* /*window*/) {}
++  virtual bool ReportsInputActivity() const { return false; }
+ 
+   void set_is_active_callback(std::function<bool()> is_active_callback) {
+     is_active_callback_ = is_active_callback;
 diff --git a/include/rex/input/input_system.h b/include/rex/input/input_system.h
-index 0c27eed..976ff84 100644
+index 0c27eed..ef39725 100644
 --- a/include/rex/input/input_system.h
 +++ b/include/rex/input/input_system.h
 @@ -14,6 +14,7 @@
@@ -83,7 +142,7 @@ index 0c27eed..976ff84 100644
  #include <utility>
  #include <vector>
  
-@@ -62,9 +63,15 @@ class InputSystem : public system::IInputSystem {
+@@ -62,11 +63,19 @@ class InputSystem : public system::IInputSystem {
    bool GetVibrationEnabled() const;
    void ToggleVibration();
  
@@ -98,10 +157,14 @@ index 0c27eed..976ff84 100644
 +    std::lock_guard lock(devices_mutex_);
 +    return last_used_user_;
 +  }
++  bool IsKeyboardActive() const;
  
   private:
++  X_RESULT ReadState(uint32_t user_index, X_INPUT_STATE* out_state, bool for_ui);
    using JoystickValue = std::pair<uint16_t, uint16_t>;
-@@ -101,6 +108,8 @@ class InputSystem : public system::IInputSystem {
+   /// Re-enumerates every driver and notifies the assignment when the set
+   /// changed.
+@@ -101,6 +110,8 @@ class InputSystem : public system::IInputSystem {
    std::atomic<int> ui_input_blockers_{0};
    // Masked out per user until the guest sees them released.
    std::array<uint16_t, kMaxGuestUsers> consumed_buttons_ = {};
@@ -110,6 +173,112 @@ index 0c27eed..976ff84 100644
  };
  
  /// Create a default InputSystem with SDL + MnK + NOP drivers.
+diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
+index 2d36faa..6ce61fc 100644
+--- a/include/rex/input/mnk/mnk_input_driver.h
++++ b/include/rex/input/mnk/mnk_input_driver.h
+@@ -15,6 +15,7 @@
+ #include <rex/ui/window_listener.h>
+ 
+ #include <atomic>
++#include <chrono>
+ #include <cstdint>
+ #include <mutex>
+ #include <queue>
+@@ -33,6 +34,7 @@ class MnkInputDriver final : public InputDriver,
+   ~MnkInputDriver() override;
+ 
+   X_STATUS Setup() override;
++  bool ReportsInputActivity() const override { return true; }
+ 
+   void EnumerateDevices(std::vector<DeviceInfo>& out) override;
+   X_RESULT GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) override;
+@@ -91,10 +93,14 @@ class MnkInputDriver final : public InputDriver,
+   // Filled on the UI thread, drained on the guest thread, hence the lock.
+   float mouse_dx_ = 0.0f;
+   float mouse_dy_ = 0.0f;
++  std::chrono::steady_clock::time_point mouse_sample_time_{};
++  int32_t mouse_stick_x_ = 0;
++  int32_t mouse_stick_y_ = 0;
+ 
+   // UI thread only.
+   int32_t prev_mouse_x_ = 0;
+   int32_t prev_mouse_y_ = 0;
++  bool mouse_position_known_ = false;
+   bool mouse_captured_ = false;
+   // Whether the window has the pointer locked and is reporting relative motion.
+   bool relative_mouse_mode_ = false;
+diff --git a/include/rex/input/sdl/sdl_input_driver.h b/include/rex/input/sdl/sdl_input_driver.h
+index be1f9b8..efdbd30 100644
+--- a/include/rex/input/sdl/sdl_input_driver.h
++++ b/include/rex/input/sdl/sdl_input_driver.h
+@@ -17,6 +17,7 @@
+ #include <vector>
+ 
+ #include <rex/input/input_driver.h>
++#include <rex/input/state_merge.h>
+ 
+ #include <SDL3/SDL.h>
+ 
+@@ -33,9 +34,11 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
+   ~SDLInputDriver() override;
+ 
+   X_STATUS Setup() override;
++  bool ReportsInputActivity() const override { return true; }
+ 
+   void EnumerateDevices(std::vector<DeviceInfo>& out) override;
+   X_RESULT GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) override;
++  X_RESULT GetDeviceStateForUI(DeviceId id, X_INPUT_STATE* out_state) override;
+   X_RESULT GetDeviceCapabilities(DeviceId id, uint32_t flags,
+                                  X_INPUT_CAPABILITIES* out_caps) override;
+   X_RESULT SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) override;
+@@ -44,6 +47,7 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
+   void OnWindowAvailable(rex::ui::Window* window) override;
+ 
+  private:
++  X_RESULT ReadState(DeviceId id, X_INPUT_STATE* out_state, bool active);
+   enum class RepeatState {
+     Idle,       // no buttons pressed or repeating has ended
+     Waiting,    // a button is held and the delay is awaited
+@@ -102,6 +106,7 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
+   std::mutex controllers_mutex_;
+   std::mutex event_queue_mutex_;
+   std::vector<SDL_Event> pending_events_;
++  ActiveDeviceTracker activity_axes_;
+   // Never rewound, so a handle held past a disconnect resolves to nothing.
+   uint64_t next_device_id_ = 1;
+ };
+diff --git a/include/rex/input/state_merge.h b/include/rex/input/state_merge.h
+index 7f804b9..96c0d69 100644
+--- a/include/rex/input/state_merge.h
++++ b/include/rex/input/state_merge.h
+@@ -11,6 +11,7 @@
+  */
+ 
+ #include <array>
++#include <unordered_map>
+ 
+ #include <rex/input/device.h>
+ #include <rex/input/input.h>
+@@ -32,7 +33,9 @@ class ActiveDeviceTracker {
+  public:
+   /// Neutral gamepads never take over, so stick drift on an idle pad cannot
+   /// steal the slot.
+-  void Observe(uint32_t user_index, DeviceId id, const X_INPUT_GAMEPAD& gamepad);
++  // Returns true for a new press or deliberate analog motion.
++  bool Observe(uint32_t user_index, DeviceId id, const X_INPUT_GAMEPAD& gamepad,
++               bool synthetic = false);
+ 
+   DeviceId Active(uint32_t user_index) const;
+   void Forget(DeviceId id);
+@@ -40,6 +43,7 @@ class ActiveDeviceTracker {
+  private:
+   // Zero-initialized, which is DeviceId::kInvalid.
+   std::array<DeviceId, kMaxGuestUsers> active_ = {};
++  std::array<std::unordered_map<DeviceId, X_INPUT_GAMEPAD>, kMaxGuestUsers> previous_;
+ };
+ 
+ }  // namespace rex::input
 diff --git a/include/rex/perf/counter.h b/include/rex/perf/counter.h
 index b3947e0..e8f3a82 100644
 --- a/include/rex/perf/counter.h
@@ -125,6 +294,37 @@ index b3947e0..e8f3a82 100644
 +
    kCount  // sentinel -- must be last
  };
+ 
+diff --git a/include/rex/system/gpu_plugin.h b/include/rex/system/gpu_plugin.h
+index 453c210..eee1297 100644
+--- a/include/rex/system/gpu_plugin.h
++++ b/include/rex/system/gpu_plugin.h
+@@ -15,7 +15,9 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <functional>
+ #include <memory>
++#include <span>
+ #include <string_view>
+ 
+ #include <rex/system/interfaces/graphics.h>
+@@ -26,8 +28,16 @@
+ #define REX_GPU_PLUGIN_EXPORT __attribute__((visibility("default")))
+ #endif
+ 
++namespace rex::memory { class Memory; }
++
+ namespace rex::system {
+ 
++using TextureDataCallback = std::function<std::span<const uint8_t>(
++    uint32_t width, uint32_t height, uint32_t format, std::span<const uint8_t> data)>;
++void SetTextureDataCallback(TextureDataCallback callback);
++bool UpdateTextureData(memory::Memory& memory, uint32_t address, uint32_t width,
++                       uint32_t height, uint32_t format, uint32_t size);
++
+ // Bump on any change to GpuCreateInfo or to the IGraphicsSystem interface.
+ inline constexpr uint32_t kGpuPluginAbiVersion = 1;
  
 diff --git a/src/core/perf/counter.cpp b/src/core/perf/counter.cpp
 index 536009e..31029ed 100644
@@ -183,6 +383,21 @@ index 536009e..31029ed 100644
    if (!g_csv_file) {
      REXLOG_WARN("perf: failed to open CSV log: {}", path);
      g_csv_path.clear();
+diff --git a/src/filesystem/devices/host_path_entry.cpp b/src/filesystem/devices/host_path_entry.cpp
+index 6650400..32c9713 100644
+--- a/src/filesystem/devices/host_path_entry.cpp
++++ b/src/filesystem/devices/host_path_entry.cpp
+@@ -32,7 +32,9 @@ HostPathEntry* HostPathEntry::Create(Device* device, Entry* parent,
+                                      const std::filesystem::path& full_path,
+                                      rex::filesystem::FileInfo file_info) {
+   auto path = rex::string::utf8_join_guest_paths(parent->path(), rex::path_to_utf8(file_info.name));
+-  auto entry = new HostPathEntry(device, parent, path, full_path);
++  const auto host_path = static_cast<HostPathDevice*>(device)->ResolveHostPath(full_path);
++  if (host_path != full_path && !rex::filesystem::GetInfo(host_path, &file_info)) return nullptr;
++  auto entry = new HostPathEntry(device, parent, path, host_path);
+ 
+   entry->create_timestamp_ = file_info.create_timestamp;
+   entry->access_timestamp_ = file_info.access_timestamp;
 diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
 index 19874a5..ee40011 100644
 --- a/src/graphics/d3d12/command_processor.cpp
@@ -440,18 +655,19 @@ index 2be0e8e..9b3ca32 100644
    desc.MipLevels = 1;
    desc.Format = d3d12_cache.GetDXGIResourceFormat(key());
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 76f5600..8c7d54b 100644
+index 76f5600..595735c 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -25,6 +25,7 @@
+@@ -25,6 +25,8 @@
  #include <rex/graphics/xenos.h>
  #include <rex/logging.h>
  #include <rex/math.h>
 +#include <rex/perf/counter.h>
++#include <rex/system/gpu_plugin.h>
  
  REXCVAR_DEFINE_INT32(texture_cache_memory_limit_render_to_texture, 24, "GPU",
                       "Texture cache memory limit for render-to-texture (MB)")
-@@ -297,6 +298,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
+@@ -297,6 +299,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
      if (found_texture_it != textures_.end()) {
        assert_true(found_texture_it->second.get() == texture);
        textures_.erase(found_texture_it);
@@ -459,7 +675,37 @@ index 76f5600..8c7d54b 100644
        // `texture` is invalid now.
      }
    }
-@@ -1009,6 +1011,8 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
+@@ -453,6 +456,29 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+   const auto& regs = register_file();
+ 
++  // Check resident UI textures too: changing the input device must refresh a cached binding.
++  uint32_t replacement_mask = used_texture_mask, replacement_index;
++  while (rex::bit_scan_forward(replacement_mask, &replacement_index)) {
++    replacement_mask &= ~(UINT32_C(1) << replacement_index);
++    const auto fetch = regs.GetTextureFetch(replacement_index);
++    if (fetch.type != xenos::FetchConstantType::kTexture ||
++        fetch.format != xenos::TextureFormat::k_DXT4_5 || !fetch.tiled) continue;
++    TextureKey key;
++    BindingInfoFromFetchConstant(fetch, key, nullptr);
++    if (key.is_valid && key.base_page && key.tiled &&
++        key.format == xenos::TextureFormat::k_DXT4_5 &&
++        key.GetWidth() == key.GetHeight() &&
++        (key.GetWidth() == 128 || key.GetWidth() == 256)) {
++      const auto address = key.base_page << 12;
++      const auto size = key.GetGuestLayout().base.level_data_extent_bytes;
++      // Host replacements need a GPU invalidation even when no CPU page watch is armed.
++      if (system::UpdateTextureData(shared_memory().guest_memory(), address,
++          key.GetWidth(), key.GetHeight(), uint32_t(key.format),
++          size))
++        shared_memory().MemoryInvalidationCallback(address, size, true);
++    }
++  }
++
+   if (texture_became_outdated_.exchange(false, std::memory_order_acquire)) {
+     // A texture has become outdated - make sure whether textures are outdated
+     // is rechecked in this draw and in subsequent ones to reload the new data
+@@ -1009,6 +1035,8 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
  
  void TextureCache::UpdateTexturesTotalHostMemoryUsage(uint64_t add, uint64_t subtract) {
    textures_total_host_memory_usage_ = textures_total_host_memory_usage_ - subtract + add;
@@ -469,10 +715,28 @@ index 76f5600..8c7d54b 100644
        "gpu/texture_cache/total_host_memory_usage_mb",
        uint32_t((textures_total_host_memory_usage_ + ((UINT32_C(1) << 20) - 1)) >> 20));
 diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
-index 40740ee..f565e78 100644
+index 40740ee..e71de75 100644
 --- a/src/input/input_system.cpp
 +++ b/src/input/input_system.cpp
-@@ -62,6 +62,7 @@ X_STATUS InputSystem::Setup() {
+@@ -47,12 +47,17 @@ namespace {
+ // a real pad off guest user 0. SlotAssignment routes them by their synthetic
+ // flag and never reads this value.
+ constexpr uint32_t kSyntheticOrdinal = UINT32_MAX;
++std::atomic<int> active_input_source{-1};
+ 
+ // XN_SYS_INPUTDEVICESCHANGED
+ constexpr uint32_t kXNotificationSystemInputDevicesChanged = 0x00000012;
+ 
+ }  // namespace
+ 
++void NotifyInputActivity(bool keyboard) {
++  active_input_source.store(keyboard ? 1 : 0, std::memory_order_relaxed);
++}
++
+ InputSystem::InputSystem(rex::ui::Window* window) : window_(window) {}
+ 
+ InputSystem::~InputSystem() = default;
+@@ -62,6 +67,7 @@ X_STATUS InputSystem::Setup() {
  }
  
  void InputSystem::Shutdown() {
@@ -480,7 +744,7 @@ index 40740ee..f565e78 100644
    // device_owners_ holds raw driver pointers.
    devices_.clear();
    device_owners_.clear();
-@@ -69,10 +70,12 @@ void InputSystem::Shutdown() {
+@@ -69,10 +75,12 @@ void InputSystem::Shutdown() {
  }
  
  void InputSystem::AddDriver(std::unique_ptr<InputDriver> driver) {
@@ -493,7 +757,7 @@ index 40740ee..f565e78 100644
    window_ = window;
    for (auto& driver : drivers_) {
      driver->OnWindowAvailable(window);
-@@ -80,12 +83,14 @@ void InputSystem::AttachWindow(rex::ui::Window* window) {
+@@ -80,12 +88,14 @@ void InputSystem::AttachWindow(rex::ui::Window* window) {
  }
  
  void InputSystem::SetActiveCallback(std::function<bool()> callback) {
@@ -508,7 +772,7 @@ index 40740ee..f565e78 100644
    assignment_ = std::move(assignment);
    if (assignment_) {
      assignment_->OnDevicesChanged(devices_);
-@@ -218,6 +223,7 @@ DeviceId InputSystem::ChooseDeviceForUser(uint32_t user_index) const {
+@@ -218,6 +228,7 @@ DeviceId InputSystem::ChooseDeviceForUser(uint32_t user_index) const {
  
  X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
                                        X_INPUT_CAPABILITIES* out_caps) {
@@ -516,7 +780,7 @@ index 40740ee..f565e78 100644
    SCOPE_profile_cpu_f("hid");
    if (!out_caps || !assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -270,6 +276,7 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
+@@ -270,6 +281,7 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
  }
  
  X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
@@ -524,15 +788,57 @@ index 40740ee..f565e78 100644
    SCOPE_profile_cpu_f("hid");
  
    // A dialog owns the controller.
-@@ -294,6 +301,7 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+@@ -280,7 +292,7 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+     return X_ERROR_SUCCESS;
+   }
+ 
+-  X_RESULT result = GetStateForUI(user_index, out_state);
++  X_RESULT result = ReadState(user_index, out_state, false);
+ 
+   if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers &&
+       consumed_buttons_[user_index] != 0) {
+@@ -294,6 +306,11 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
  }
  
  X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_state) {
++  return ReadState(user_index, out_state, true);
++}
++
++X_RESULT InputSystem::ReadState(uint32_t user_index, X_INPUT_STATE* out_state, bool for_ui) {
 +  std::lock_guard lock(devices_mutex_);
    SCOPE_profile_cpu_f("hid");
    if (!assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -343,6 +351,7 @@ void InputSystem::AddUIInputBlocker() {
+@@ -311,10 +328,16 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
+       continue;
+     }
+     X_INPUT_STATE state = {};
+-    if (driver->GetDeviceState(id, &state) != X_ERROR_SUCCESS) {
++    const auto result = for_ui ? driver->GetDeviceStateForUI(id, &state)
++                               : driver->GetDeviceState(id, &state);
++    if (result != X_ERROR_SUCCESS) {
+       continue;
+     }
+-    active_devices_.Observe(user_index, id, state.gamepad);
++    const auto* info = DeviceInfoFor(id);
++    const bool synthetic = info && info->synthetic;
++    if (active_devices_.Observe(user_index, id, state.gamepad, synthetic) &&
++        !driver->ReportsInputActivity())
++      NotifyInputActivity(synthetic);
+     if (!any) {
+       merged = state;
+       any = true;
+@@ -338,11 +361,17 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
+   return X_ERROR_SUCCESS;
+ }
+ 
++bool InputSystem::IsKeyboardActive() const {
++  const int source = active_input_source.load(std::memory_order_relaxed);
++  return source < 0 ? rex::cvar::Query<bool>("mnk_mode") : source != 0;
++}
++
+ void InputSystem::AddUIInputBlocker() {
+   ui_input_blockers_.fetch_add(1);
  }
  
  void InputSystem::RemoveUIInputBlocker() {
@@ -540,7 +846,7 @@ index 40740ee..f565e78 100644
    // Whatever is held right now stays masked until released, so the press that
    // dismissed the dialog is not also read as a press in the game.
    X_INPUT_STATE state = {};
-@@ -360,6 +369,7 @@ bool InputSystem::GetVibrationEnabled() const {
+@@ -360,6 +389,7 @@ bool InputSystem::GetVibrationEnabled() const {
  }
  
  void InputSystem::ToggleVibration() {
@@ -548,7 +854,7 @@ index 40740ee..f565e78 100644
    REXCVAR_SET(vibration, !REXCVAR_GET(vibration));
    // The guest's next SetState may never come while a motor is running.
    X_INPUT_VIBRATION silence = {};
-@@ -416,6 +426,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
+@@ -416,6 +446,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
  }
  
  X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
@@ -556,7 +862,7 @@ index 40740ee..f565e78 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_ || !vibration) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -461,6 +472,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
+@@ -461,6 +492,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
  
  X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
                                     X_INPUT_KEYSTROKE* out_keystroke) {
@@ -564,6 +870,356 @@ index 40740ee..f565e78 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
+diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
+index 3d2c378..32e60a9 100644
+--- a/src/input/mnk/mnk_input_driver.cpp
++++ b/src/input/mnk/mnk_input_driver.cpp
+@@ -27,8 +27,13 @@ REXCVAR_DEFINE_BOOL(mnk_mode, false, "Input", "Enable keyboard/mouse controller
+ REXCVAR_DEFINE_BOOL(mnk_mouse, false, "Input",
+                     "Use the mouse for the right stick. Off means the right stick comes "
+                     "from the keybind_rstick_* keys only");
++REXCVAR_DEFINE_BOOL(mnk_gameplay_modifiers, false, "Input",
++                    "Keep movement active with modifiers and prefer explicit key chords");
+ REXCVAR_DEFINE_DOUBLE(mnk_sensitivity, 1.0, "Input", "Mouse sensitivity for right stick")
+-    .range(0.01, 10.0);
++    .range(0.01, 50.0);
++REXCVAR_DEFINE_DOUBLE(mnk_mouse_deadzone, 0.0, "Input",
++                      "Mouse-only compensation for the game's stick deadzone")
++    .range(0.0, 0.95);
+ 
+ REXCVAR_DEFINE_STRING(keybind_a, "Semicolon,Space", "Input/Keybinds/Controller", "A button");
+ REXCVAR_DEFINE_STRING(keybind_b, "Quote,Backspace", "Input/Keybinds/Controller", "B button");
+@@ -77,9 +82,8 @@ constexpr size_t kMaxQueuedKeystrokes = 256;
+ // Bind values are a comma-separated list of alternatives, each optionally
+ // carrying modifier prefixes: "Q,I" or "Shift+W". Modifier matching is exact,
+ // so "Up" stays silent while Shift is held and "Shift+Up" stays silent without
+-// it. That is what lets the D-pad share the arrow keys. A consequence is
+-// that binding a bare modifier name ("Shift") can never fire, since holding it
+-// makes the live mask non-zero while the bind wants zero.
++// it. Gameplay modifier mode instead keeps unrelated bare keys active and
++// reserves keys with matching explicit chords for the chord's action.
+ constexpr uint8_t kModShift = 1u << 0;
+ constexpr uint8_t kModCtrl = 1u << 1;
+ constexpr uint8_t kModAlt = 1u << 2;
+@@ -131,18 +135,7 @@ std::string_view TrimSpaces(std::string_view s) {
+   return s;
+ }
+ 
+-bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
+-  uint8_t want = TakeModifiers(token);
+-  if (want != live_mods) {
+-    return false;
+-  }
+-  rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
+-  if (vk == rex::ui::VirtualKey::kNone) {
+-    return false;
+-  }
+-  uint16_t idx = static_cast<uint16_t>(vk);
+-  return idx < 256 && key_down[idx];
+-}
++bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods);
+ 
+ std::atomic<bool> mouse_look_active{true};
+ 
+@@ -297,6 +290,30 @@ std::array<PadBind, 24> PadBinds() {
+   }};
+ }
+ 
++bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
++  const uint8_t want = TakeModifiers(token);
++  const auto vk = rex::ui::ParseVirtualKey(token);
++  const auto idx = static_cast<uint16_t>(vk);
++  if (vk == VirtualKey::kNone || idx >= 256 || !key_down[idx]) return false;
++  if (!REXCVAR_GET(mnk_gameplay_modifiers)) return want == live_mods;
++  if (want) return (live_mods & want) == want;
++  // Alt shortcuts belong to the window, not to gameplay.
++  if (live_mods & kModAlt) return false;
++  if (!live_mods) return true;
++  for (const auto& bind : PadBinds()) {
++    std::string_view rest(bind.keys);
++    while (!rest.empty()) {
++      const auto comma = rest.find(',');
++      auto chord = TrimSpaces(rest.substr(0, comma));
++      rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
++      const auto mods = TakeModifiers(chord);
++      if (mods && (live_mods & mods) == mods && rex::ui::ParseVirtualKey(chord) == vk)
++        return false;
++    }
++  }
++  return true;
++}
++
+ }  // namespace
+ 
+ void SetMouseLookActive(bool active) {
+@@ -441,6 +458,10 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+                           has_focus_ && is_active());
+ 
+   if (!is_active() || !has_focus_) {
++    std::lock_guard lock(state_mutex_);
++    mouse_dx_ = mouse_dy_ = 0.0f;
++    mouse_stick_x_ = mouse_stick_y_ = 0;
++    mouse_sample_time_ = {};
+     if (out_state) {
+       std::memset(out_state, 0, sizeof(*out_state));
+       out_state->packet_number = packet_number_;
+@@ -508,16 +529,32 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+     ry -= INT16_MAX;
+ 
+   if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {
+-    double sensitivity = REXCVAR_GET(mnk_sensitivity);
+-    constexpr double kBaseScale = 200.0;
+-    rx += static_cast<int32_t>(double(mouse_dx_) * sensitivity * kBaseScale);
+-    ry += static_cast<int32_t>(double(-mouse_dy_) * sensitivity * kBaseScale);
+-  }
+-  // Drained unconditionally: deltas keep accumulating in OnMouseMove while the
+-  // mouse is off, and toggling it on would otherwise dump the whole backlog
+-  // into one frame as a camera snap.
+-  mouse_dx_ = 0.0f;
+-  mouse_dy_ = 0.0f;
++    const auto now = std::chrono::steady_clock::now();
++    const bool first = mouse_sample_time_ == std::chrono::steady_clock::time_point{};
++    const double elapsed = first ? 1.0 / 60.0
++        : std::chrono::duration<double>(now - mouse_sample_time_).count();
++    if (elapsed >= 1.0 / 60.0) {
++      const double scale = REXCVAR_GET(mnk_sensitivity) * 200.0 / (elapsed * 60.0);
++      const double deadzone = REXCVAR_GET(mnk_mouse_deadzone);
++      const auto axis = [scale, deadzone](float delta) -> int32_t {
++        if (delta == 0.0f) return 0;
++        const double magnitude = std::min(std::abs(double(delta) * scale), 32767.0);
++        return static_cast<int32_t>(std::copysign(
++            deadzone * 32767.0 + (1.0 - deadzone) * magnitude, delta));
++      };
++      mouse_stick_x_ = axis(mouse_dx_);
++      mouse_stick_y_ = axis(-mouse_dy_);
++      mouse_dx_ = mouse_dy_ = 0.0f;
++      mouse_sample_time_ = now;
++    }
++    // UI and guest polling must see the same sample instead of consuming each other's motion.
++    rx += mouse_stick_x_;
++    ry += mouse_stick_y_;
++  } else {
++    mouse_dx_ = mouse_dy_ = 0.0f;
++    mouse_stick_x_ = mouse_stick_y_ = 0;
++    mouse_sample_time_ = {};
++  }
+ 
+   auto clamp16 = [](int32_t v) -> int16_t {
+     return static_cast<int16_t>(std::clamp(v, (int32_t)INT16_MIN, (int32_t)INT16_MAX));
+@@ -721,6 +758,7 @@ void MnkInputDriver::OnKeyDown(rex::ui::KeyEvent& e) {
+     return;
+   }
+   uint16_t vk = static_cast<uint16_t>(e.virtual_key());
++  if (vk < 256 && !key_down_[vk]) NotifyInputActivity(true);
+   SetKeyState(vk, true);
+   RefreshBoundKeystrokesLocked();
+ }
+@@ -760,6 +798,7 @@ void MnkInputDriver::OnMouseDown(rex::ui::MouseEvent& e) {
+   if (!IsEnabled() || !has_focus_)
+     return;
+   std::lock_guard lock(state_mutex_);
++  NotifyInputActivity(true);
+   switch (e.button()) {
+     case rex::ui::MouseEvent::Button::kLeft:
+       SetKeyState(static_cast<uint16_t>(VirtualKey::kLButton), true);
+@@ -804,16 +843,20 @@ void MnkInputDriver::OnMouseMove(rex::ui::MouseEvent& e) {
+   {
+     std::lock_guard lock(state_mutex_);
+     if (relative_mouse_mode_) {
++      if (e.dx() != 0 || e.dy() != 0) NotifyInputActivity(true);
+       // The pointer is locked, so the absolute position no longer moves.
+       mouse_dx_ += e.dx();
+       mouse_dy_ += e.dy();
+     } else {
++      if (mouse_position_known_ && (x != prev_mouse_x_ || y != prev_mouse_y_))
++        NotifyInputActivity(true);
+       mouse_dx_ += float(x - prev_mouse_x_);
+       mouse_dy_ += float(y - prev_mouse_y_);
+     }
+   }
+   prev_mouse_x_ = x;
+   prev_mouse_y_ = y;
++  mouse_position_known_ = true;
+   // Without a pointer lock the cursor still has to be kept off the edges.
+   if (mouse_captured_ && !relative_mouse_mode_) {
+     RecenterCursorFromUIThread(x, y);
+@@ -832,6 +875,8 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
+     RefreshBoundKeystrokesLocked();
+     mouse_dx_ = 0.0f;
+     mouse_dy_ = 0.0f;
++    mouse_stick_x_ = mouse_stick_y_ = 0;
++    mouse_sample_time_ = {};
+   }
+   if (attached_window_) {
+     ReleaseMouseCaptureFromUIThread(attached_window_);
+@@ -840,6 +885,7 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
+ 
+ void MnkInputDriver::OnGotFocus(rex::ui::UISetupEvent&) {
+   has_focus_ = true;
++  mouse_position_known_ = false;
+ }
+ 
+ }  // namespace rex::input::mnk
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+index 57f65c4..7692074 100644
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -20,6 +20,7 @@
+ #include <rex/cvar.h>
+ #include <rex/input/flags.h>
+ #include <rex/input/sdl/sdl_input_driver.h>
++
+ #include <rex/logging.h>
+ #include <rex/ui/virtual_key.h>
+ 
+@@ -316,9 +317,16 @@ X_RESULT SDLInputDriver::GetDeviceCapabilities(DeviceId id, uint32_t flags,
+ }
+ 
+ X_RESULT SDLInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+-  assert(sdl_events_initialized_ && SDL_Gamepad_initialized_);
++  return ReadState(id, out_state, is_active());
++}
+ 
+-  auto is_active = this->is_active();
++X_RESULT SDLInputDriver::GetDeviceStateForUI(DeviceId id, X_INPUT_STATE* out_state) {
++  // ImGui capture blocks gameplay, but the focused dialog still needs the pad.
++  return ReadState(id, out_state, !attached_window_ || attached_window_->HasFocus());
++}
++
++X_RESULT SDLInputDriver::ReadState(DeviceId id, X_INPUT_STATE* out_state, bool is_active) {
++  assert(sdl_events_initialized_ && SDL_Gamepad_initialized_);
+ 
+   if (is_active) {
+     QueueControllerUpdate();
+@@ -528,6 +536,21 @@ void SDLInputDriver::HandleEvent(const SDL_Event& event) {
+   // This breaks the lock ordering inversion between controllers_mutex_ and
+   // SDL's internal joystick lock that caused deadlocks.
+   std::lock_guard<std::mutex> guard(event_queue_mutex_);
++  if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) NotifyInputActivity(false);
++  if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
++    const auto axis = static_cast<DeviceId>((uint64_t(event.gaxis.which) << 8) |
++                                            (event.gaxis.axis + 1));
++    X_INPUT_GAMEPAD motion{};
++    if (event.gaxis.axis >= SDL_GAMEPAD_AXIS_LEFT_TRIGGER)
++      motion.left_trigger = uint8_t(std::max(0, int(event.gaxis.value)) >> 7);
++    else
++      motion.thumb_lx = event.gaxis.value;
++    if (activity_axes_.Observe(0, axis, motion)) NotifyInputActivity(false);
++  }
++  if (event.type == SDL_EVENT_GAMEPAD_REMOVED) {
++    for (unsigned axis = 1; axis <= 6; ++axis)
++      activity_axes_.Forget(static_cast<DeviceId>((uint64_t(event.gdevice.which) << 8) | axis));
++  }
+   pending_events_.push_back(event);
+ }
+ 
+diff --git a/src/input/state_merge.cpp b/src/input/state_merge.cpp
+index d33884e..a8a37f0 100644
+--- a/src/input/state_merge.cpp
++++ b/src/input/state_merge.cpp
+@@ -54,12 +54,33 @@ bool IsNeutral(const X_INPUT_GAMEPAD& gamepad) {
+          !PastDeadzone(gamepad.thumb_rx) && !PastDeadzone(gamepad.thumb_ry);
+ }
+ 
+-void ActiveDeviceTracker::Observe(uint32_t user_index, DeviceId id,
+-                                  const X_INPUT_GAMEPAD& gamepad) {
+-  if (user_index >= kMaxGuestUsers || IsNeutral(gamepad)) {
+-    return;
+-  }
+-  active_[user_index] = id;
++bool ActiveDeviceTracker::Observe(uint32_t user_index, DeviceId id,
++                                  const X_INPUT_GAMEPAD& gamepad, bool synthetic) {
++  if (user_index >= kMaxGuestUsers) return false;
++  auto& previous = previous_[user_index][id];
++  const auto neutral = [synthetic](const X_INPUT_GAMEPAD& pad) {
++    return IsNeutral(pad) && (!synthetic ||
++        (!pad.thumb_lx && !pad.thumb_ly && !pad.thumb_rx && !pad.thumb_ry));
++  };
++  const auto axis_changed = [synthetic](int16_t current, int16_t before) {
++    return std::abs(int(current)) >= (synthetic ? 1 : kThumbDeadzone) &&
++           std::abs(int(current) - int(before)) > (synthetic ? 0 : 2048);
++  };
++  const bool changed =
++      (uint16_t(gamepad.buttons) & ~uint16_t(previous.buttons)) ||
++      (gamepad.left_trigger >= kTriggerThreshold &&
++       std::abs(int(gamepad.left_trigger) - int(previous.left_trigger)) >= kTriggerThreshold) ||
++      (gamepad.right_trigger >= kTriggerThreshold &&
++       std::abs(int(gamepad.right_trigger) - int(previous.right_trigger)) >= kTriggerThreshold) ||
++      axis_changed(gamepad.thumb_lx, previous.thumb_lx) ||
++      axis_changed(gamepad.thumb_ly, previous.thumb_ly) ||
++      axis_changed(gamepad.thumb_rx, previous.thumb_rx) ||
++      axis_changed(gamepad.thumb_ry, previous.thumb_ry);
++  const bool activity = !neutral(gamepad) && (neutral(previous) || changed);
++  if (activity) active_[user_index] = id;
++  if (changed || neutral(gamepad)) previous = gamepad;
++  previous.buttons = gamepad.buttons;
++  return activity;
+ }
+ 
+ DeviceId ActiveDeviceTracker::Active(uint32_t user_index) const {
+@@ -70,6 +91,7 @@ DeviceId ActiveDeviceTracker::Active(uint32_t user_index) const {
+ }
+ 
+ void ActiveDeviceTracker::Forget(DeviceId id) {
++  for (auto& previous : previous_) previous.erase(id);
+   for (auto& active : active_) {
+     if (active == id) {
+       active = DeviceId::kInvalid;
+diff --git a/src/system/gpu_plugin_loader.cpp b/src/system/gpu_plugin_loader.cpp
+index 754fa13..6f56f1b 100644
+--- a/src/system/gpu_plugin_loader.cpp
++++ b/src/system/gpu_plugin_loader.cpp
+@@ -12,6 +12,8 @@
+ #include <rex/system/gpu_plugin.h>
+ 
+ #include <filesystem>
++#include <atomic>
++#include <cstring>
+ #include <string>
+ #include <vector>
+ 
+@@ -19,6 +21,7 @@
+ 
+ #include <rex/filesystem.h>
+ #include <rex/logging.h>
++#include <rex/memory.h>
+ #include <rex/platform.h>
+ #include <rex/platform/dynlib.h>
+ 
+@@ -26,6 +29,8 @@ namespace rex::system {
+ 
+ namespace {
+ 
++std::atomic<std::shared_ptr<const TextureDataCallback>> texture_data_callback;
++
+ // Plugin binaries follow the SDK's per-config postfix convention; this TU is
+ // part of rexruntime, so REXGLUE_BUILD_CONFIG matches the plugin's config.
+ std::string PluginFileName(std::string_view name) {
+@@ -54,6 +59,24 @@ std::vector<platform::DynamicLibrary>& LoadedPlugins() {
+ 
+ }  // namespace
+ 
++void SetTextureDataCallback(TextureDataCallback callback) {
++  texture_data_callback.store(callback
++      ? std::make_shared<const TextureDataCallback>(std::move(callback)) : nullptr);
++}
++
++bool UpdateTextureData(memory::Memory& memory, uint32_t address, uint32_t width,
++                       uint32_t height, uint32_t format, uint32_t size) {
++  auto callback = texture_data_callback.load();
++  if (!callback || address >= 0x20000000 || size > 0x20000000 - address) return false;
++  std::span<uint8_t> data(memory.TranslatePhysical(address), size);
++  auto replacement = (*callback)(width, height, format, data);
++  if (replacement.empty() || replacement.size() != size) return false;
++  memory.TriggerPhysicalMemoryCallbacks(thread::global_critical_region::AcquireDirect(),
++      0xA0000000 | address, size, true, true);
++  std::memcpy(data.data(), replacement.data(), size);
++  return true;
++}
++
+ std::unique_ptr<IGraphicsSystem> LoadGpuPlugin(std::string_view name, std::string_view backend) {
+   auto path = rex::filesystem::GetExecutableFolder() / PluginFileName(name);
+   if (!std::filesystem::exists(path)) {
 diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
 index 7360ed9..175194d 100644
 --- a/src/ui/presenter.cpp
@@ -607,6 +1263,24 @@ index 7360ed9..175194d 100644
      }
      dxgi_ui_tick_lock.lock();
      if (wait_succeeded) {
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index 9ff54e8..d01338e 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -250,10 +250,9 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+     input_sys->SetActiveCallback([this]() {
+       if (window_ && !window_->HasFocus())
+         return false;
+-      if (!imgui_drawer_ ||
+-          (!debug_overlay_ && !console_overlay_ && !settings_overlay_ && !achievements_overlay_))
+-        return true;
+-      return !imgui_drawer_->GetIO().WantCaptureMouse;
++      if (!imgui_drawer_) return true;
++      const auto& io = imgui_drawer_->GetIO();
++      return !io.WantCaptureMouse && !io.WantCaptureKeyboard;
+     });
+   }
+ 
 diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
 index 6782cce..9b033a8 100644
 --- a/src/ui/window_sdl.cpp

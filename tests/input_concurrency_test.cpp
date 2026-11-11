@@ -27,8 +27,16 @@ class test_driver final : public rex::input::InputDriver {
   X_RESULT GetDeviceState(rex::input::DeviceId,
                           rex::input::X_INPUT_STATE* state) override {
     *state = {};
+    if (is_active()) state->gamepad.buttons = buttons;
     return X_ERROR_SUCCESS;
   }
+  X_RESULT GetDeviceStateForUI(rex::input::DeviceId,
+                               rex::input::X_INPUT_STATE* state) override {
+    *state = {};
+    state->gamepad.buttons = buttons;
+    return X_ERROR_SUCCESS;
+  }
+  uint16_t buttons = 0;
   X_RESULT GetDeviceCapabilities(
       rex::input::DeviceId, uint32_t,
       rex::input::X_INPUT_CAPABILITIES* caps) override {
@@ -52,9 +60,19 @@ class test_driver final : public rex::input::InputDriver {
 int main() {
   rex::input::InputSystem input(nullptr);
   auto driver = std::make_unique<test_driver>();
-  const auto* observed = driver.get();
+  auto* observed = driver.get();
   input.AddDriver(std::move(driver));
   input.SetDeviceAssignment(std::make_unique<rex::input::SlotAssignment>());
+  observed->buttons = 4096;
+  input.SetActiveCallback([] { return false; });
+  input.AddUIInputBlocker();
+  rex::input::X_INPUT_STATE guest{}, ui{};
+  if (input.GetState(0, &guest) != X_ERROR_SUCCESS || guest.gamepad.buttons != 0 ||
+      input.GetStateForUI(0, &ui) != X_ERROR_SUCCESS || ui.gamepad.buttons != 4096) return 2;
+  input.RemoveUIInputBlocker();
+  if (input.GetState(0, &guest) != X_ERROR_SUCCESS || guest.gamepad.buttons != 0) return 3;
+  input.SetActiveCallback([] { return true; });
+  if (input.GetState(0, &guest) != X_ERROR_SUCCESS || guest.gamepad.buttons != 4096) return 4;
   std::vector<std::jthread> threads;
   for (int thread = 0; thread < 4; ++thread) {
     threads.emplace_back([&input] {

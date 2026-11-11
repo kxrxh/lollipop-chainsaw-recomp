@@ -5,16 +5,9 @@ $defaults = [ordered]@{
     game_data_root = "$private/game"
     user_data_root = "$private/user"
     cache_root = "$private/cache"
-    window_width = 2560
-    window_height = 1440
-    resolution = '720p'
-    resolution_scale = 2
-    anisotropic_override = 5
-    video_mode_refresh_rate = 60
     d3d12_pipeline_creation_threads = 4
     render_target_path_d3d12 = 'rov'
     readback_memexport = 'false'
-    mnk_mode = 'true'
 }
 foreach ($argument in $args) {
     if ($argument -match '^--(?:no-)?([^=]+)(?:=|$)') {

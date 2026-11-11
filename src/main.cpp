@@ -11,6 +11,11 @@
 #include <rex/system/gpu_plugin.h>
 
 #include "test_bridge.h"
+#include "keyboard_controls.h"
+#include "pc_settings.h"
+#include "settings_menu.h"
+#include "timing_hooks.h"
+#include <rex/ui/keybinds.h>
 
 REXCVAR_DEFINE_STRING(lollipop_test_directory, "", "Lollipop",
                       "Opt-in local console and controller test directory")
@@ -31,7 +36,40 @@ class lollipop_app final : public rex::ReXApp {
   }
 
  protected:
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+    settings_path_ = paths.user_data_root / "pc-settings.toml";
+  }
+
+  void OnConfigureFonts(ImFontAtlas* atlas) override {
+    configure_settings_fonts(atlas);
+  }
+
+  void OnKeyDown(rex::ui::KeyEvent& event) override {
+    if (rex::cvar::Query<bool>("lollipop_pc_settings") &&
+        event.virtual_key() == rex::ui::ParseVirtualKey(rex::cvar::GetFlagByName("bind_settings"))) {
+      event.set_handled(true);
+      return;
+    }
+    if (!event.prev_state()) rex::ui::ProcessKeyEvent(event);
+  }
+
+  void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {
+    if (rex::cvar::GetFlagSource("bind_settings") == rex::cvar::Source::kDefault)
+      rex::cvar::SetFlagByName("bind_settings", "F6");
+    rex::ui::RegisterBind("bind_pc_settings", "F4", "Toggle PC settings", [] {
+      rex::cvar::SetFlagByName("lollipop_pc_settings",
+          rex::cvar::Query<bool>("lollipop_pc_settings") ? "false" : "true");
+    });
+  }
+
+  void OnLoadXexImage(std::string&) override {
+    install_keyboard_prompts(*runtime(), game_data_root(), cache_root());
+    install_live_prompt_updates(*runtime());
+  }
+
   void OnPostSetup() override {
+    set_settings_guest_memory(runtime()->virtual_membase());
+    settings_menu_ = make_settings_menu(*imgui_drawer(), *immediate_drawer(), *runtime(), settings_path_, game_data_root());
     rex::perf::SetCsvLogPath(rex::cvar::GetFlagByName("perf_log_csv"));
     const auto& directory = REXCVAR_GET(lollipop_test_directory);
     if (!directory.empty()) {
@@ -48,6 +86,11 @@ class lollipop_app final : public rex::ReXApp {
   }
 
   void OnShutdown() override {
+    stop_live_prompt_updates();
+    set_settings_guest_memory(nullptr);
+    settings_menu_.reset();
+    rex::ui::UnregisterBind("bind_pc_settings");
+    rex::system::SetTextureDataCallback({});
     if (test_worker_.joinable()) {
       test_worker_.request_stop();
       test_worker_.join();
@@ -60,9 +103,14 @@ class lollipop_app final : public rex::ReXApp {
         config.gpu_plugin, REXCVAR_GET(lollipop_gpu_backend));
     if (!config.graphics)
       throw std::runtime_error("Could not load the requested GPU backend");
+    configure_pc_settings(settings_path_);
+    configure_frame_rate();
+    configure_keyboard_controls();
   }
 
  private:
+  std::filesystem::path settings_path_;
+  std::unique_ptr<rex::ui::ImGuiDialog> settings_menu_;
   std::jthread test_worker_;
 };
 

@@ -14,6 +14,13 @@ int main() {
   const auto run = [&](const std::string& s) {
     return execute_test_command(*controls, s);
   };
+  if (!run("game_settings_state").starts_with("ok loading ") ||
+      !run("game_settings_state extra").starts_with("error")) return 24;
+  if (run("ui_key enter 1") != "ok key" || !controls->key_event ||
+      (*controls->key_event)[1] != 1 || run("ui_key enter 0") != "ok key" ||
+      run("ui_key enter 2").starts_with("ok") ||
+      run("ui_key missing 1").starts_with("ok") ||
+      run("ui_key enter 1 extra").starts_with("ok")) return 23;
   if (run("set bridge_test_flag false") != "ok false" ||
       run("get bridge_test_flag") != "ok false")
     return 1;
@@ -24,6 +31,12 @@ int main() {
     if (!run(invalid).starts_with("error")) return 2;
   }
   auto driver = make_test_driver(controls);
+  std::vector<rex::input::DeviceInfo> device_kind;
+  if (run("input_device gamepad") != "ok gamepad") return 16;
+  driver->EnumerateDevices(device_kind);
+  if (device_kind.size() != 2 || !device_kind[0].synthetic || device_kind[1].synthetic) return 17;
+  if (run("input_device keyboard") != "ok keyboard" ||
+      !run("input_device invalid").starts_with("error")) return 18;
   auto assignment = make_test_assignment();
   std::vector<rex::input::DeviceInfo> devices;
   driver->EnumerateDevices(devices);
@@ -34,7 +47,8 @@ int main() {
   assignment->OnDevicesChanged(devices);
   std::vector<rex::input::DeviceId> assigned;
   assignment->DevicesForUser(0, assigned);
-  if (assigned.size() != 1 || assigned.front() != devices.back().id) return 7;
+  if (assigned.size() != 3 || assigned[0] != other.id ||
+      assigned[1] != devices[1].id || assigned[2] != devices[2].id) return 7;
   assignment->DevicesForUser(1, assigned);
   if (!assigned.empty()) return 8;
   assignment->OnDevicesChanged({devices.back()});
@@ -77,6 +91,7 @@ int main() {
   run("input 16 0 0 0 0 5000");
   if (input.GetState(0, &state) != X_ERROR_SUCCESS || state.gamepad.buttons != 16)
     return 11;
+  if (!input.IsKeyboardActive()) return 19;
   input.AddUIInputBlocker();
   input.GetState(0, &state);
   if (state.gamepad.buttons != 0) return 12;
@@ -93,5 +108,22 @@ int main() {
   input.GetState(0, &state);
   run("input 16 0 0 0 0 5000");
   input.GetState(0, &state);
-  return state.gamepad.buttons == 16 ? 0 : 15;
+  if (state.gamepad.buttons != 16) return 15;
+  run("input_device gamepad");
+  run("input 4096 0 0 0 0 5000");
+  input.GetState(0, &state);
+  if (input.IsKeyboardActive()) return 20;
+  run("input_device keyboard");
+  run("input 16384 0 0 0 0 5000");
+  input.GetState(0, &state);
+  if (!input.IsKeyboardActive()) return 21;
+  run("input_device gamepad");
+  run("input 8192 0 0 0 0 5000");
+  input.GetState(0, &state);
+  if (input.IsKeyboardActive()) return 22;
+  run("input 0 0 0 0 0 0");
+  run("input_device keyboard");
+  run("input 0 0 0 7000 0 5000");
+  input.GetState(0, &state);
+  return input.IsKeyboardActive() ? 0 : 23;
 }

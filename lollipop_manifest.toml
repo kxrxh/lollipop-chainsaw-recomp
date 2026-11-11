@@ -72,3 +72,26 @@ after_instruction = true
 address = 0x829D0CF8
 name = "lollipop_tick_trace"
 registers = ["r3", "f1"]
+
+# UWorld::IsPaused false return, after li r3,0. Native true returns stay untouched.
+[[entrypoint.midasm_hook]]
+address = 0x82582FE0
+name = "lollipop_settings_pause"
+registers = ["r3"]
+
+# Native Options close command, before Kismet receives it.
+[[entrypoint.midasm_hook]]
+address = 0x8292CA54
+name = "lollipop_options_command"
+registers = ["r6"]
+
+# UGFxMoviePlayer::Load: initialized owner and decoded movie-path FString.
+[[entrypoint.midasm_hook]]
+address = 0x82940384
+name = "lollipop_watch_movie"
+registers = ["r31", "r30"]
+
+[[entrypoint.midasm_hook]]
+address = 0x829411A8
+name = "lollipop_unwatch_movie"
+registers = ["r3", "r4"]

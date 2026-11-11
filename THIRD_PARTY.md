@@ -34,6 +34,10 @@ This is an unofficial project and does not imply endorsement.
 The LC application icon follows the supplied game logo's art style and is
 also excluded from the project code license.
 
+The settings panel and button textures were generated with OpenAI image
+generation using the original menu as a style reference. They are not extracted
+game textures.
+
 The repository and source kit contain no disc images, extracted game data,
 original executable, or generated translations of the game's code. Those
 files are produced locally from the user's own game copy.

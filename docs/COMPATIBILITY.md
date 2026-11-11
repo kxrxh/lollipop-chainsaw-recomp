@@ -40,6 +40,19 @@ guest-frame boundary, not display-presentation or GPU timestamps. These results
 describe the tested prologue, not the whole game. Prerecorded movies may remain
 30 FPS.
 
+### 90 / 120 FPS modes
+
+Graphics settings also offer 90 and 120 FPS limits. Both require a restart so
+the engine limit and guest vblank cadence change together. In native-720p menu
+probes with VSync enabled, 450 samples at the 90 FPS limit averaged 90.05 FPS;
+600 samples at the 120 FPS limit averaged 120.00 FPS. A 90 FPS VSync-off probe
+averaged 89.99 FPS. These are guest-frame measurements, not monitor presentation
+rates. Game time advanced at normal speed, and saving/restarting preserved 90.
+
+These limits do not guarantee that every scene reaches the target. Shader
+compilation, GPU load, VSync and monitor refresh affect the displayed rate.
+Full-game physics, QTE and cutscene behavior above 60 FPS remain unverified.
+
 ## Known issues
 
 - A rare D3D12 ROV `DEVICE_HUNG` occurred after Continue. Three subsequent
