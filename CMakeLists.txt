@@ -176,7 +176,7 @@ endif()
 
 if(WIN32)
     set(setup_framework "$ENV{SystemRoot}/Microsoft.NET/Framework64/v4.0.30319")
-    set(setup_sources scripts/setup.cs scripts/setup-install.cs scripts/setup-tools.cs tests/setup_test.cs)
+    set(setup_sources installer/setup.cs installer/setup-install.cs installer/setup-tools.cs tests/setup_test.cs)
     list(TRANSFORM setup_sources PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     set(setup_native_sources)
     foreach(source IN LISTS setup_sources)
@@ -192,12 +192,12 @@ if(WIN32)
             "/reference:${setup_framework}/WPF/WindowsBase.dll"
             "/reference:${setup_framework}/WPF/PresentationCore.dll"
             "/reference:${setup_framework}/WPF/PresentationFramework.dll"
-            "/resource:${CMAKE_CURRENT_SOURCE_DIR}/scripts/launcher.xaml,launcher.xaml"
+            "/resource:${CMAKE_CURRENT_SOURCE_DIR}/installer/launcher.xaml,launcher.xaml"
             "/resource:${CMAKE_CURRENT_SOURCE_DIR}/assets/lollipop.ico,lollipop.ico"
             "/resource:${CMAKE_CURRENT_SOURCE_DIR}/assets/installer/hero.png,hero.png"
             "/resource:${CMAKE_CURRENT_SOURCE_DIR}/assets/installer/paper.png,paper.png"
             ${setup_native_sources}
-        DEPENDS ${setup_sources} scripts/launcher.xaml assets/lollipop.ico
+        DEPENDS ${setup_sources} installer/launcher.xaml assets/lollipop.ico
             assets/installer/hero.png assets/installer/paper.png
         VERBATIM)
     add_custom_target(lollipop_setup_check ALL DEPENDS "${setup_test}")

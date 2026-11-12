@@ -34,8 +34,8 @@ on your PC from your own disc files. Graphics use the SDK's Xenos emulation.
 
 ### Install and play on Windows
 
-1. Open **Lollipop Chainsaw Setup.exe**. From a source checkout, double-click
-   **Play Lollipop Chainsaw.cmd** after [packaging the installer](docs/BUILDING.md#requirements).
+1. Open **Lollipop Chainsaw Setup.exe**. From a source checkout, build it with
+   `./installer/build.ps1` as described in the [build guide](docs/BUILDING.md#requirements).
 2. Choose your **Xbox 360 ISO** and **install folder**, then select **Install game**.
    Setup downloads the required programs, extracts the disc, and builds and tests
    the game. Keep your internet connection active and allow Windows approval
@@ -85,6 +85,7 @@ See [compatibility and measurements](docs/COMPATIBILITY.md) for the test limits.
 ```text
 assets/       Application and settings artwork
 docs/         Build, compatibility and development guides
+installer/    Standalone C# installer, launcher layout and packaging script
 patches/      ReXGlue fixes and upstream license notices
 scripts/      Benchmark, frame analysis and local test controls
 src/          App, game hooks, input, settings, UI and test tooling

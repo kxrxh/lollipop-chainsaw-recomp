@@ -48,8 +48,7 @@ internal sealed class Installer {
     var marker = Path.Combine(folder, "out/launcher/install.id");
     if (File.Exists(marker) && File.ReadAllText(marker) == Identity)
       return;
-    foreach (var name in new[] { "out", "game", "user", "cache", "Play Lollipop Chainsaw.cmd",
-                                 "Play Lollipop Chainsaw.exe" }) {
+    foreach (var name in new[] { "out", "game", "user", "cache", "Play Lollipop Chainsaw.exe" }) {
       var path = Path.Combine(folder, name);
       if (File.Exists(path) || Directory.Exists(path))
         throw new IOException("This folder already contains game or setup files. Choose a new " +

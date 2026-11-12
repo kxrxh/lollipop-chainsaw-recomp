@@ -23,7 +23,7 @@ percentages show an activity indicator. On error, the complete setup log expands
 inside the launcher; **Open setup log** also opens the file in Notepad. The log
 is in `out/launcher/latest.log` under the destination.
 
-To package the standalone installer, run `./scripts/package-installer.ps1` on
+To package the standalone installer, run `./installer/build.ps1` on
 Windows x64. It writes `out/installer/Lollipop Chainsaw Setup.exe`. The EXE
 embeds public project files and extracts its versioned source kit under the
 current user's Local AppData. It runs Git, CMake, code generation, the compiler
@@ -32,12 +32,12 @@ development checks remain enabled for manual builds (`LOLLIPOP_SCRIPT_TESTS=ON`)
 The payload contains no `.ps1` files, game data or generated translations.
 The installed **Play Lollipop Chainsaw.exe** includes the launcher and source kit,
 so it works independently of the original download or checkout. From a source
-checkout, **Play Lollipop Chainsaw.cmd** opens the packaged EXE; package it first.
+checkout, open the packaged EXE in `out/installer/` after building it.
 
-The launcher's layout is in `scripts/launcher.xaml`; its illustration and paper
+The launcher's layout is in `installer/launcher.xaml`; its illustration and paper
 texture are in `assets/installer/` and are embedded in the standalone installer.
-The compiled setup logic is in `scripts/setup.cs`, `scripts/setup-install.cs` and
-`scripts/setup-tools.cs`. Packaging still uses PowerShell as a developer tool.
+The compiled setup logic is in `installer/setup.cs`, `installer/setup-install.cs` and
+`installer/setup-tools.cs`. Packaging uses `installer/build.ps1` as a developer tool.
 
 For a manual build, install the following tools.
 

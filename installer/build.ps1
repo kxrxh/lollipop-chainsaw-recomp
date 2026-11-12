@@ -11,8 +11,8 @@ $files = @('LICENSE','THIRD_PARTY.md','CMakeLists.txt','lollipop_manifest.toml',
     'assets/lollipop.ico','assets/lollipop.rc','assets/settings_resources.h',
     'assets/settings/controls.png','assets/settings/panel.png','assets/installer/hero.png','assets/installer/paper.png',
     'patches/rexglue-fixes.patch','patches/rexglue-shader-precompile.patch','patches/LICENSE.rexglue','patches/LICENSE.libmspack','patches/SSX-RexGlue-LICENSE.txt',
-    'assets/shaders/pipelines.txt','scripts/launcher.xaml',
-    'scripts/setup.cs','scripts/setup-install.cs','scripts/setup-tools.cs')
+    'assets/shaders/pipelines.txt','installer/launcher.xaml',
+    'installer/setup.cs','installer/setup-install.cs','installer/setup-tools.cs')
 $files += Get-ChildItem -LiteralPath "$root/src","$root/tests" -Recurse -File |
     Where-Object Extension -in '.cpp','.h','.cs','.cmake' | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\','/') }
 try {
@@ -29,7 +29,7 @@ try {
     $toolsSource = Join-Path $PSScriptRoot 'setup-tools.cs'
     $wpf = Split-Path $compiler -Parent
     & $compiler /nologo /optimize+ /target:winexe /platform:x64 /main:lollipop.Setup "/out:$exe" "/win32icon:$icon" `
-        "/resource:$zip,kit.zip" "/resource:$root/scripts/launcher.xaml,launcher.xaml" "/resource:$icon,lollipop.ico" `
+        "/resource:$zip,kit.zip" "/resource:$root/installer/launcher.xaml,launcher.xaml" "/resource:$icon,lollipop.ico" `
         "/resource:$root/assets/installer/hero.png,hero.png" "/resource:$root/assets/installer/paper.png,paper.png" `
         /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Windows.Forms.dll `
         /reference:System.Xaml.dll "/reference:$wpf/WPF/WindowsBase.dll" "/reference:$wpf/WPF/PresentationCore.dll" `

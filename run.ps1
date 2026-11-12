@@ -6,7 +6,6 @@ param(
     [Parameter(Position=2)][string]$CacheDirectory = (Join-Path $PSScriptRoot 'cache'),
     [Parameter(ValueFromRemainingArguments)][string[]]$GameArguments = @(),
     [string]$BuildDirectory = (Join-Path $PSScriptRoot 'out/build/win-amd64-release'),
-    [switch]$Player,
     [switch]$PrecompileShaders
 )
 $ErrorActionPreference = 'Stop'
@@ -24,12 +23,6 @@ foreach ($argument in $GameArguments) {
     }
 }
 $launchArguments = @($defaults.GetEnumerator() | ForEach-Object { "--$($_.Key)=$($_.Value)" }) + $GameArguments
-trap {
-    if (-not $Player) { throw $_ }
-    Add-Type -AssemblyName PresentationFramework
-    [void][Windows.MessageBox]::Show($_.Exception.Message, 'Lollipop Chainsaw Recomp')
-    exit 1
-}
 if (-not (Test-Path -LiteralPath "$BuildDirectory/lollipop.exe")) {
     throw 'Game executable not found. Run build.ps1 first.'
 }

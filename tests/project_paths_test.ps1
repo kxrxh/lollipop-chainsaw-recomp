@@ -4,7 +4,7 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . "$root/scripts/build-tools.ps1"
 
 $scripts = @(Get-ChildItem -LiteralPath $root -Filter '*.ps1' -File)
-$scripts += Get-ChildItem -LiteralPath "$root/scripts", "$root/tests" -Filter '*.ps1' -File
+$scripts += Get-ChildItem -LiteralPath "$root/scripts", "$root/installer", "$root/tests" -Filter '*.ps1' -File
 foreach ($script in $scripts) {
     $tokens = $null
     $errors = $null
@@ -37,6 +37,24 @@ try {
     if ('game_root = "game"' -notin $original -or 'out_directory_path = "out/generated"' -notin $original) {
         throw 'Default manifest must use checkout-local directories'
     }
+    Push-Location $temporary
+    try {
+        $installer = Join-Path $temporary 'installer output/Lollipop Chainsaw Setup.exe'
+        & "$root/installer/build.ps1" -OutputFile $installer | Out-Null
+    } finally { Pop-Location }
+    Add-Type -AssemblyName System.IO.Compression
+    $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($installer))
+    $payload = $assembly.GetManifestResourceStream('kit.zip')
+    $archive = [IO.Compression.ZipArchive]::new($payload, [IO.Compression.ZipArchiveMode]::Read)
+    try {
+        foreach ($name in 'installer/setup.cs','installer/setup-install.cs','installer/setup-tools.cs',
+                          'installer/launcher.xaml','tests/setup_test.cs') {
+            if (-not $archive.GetEntry($name)) { throw "Installer payload is missing $name" }
+        }
+        if ($archive.Entries.FullName -match '^(game|user|cache|out|generated)/|\.ps1$|default\.xex$') {
+            throw 'Installer payload contains private data or development scripts'
+        }
+    } finally { $archive.Dispose(); $payload.Dispose() }
 } finally {
     $resolved = [IO.Path]::GetFullPath($temporary)
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar

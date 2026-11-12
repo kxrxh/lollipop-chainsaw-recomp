@@ -8,6 +8,10 @@ Keep disc images, extracted game assets, generated C++, saves, caches and GPU ca
 out of Git. The SDK patch targets the commit pinned in [BUILDING.md](BUILDING.md).
 Preserve upstream notices when modifying or redistributing it.
 
+`installer/` contains the standalone C# launcher, its XAML layout and `build.ps1`
+packaging entrypoint. Root scripts support manual builds and launches; `scripts/`
+holds shared build helpers, benchmarks, frame analysis and local test controls.
+
 Host code uses `namespace lollipop`, with headers beside implementations:
 
 - `app/`: application lifecycle; `main.cpp` only registers the application factory.
@@ -161,8 +165,8 @@ To extend coverage, play the relevant scenes with an isolated save and cache,
 close the game so its records are stable, then merge that cache:
 
 ```powershell
-./scripts/collect-pipelines.ps1 -CacheDirectory out/stage-test/cache `
-    -OutputFile out/pipeline-inventory.txt -Coverage "Stage and situations actually exercised"
+./out/build/win-amd64-release/lollipop_shader_tool.exe collect `
+    out/stage-test/cache out/pipeline-inventory.txt "Stage and situations actually exercised"
 ```
 
 The first launch must finish shader preparation before collecting, because the
