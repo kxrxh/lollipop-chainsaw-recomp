@@ -5,6 +5,7 @@
 namespace lollipop {
 void configure_frame_rate();
 void set_settings_pause(bool paused);
+bool is_engine_tick_thread();
 } // namespace lollipop
 
 // Generated guest code calls these symbols in the global namespace.

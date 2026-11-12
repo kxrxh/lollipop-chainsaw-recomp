@@ -6,6 +6,41 @@ graphics and build validation.
 
 ## Requirements
 
+The Windows x64 installer asks for an ISO and a destination. Its compiled C#
+application uses Windows' .NET Framework and tar; setup and launch do not invoke
+PowerShell or run project scripts. It verifies pinned downloads of extract-xiso,
+MinGit and LLVM before unpacking them in the destination's `out/tools/packages/`.
+Compatible Git 2.36+ and LLVM 20.1.8 installations are reused before downloading replacements.
+Interrupted downloads stay in that cache and resume on retry; SHA-256 is
+checked before extraction. Servers without resume support restart the transfer.
+It installs the Microsoft Visual C++ runtime and only the x64 C++ compiler,
+CMake tools and Windows SDK components needed from Visual Studio Build Tools
+when missing. Windows may request administrator approval or a restart.
+
+Setup shows the current step, its elapsed time, download size and speed, and
+percentages reported by downloads, Git and the compiler. Steps without measured
+percentages show an activity indicator. On error, the complete setup log expands
+inside the launcher; **Open setup log** also opens the file in Notepad. The log
+is in `out/launcher/latest.log` under the destination.
+
+To package the standalone installer, run `./scripts/package-installer.ps1` on
+Windows x64. It writes `out/installer/Lollipop Chainsaw Setup.exe`. The EXE
+embeds public project files and extracts its versioned source kit under the
+current user's Local AppData. It runs Git, CMake, code generation, the compiler
+and CTest directly. Only the native tests run during installation; PowerShell
+development checks remain enabled for manual builds (`LOLLIPOP_SCRIPT_TESTS=ON`).
+The payload contains no `.ps1` files, game data or generated translations.
+The installed **Play Lollipop Chainsaw.exe** includes the launcher and source kit,
+so it works independently of the original download or checkout. From a source
+checkout, **Play Lollipop Chainsaw.cmd** opens the packaged EXE; package it first.
+
+The launcher's layout is in `scripts/launcher.xaml`; its illustration and paper
+texture are in `assets/installer/` and are embedded in the standalone installer.
+The compiled setup logic is in `scripts/setup.cs`, `scripts/setup-install.cs` and
+`scripts/setup-tools.cs`. Packaging still uses PowerShell as a developer tool.
+
+For a manual build, install the following tools.
+
 - [PowerShell 7.2 or newer](https://github.com/PowerShell/PowerShell/releases).
 - Git for Windows, available on PATH.
 - Visual Studio 2022 Build Tools with **Desktop development with C++**, the
@@ -84,14 +119,24 @@ From the repository directory:
 ```
 
 Expected SDK commit: `bd833a2ab69d305f99ddf57418fc38ffec8af93d`.
-The script clones the pinned public SDK when absent, applies
-[the SDK patch](../patches/rexglue-fixes.patch), fetches the required submodules
+The script clones the pinned public SDK when absent, fetches the required submodules,
+and applies [the SDK fixes](../patches/rexglue-fixes.patch) and
+[shader-preparation patch](../patches/rexglue-shader-precompile.patch)
 and installs a Release SDK in `out/sdk/`. Conflicting local SDK source changes
 are rejected. If LLVM is not on PATH, pass its bin directory:
 
 ```powershell
 ./build-sdk.ps1 -LlvmDirectory "C:/Program Files/LLVM/bin"
 ./build.ps1 -LlvmDirectory "C:/Program Files/LLVM/bin"
+```
+
+If an existing SDK checkout carries an older patch, build the current version
+from a fresh source and build directory. Both commands use the standard
+`out/sdk` install location.
+
+```powershell
+./build-sdk.ps1 -SourceDirectory out/tools/rexglue-sdk-perf -BuildDirectory out/build/sdk-perf
+./build.ps1
 ```
 
 ## 3. Recompile and run
@@ -123,8 +168,26 @@ For direct CMake use, set `LOLLIPOP_GAME_DIR`, `LOLLIPOP_GENERATED_DIR` and
 `rexglue_DIR` as needed. A configured codegen manifest is written only to build
 output; the checked-in manifest retains portable defaults.
 
-New scenes may create shader pipelines. Offline Xbox LIVE dialogs can be
-dismissed by declining the connection attempt and confirming offline play.
+Startup shows a loading screen with measured shader-preparation progress before
+the game starts. The launcher's **Precompile shaders** action prepares the available
+inventory without starting gameplay. The command-line equivalent is:
+
+```powershell
+./run.ps1 -PrecompileShaders
+```
+
+Preparation uses your current graphics settings and reads shader programs from
+your own disc. The first scan takes longer; keep `cache/` to reuse its library.
+Damaged local shader caches are rebuilt automatically. Ordinary launches with
+`--store_shaders=false` skip preparation; precompile-only requests require shader storage.
+The checked-in inventory contains 1,916 pipelines from sweeps across all seven
+stages, boss maps, final-stage variants and opening/ending/result scenes. See the
+[coverage notes](COMPATIBILITY.md#known-issues). Unrecorded outfit or combat-effect
+combinations can still require [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
+Unknown combinations wait for complete draws, so they can pause instead of
+revealing missing materials.
+Startup automatically
+continues offline without Xbox LIVE connection or offline-play confirmation dialogs.
 
 ## Updating and removal
 
@@ -135,6 +198,6 @@ address validation.
 
 ## Repository scope
 
-This is a WIP source repository, with no release package or installer. Share
+This is a WIP source kit with a local install-and-play launcher. Share
 only the repository contents; keep game data, generated translations, saves,
 SDK tools and local build output private.

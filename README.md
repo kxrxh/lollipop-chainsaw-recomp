@@ -27,12 +27,31 @@ the game's executable and assets are supplied by you.
 - Input synchronization, UI wait and graphics fixes in a reproducible SDK patch.
 - RePOP-style keyboard/mouse controls and comic-style keycaps in menus and QTEs.
 - Local frame analysis and optional background gameplay controls for development.
+- A shader-preparation loading screen, launcher precompile action and pipeline collector.
 
-**Windows x64 is the currently tested platform.** macOS and Linux support are
-not implemented or verified. This is a source kit, without an installer or a
-precompiled game executable. Graphics still use the SDK's Xenos emulation.
+**Windows x64 is the currently tested platform.** The launcher builds the game
+on your PC from your own disc files. Graphics use the SDK's Xenos emulation.
 
-### Build your copy
+### Install and play on Windows
+
+1. Open **Lollipop Chainsaw Setup.exe**. From a source checkout, double-click
+   **Play Lollipop Chainsaw.cmd** after [packaging the installer](docs/BUILDING.md#requirements).
+2. Choose your **Xbox 360 ISO** and **install folder**, then select **Install game**.
+   Setup downloads the required programs, extracts the disc, and builds and tests
+   the game. Keep your internet connection active and allow Windows approval
+   prompts if they appear.
+3. Select **Play Lollipop Chainsaw**. To play again, open **Play Lollipop Chainsaw.exe**
+   in the install folder.
+
+The supported original disc has media ID `31BE13D9`. Saves live in `user/`
+inside your install folder. To resume an interrupted installation, select the
+same ISO and folder. Setup reuses completed downloads and imported game files.
+The standalone EXE handles setup and launch directly, without PowerShell scripts.
+The launcher also offers **Precompile shaders** for the inventory collected across
+all seven stages and their boss maps. See the [coverage notes](docs/COMPATIBILITY.md#known-issues)
+for validation limits.
+
+### Manual build
 
 Install the prerequisites in the [build guide](docs/BUILDING.md), then run
 these commands from PowerShell 7 in the project directory:

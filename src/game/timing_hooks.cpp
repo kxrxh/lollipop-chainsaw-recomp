@@ -28,7 +28,10 @@ REXCVAR_DEFINE_STRING(lollipop_tick_trace_csv, "", "Lollipop",
 namespace {
 std::atomic<bool> settings_paused{false};
 std::atomic<int> frame_rate{60};
+thread_local bool engine_tick_thread = false;
 }
+
+bool lollipop::is_engine_tick_thread() { return engine_tick_thread; }
 
 void lollipop::configure_frame_rate() {
   using rex::cvar::Source;
@@ -67,6 +70,7 @@ void lollipop_tick_limit(PPCRegister &limit) {
 }
 
 void lollipop_tick_trace(PPCRegister &engine, PPCRegister &delta) {
+  engine_tick_thread = true;
   const auto &path = REXCVAR_GET(lollipop_tick_trace_csv);
   if (path.empty())
     return;

@@ -1,4 +1,5 @@
 #include "input/keyboard_controls.h"
+#include "game/package_lzx.h"
 #include "input/prompt_artwork.h"
 
 #include <algorithm>
@@ -25,14 +26,14 @@ REXCVAR_DEFINE_BOOL(readback_memexport_fast, true, "GPU", "Test delayed readback
 using rex::X_RESULT;
 using rex::X_STATUS;
 
+using lollipop::cache_keyboard_prompts;
 using lollipop::configure_keyboard_controls;
-using lollipop::make_keyboard_prompts;
-using lollipop::make_prompt_variants;
-using lollipop::select_prompt_artwork;
-using lollipop::make_keyboard_title;
-using lollipop::pack_keyboard_prompts;
 using lollipop::make_keyboard_game_device;
+using lollipop::make_keyboard_prompts;
+using lollipop::make_keyboard_title;
+using lollipop::make_prompt_variants;
 using lollipop::make_settings_prompt_artwork;
+using lollipop::select_prompt_artwork;
 
 namespace {
 void check(bool condition, const char *message) {
@@ -40,8 +41,22 @@ void check(bool condition, const char *message) {
 }
 }  // namespace
 
-int main(int argc, char **argv) try {
+int main(int argc, char** argv) try {
   check(argc == 3, "Expected source and output paths");
+  // A four-byte uncompressed LZX block, followed by the XMem terminator and UE trailer.
+  std::vector<uint8_t> block = {0xff, 0, 4, 0, 20,  0,   0x30, 0x40, 0, 1, 0, 0, 0, 1, 0, 0, 0,
+                                1,    0, 0, 0, 't', 'e', 's',  't',  0, 0, 0, 0, 0, 1, 2, 3, 4};
+  std::array<uint8_t, 4> decoded{};
+  check(lollipop::decode_package_lzx(block, decoded) &&
+            decoded == std::array<uint8_t, 4>{'t', 'e', 's', 't'},
+        "LZX frame and opaque trailer");
+  for (size_t i = 0; i < block.size(); ++i)
+    check(!lollipop::decode_package_lzx(std::span(block).first(i), decoded), "Truncated LZX frame");
+  for (size_t i : {2, 4, 25}) {
+    ++block[i];
+    check(!lollipop::decode_package_lzx(block, decoded), "Invalid LZX frame bounds or terminator");
+    --block[i];
+  }
   configure_keyboard_controls();
   check(rex::cvar::Query<bool>("readback_memexport") &&
             !rex::cvar::Query<bool>("readback_memexport_fast"),
@@ -309,6 +324,14 @@ int main(int argc, char **argv) try {
   std::vector<uint8_t> unrelated(16384, 123);
   check(select_prompt_artwork(variants, unrelated, false).empty(),
         "Unrelated game textures are never replaced");
+  auto reused = variants.front().keyboard;
+  reused.front() ^= 1;
+  check(select_prompt_artwork(variants, reused, false).empty(),
+        "A matching sample cannot replace different bytes at a reused address");
+  reused.front() ^= 1;
+  check(
+      std::ranges::equal(select_prompt_artwork(variants, reused, false), variants.front().gamepad),
+      "New prompt data at the same address is recognized");
   check(artwork.size() == 1893850,
         "Startup decompressed without changing package offsets");
   // Keep the original texture format, dimensions and payload allocation.
@@ -336,7 +359,14 @@ int main(int argc, char **argv) try {
   const auto cache =
       std::filesystem::path(argv[2]).parent_path() / "keyboard-test-assets";
   std::filesystem::create_directories(cache);
-  const auto compressed = pack_keyboard_prompts(artwork, cache);
+  const auto path = cache / "Startup.xxx";
+  std::ofstream(path, std::ios::binary | std::ios::trunc).put('!');
+  check(!cache_keyboard_prompts(artwork, cache), "Repair corrupt or incomplete cache");
+  check(cache_keyboard_prompts(artwork, cache), "Reuse the validated compressed package");
+  check(!cache_keyboard_prompts(remapped, cache), "Rebinding invalidates the cache");
+  check(!cache_keyboard_prompts(artwork, cache), "Restore original bindings");
+  std::ifstream packed(path, std::ios::binary);
+  const std::vector<uint8_t> compressed{std::istreambuf_iterator<char>(packed), {}};
   auto be32 = [&](size_t pos) {
     return (uint32_t(compressed.at(pos)) << 24) |
            (uint32_t(compressed.at(pos + 1)) << 16) |
@@ -369,12 +399,6 @@ int main(int argc, char **argv) try {
     total += size;
   }
   check(total == be32(8), "Compressed package size table");
-  std::ofstream cached(cache / "Startup.xxx",
-                       std::ios::binary | std::ios::trunc);
-  cached.write(reinterpret_cast<const char *>(compressed.data()),
-               compressed.size());
-  cached.close();
-  check(bool(cached), "Write compressed fixture");
   const auto game = std::filesystem::path(argv[1])
                         .parent_path()
                         .parent_path()
@@ -417,7 +441,7 @@ int main(int argc, char **argv) try {
   }
   check(rejected, "Reject unsupported startup packages before patching");
   return 0;
-} catch (const std::exception &error) {
+} catch (const std::exception& error) {
   std::cerr << error.what() << '\n';
   return 1;
 }

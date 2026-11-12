@@ -2,3 +2,4 @@
 #include "settings_resources.h"
 IDR_SETTINGS_PANEL RCDATA "settings/panel.png"
 IDR_SETTINGS_CONTROLS RCDATA "settings/controls.png"
+104 RCDATA "shaders/pipelines.txt"

@@ -9,10 +9,10 @@ REXCVAR_DEFINE_BOOL(bridge_test_flag, true, "Test", "Test hot setting");
 REXCVAR_DEFINE_INT32(bridge_test_restart, 1, "Test", "Test restart setting")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
-using lollipop::test_controls;
 using lollipop::execute_test_command;
-using lollipop::make_test_driver;
 using lollipop::make_test_assignment;
+using lollipop::make_test_driver;
+using lollipop::test_controls;
 
 int main() {
   auto controls = std::make_shared<test_controls>();
@@ -21,6 +21,12 @@ int main() {
   };
   if (!run("game_settings_state").starts_with("ok loading ") ||
       !run("game_settings_state extra").starts_with("error")) return 24;
+  if (run("game_console_state") != "ok idle" || !run("game_console").starts_with("error") ||
+      !run("game_console " + std::string(241, 'x')).starts_with("error") ||
+      !run("game_console test\nquit").starts_with("error") ||
+      run("game_console stat fps") != "ok queued" || run("game_console_state") != "ok pending" ||
+      !run("game_console stat fps").starts_with("error"))
+    return 25;
   if (run("ui_key enter 1") != "ok key" || !controls->key_event ||
       (*controls->key_event)[1] != 1 || run("ui_key enter 0") != "ok key" ||
       run("ui_key enter 2").starts_with("ok") ||

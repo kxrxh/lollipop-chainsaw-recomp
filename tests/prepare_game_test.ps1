@@ -13,6 +13,8 @@ try {
     $fixture = Join-Path $temporary 'repository'
     New-Item -ItemType Directory -Path $fixture | Out-Null
     Copy-Item -LiteralPath "$PSScriptRoot/../prepare-game.ps1" -Destination $fixture
+    New-Item -ItemType Directory -Path "$fixture/scripts" | Out-Null
+    Copy-Item -LiteralPath "$PSScriptRoot/../scripts/game-disc.ps1" -Destination "$fixture/scripts"
     $importer = Join-Path $fixture 'prepare-game.ps1'
     $invalidGame = Join-Path $temporary 'invalid-game'
     New-Item -ItemType Directory -Path $invalidGame | Out-Null

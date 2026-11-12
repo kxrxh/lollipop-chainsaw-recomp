@@ -168,9 +168,14 @@ void configure_pc_settings(const std::filesystem::path& path) {
       REXLOG_WARN("Ignoring invalid PC settings profile: {}", path.string());
     }
   }
-  for (const auto& [name, value] : pc_values{{"window_width", "2560"}, {"window_height", "1440"},
-           {"resolution", "720p"}, {"resolution_scale", "2"}, {"anisotropic_override", "5"},
-           {"swap_post_effect", "none"}}) {
+  for (const auto& [name, value] : pc_values{{"window_width", "2560"},
+                                             {"window_height", "1440"},
+                                             {"resolution", "720p"},
+                                             {"resolution_scale", "2"},
+                                             {"anisotropic_override", "5"},
+                                             {"swap_post_effect", "none"},
+                                             {"render_target_path_d3d12", "rov"},
+                                             {"async_shader_compilation", "false"}}) {
     if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault)
       rex::cvar::SetFlagByName(name, value);
   }

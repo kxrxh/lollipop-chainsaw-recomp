@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <string>
+#include <thread>
 
 #include <rex/cvar.h>
 
@@ -26,6 +27,14 @@ int main(int argc, char **argv) {
         rex::cvar::Query<double>("video_mode_refresh_rate") == (explicit_fps ? 75.0 : 60.0) ? 0 : 14;
   }
   PPCRegister paused{};
+  if (lollipop::is_engine_tick_thread()) return 15;
+  PPCRegister engine{}, delta{};
+  lollipop_tick_trace(engine, delta);
+  bool worker_is_engine = true;
+  std::thread worker([&] { worker_is_engine = lollipop::is_engine_tick_thread(); });
+  worker.join();
+  if (!lollipop::is_engine_tick_thread() || worker_is_engine)
+    return 16;
   for (bool settings_open : {false, true, true, false}) {
     set_settings_pause(settings_open);
     for (uint64_t native_pause : {0ull, 1ull}) {
@@ -71,8 +80,7 @@ int main(int argc, char **argv) {
   if (argc != 2 ||
       !rex::cvar::SetFlagByName("lollipop_tick_trace_csv", argv[1]))
     return 4;
-  PPCRegister engine{};
-  PPCRegister delta{};
+
   engine.u64 = 0x12345678;
   delta.f64 = 1.0 / 60.0;
   for (int i = 0; i < 60; ++i)

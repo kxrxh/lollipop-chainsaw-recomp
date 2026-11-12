@@ -3,19 +3,19 @@
 
 #include <array>
 #include <fstream>
+#include <imgui.h>
+#include <imgui_internal.h>
 #include <sstream>
 #include <stdexcept>
 #include <windows.h>
-#include <imgui.h>
-#include <imgui_internal.h>
 
 #include <rex/cvar.h>
 #include <rex/input/input_system.h>
-#include <rex/ui/windowed_app_context.h>
 #include <rex/ui/imgui_drawer.h>
 #include <rex/ui/presenter.h>
 #include <rex/ui/renderdoc_api.h>
 #include <rex/ui/window.h>
+#include <rex/ui/windowed_app_context.h>
 
 namespace lollipop {
 namespace {
@@ -128,9 +128,21 @@ std::unique_ptr<rex::input::DeviceAssignment> make_test_assignment() {
 std::string execute_test_command(test_controls& controls,
                                  const std::string& command) {
   if (command.size() > 512) return "error command too long";
+  if (command.find_first_of("\r\n\0", 0, 3) != std::string::npos)
+    return "error command must be a single line";
   std::istringstream words(command);
   std::string operation;
   words >> operation;
+  if (operation == "game_console") {
+    std::string value;
+    std::getline(words >> std::ws, value);
+    return queue_game_console(value);
+  }
+  if (operation == "game_console_state") {
+    if (!(words >> std::ws).eof())
+      return "error game_console_state takes no arguments";
+    return "ok " + game_console_state();
+  }
   if (operation == "game_settings_state") {
     if (!(words >> std::ws).eof()) return "error game_settings_state takes no arguments";
     return "ok " + game_settings_state();

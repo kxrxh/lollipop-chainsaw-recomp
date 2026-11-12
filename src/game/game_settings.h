@@ -15,5 +15,7 @@ void save_game_settings();
 void replace_game_options(uint32_t player);
 void cancel_game_options(uint32_t player);
 std::string game_settings_state();
+std::string queue_game_console(const std::string& command);
+std::string game_console_state();
 
 } // namespace lollipop

@@ -6,7 +6,6 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 # Run only after checking that the game is in live gameplay on the lab save.
-# shortcut: CSV flushes every 60 frames; add an explicit GPU-thread flush for shorter probes.
 $phases = @(
     @{ Name = 'idle'; Inputs = @('0 0 0 0 0 10000') },
     @{ Name = 'camera'; Inputs = @('0 0 0 9000 0 5000', '0 0 0 -9000 0 5000',
@@ -29,23 +28,29 @@ if ($duration -ne 60000) { throw 'Benchmark must contain 60 seconds of input' }
 if (Test-Path $OutputDirectory) { throw 'Use a fresh benchmark output directory' }
 $null = New-Item -ItemType Directory $OutputDirectory
 $results = @()
+$profile = [ordered]@{}
+foreach ($flag in 'lollipop_fps','mnk_mode','readback_memexport','readback_memexport_fast',
+                  'd3d12_readback_memexport','resolution_scale','render_target_path_d3d12','vsync') {
+    $reply = & "$PSScriptRoot/test-control.ps1" -Directory $Directory -Command "get $flag"
+    $profile[$flag] = $reply.Substring(3)
+}
+function Get-HostMicroseconds {
+    [long][Math]::Floor([Diagnostics.Stopwatch]::GetTimestamp() * 1000000.0 / [Diagnostics.Stopwatch]::Frequency)
+}
 try {
     foreach ($phase in $phases) {
-        $before = & "$PSScriptRoot/measure-frames.ps1" -Path $Path -LastFrames 1
-        $startHostUs = [Math]::Round([Diagnostics.Stopwatch]::GetTimestamp() * 1000000.0 / [Diagnostics.Stopwatch]::Frequency)
-        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $startHostUs = $null
         foreach ($inputState in $phase.Inputs) {
             $null = & "$PSScriptRoot/test-control.ps1" -Directory $Directory -Command "input $inputState"
+            if ($null -eq $startHostUs) { $startHostUs = Get-HostMicroseconds }
             Start-Sleep -Milliseconds ([int]($inputState.Split(' ')[-1]))
         }
-        $timer.Stop()
-        $endHostUs = [Math]::Round([Diagnostics.Stopwatch]::GetTimestamp() * 1000000.0 / [Diagnostics.Stopwatch]::Frequency)
-        $measured = & "$PSScriptRoot/measure-frames.ps1" -Path $Path -AfterFrame $before.TotalFrames -LastFrames 100000
-        if ($measured.TotalFrames -le $before.TotalFrames) { throw 'Game frame log stopped advancing' }
-        $results += [pscustomobject]@{ Phase = $phase.Name; Seconds = $timer.Elapsed.TotalSeconds; StartHostUs = $startHostUs; EndHostUs = $endHostUs; Timing = $measured }
-        $results | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDirectory 'results.json')
+        $endHostUs = Get-HostMicroseconds
         $null = & "$PSScriptRoot/test-control.ps1" -Directory $Directory -Command capture
         Copy-Item -LiteralPath (Join-Path $Directory 'capture.bmp') -Destination (Join-Path $OutputDirectory "$($phase.Name).bmp")
+        $measured = & "$PSScriptRoot/measure-frames.ps1" -Path $Path -StartHostUs $startHostUs -EndHostUs $endHostUs -TargetFPS $profile.lollipop_fps
+        $results += [pscustomobject]@{ Phase = $phase.Name; Seconds = ($endHostUs - $startHostUs) / 1e6; StartHostUs = $startHostUs; EndHostUs = $endHostUs; Timing = $measured; Profile = $profile }
+        $results | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDirectory 'results.json')
         $results[-1]
     }
 } finally {

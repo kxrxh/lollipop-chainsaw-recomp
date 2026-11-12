@@ -85,6 +85,21 @@ address = 0x8292CA54
 name = "lollipop_options_command"
 registers = ["r6"]
 
+# ASH_GameEngine::execIsOnline: skip the query only for ASH_SystemInit.XBLCheck_Start.
+# Its completed state is also reached after the player confirms offline startup.
+[[entrypoint.midasm_hook]]
+address = 0x829D7F3C
+name = "lollipop_skip_startup_live_check"
+registers = ["r4", "r3"]
+jump_address_on_true = 0x829D7F40
+
+# The asynchronous package worker retains ownership and signals completion after the decode.
+[[entrypoint.midasm_hook]]
+address = 0x822590B0
+name = "lollipop_async_package_lzx"
+registers = ["r3", "r4", "r5", "r6", "r7"]
+jump_address_on_true = 0x822590B4
+
 # UGFxMoviePlayer::Load: initialized owner and decoded movie-path FString.
 [[entrypoint.midasm_hook]]
 address = 0x82940384

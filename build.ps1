@@ -21,7 +21,16 @@ Write-CodegenManifest -Template "$PSScriptRoot/lollipop_manifest.toml" -Output $
     -GameDirectory $game -GeneratedDirectory $generated
 & "$sdk/bin/rexglue.exe" codegen $manifest
 if ($LASTEXITCODE -ne 0) { throw 'ReXGlue code generation failed. See the analysis log.' }
-& $tools.CMake -S $PSScriptRoot -B $build -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
+$configureArgs = @()
+$cache = Join-Path $build 'CMakeCache.txt'
+if ([IO.File]::Exists($cache)) {
+    # A newer packaged installer may resume this build from a different source kit.
+    $cachedSource = Select-String -LiteralPath $cache -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$'
+    if ($cachedSource -and [IO.Path]::GetFullPath($cachedSource.Matches[0].Groups[1].Value) -ne $PSScriptRoot) {
+        $configureArgs += '--fresh'
+    }
+}
+& $tools.CMake @configureArgs -S $PSScriptRoot -B $build -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
     "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-DCMAKE_PREFIX_PATH=$sdk" `
     "-Drexglue_DIR=$sdk/lib/cmake/rexglue" "-DLOLLIPOP_GAME_DIR=$game" `
     "-DLOLLIPOP_GENERATED_DIR=$generated" "-DLOLLIPOP_MANIFEST=$manifest" -DCMAKE_BUILD_TYPE=Release

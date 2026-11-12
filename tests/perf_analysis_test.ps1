@@ -22,4 +22,14 @@ try {
         $result.NoEffectDrawsSkipped -ne 300) {
         throw 'Incorrect texture cache memory or eviction summary'
     }
+    $rejected = $false
+    try { & "$PSScriptRoot/../scripts/measure-frames.ps1" -Path $temporary -StartHostUs 1 -EndHostUs 2 }
+    catch { $rejected = $_ -match 'timestamped' }
+    if (!$rejected) { throw 'Legacy CSV cannot locate a timed phase' }
+    [IO.File]::WriteAllText($temporary, "host_us,frame_time_us,draw_calls,command_buffer_stalls,pipeline_cache_misses,texture_cache_misses,prompt_hash_bytes`n9000,8000,0,0,0,0,1`n18000,9000,0,0,0,0,2`n28000,10000,0,0,0,0,4`n41000,13000,0,0,0,0,8`n48000,7000,0,0,0,0,16`n51000")
+    $result = & "$PSScriptRoot/../scripts/measure-frames.ps1" -Path $temporary -StartHostUs 10000 -EndHostUs 41000 -TargetFPS 90
+    if ($result.Samples -ne 2 -or $result.OverBudgetPercent -ne 50 -or
+        $result.PromptHashBytes -ne 12 -or $null -ne $result.PromptCandidates) {
+        throw 'Count only complete phase intervals and available counters'
+    }
 } finally { Remove-Item -LiteralPath $temporary }

@@ -1,8 +1,10 @@
 #include "prompt_artwork.h"
+#include "game/package_lzx.h"
 
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -10,17 +12,20 @@
 #include <string>
 #include <string_view>
 #include <windows.h>
-#include <objidl.h>
+
 #include <bcrypt.h>
+#include <objidl.h>
+
 #include <gdiplus.h>
 
 #include <rex/cvar.h>
 #include <rex/filesystem/devices/host_path_device.h>
 #include <rex/hash.h>
 #include <rex/input/input_system.h>
+#include <rex/logging.h>
+#include <rex/perf/counter.h>
 #include <rex/runtime.h>
 #include <rex/string/utf8.h>
-#include <rex/system/lzx.h>
 #include <rex/system/gpu_plugin.h>
 
 namespace lollipop {
@@ -49,6 +54,13 @@ struct prompt {
   const char *label;
   bool depressed = false;
 };
+constexpr size_t prompt_sample_bytes = 64;
+
+uint64_t prompt_hash(std::span<const uint8_t> texture) {
+  const auto size = std::min(texture.size(), prompt_sample_bytes);
+  const auto sample = texture.subspan((texture.size() - size) / 2, size);
+  return XXH3_64bits(sample.data(), sample.size());
+}
 constexpr prompt prompts[] = {
     {0x13b3b3, 16737, "keybind_a", nullptr},
     {0x13f514, 16737, "keybind_a", nullptr, true},
@@ -503,7 +515,7 @@ std::vector<uint8_t> pack_keyboard_prompts(
       throw std::runtime_error("Unsupported LZX cabinet layout");
     size_t cursor = le16(36) | (le16(38) << 16);
     const auto frames = le16(40);
-    std::vector<uint8_t> packed, raw;
+    std::vector<uint8_t> packed;
     for (unsigned frame = 0; frame < frames; ++frame) {
       const auto compressed = le16(cursor + 4), size = le16(cursor + 6);
       cursor += 8;
@@ -519,20 +531,15 @@ std::vector<uint8_t> pack_keyboard_prompts(
       packed.push_back(static_cast<uint8_t>(compressed));
       packed.insert(packed.end(), cab.begin() + cursor,
                     cab.begin() + cursor + compressed);
-      raw.insert(raw.end(), cab.begin() + cursor,
-                 cab.begin() + cursor + compressed);
       cursor += compressed;
     }
     std::filesystem::remove(input_path);
     std::filesystem::remove(cab_path);
-    std::vector<uint8_t> decoded(input.size());
-    if (lzx_decompress(raw.data(), raw.size(), decoded.data(), decoded.size(),
-                       1 << 17, nullptr, 0) ||
-        !std::equal(decoded.begin(), decoded.end(), input.begin()))
-      throw std::runtime_error(
-          "Keyboard package failed its LZX round-trip check");
-    // UE3 removes four trailer bytes before XMem removes five more.
     packed.resize(packed.size() + 9);
+    std::vector<uint8_t> decoded(input.size());
+    if (!decode_package_lzx(packed, decoded) ||
+        !std::equal(decoded.begin(), decoded.end(), input.begin()))
+      throw std::runtime_error("Keyboard package failed its LZX round-trip check");
     write32(result, 16 + chunk * 8, static_cast<uint32_t>(packed.size()));
     write32(result, 20 + chunk * 8, static_cast<uint32_t>(input.size()));
     result.insert(result.end(), packed.begin(), packed.end());
@@ -546,6 +553,39 @@ std::unique_ptr<rex::filesystem::Device> make_keyboard_game_device(
   return std::make_unique<keyboard_game_device>(game, cache);
 }
 
+bool cache_keyboard_prompts(std::span<const uint8_t> package,
+                            const std::filesystem::path& directory) {
+  const auto path = directory / "Startup.xxx";
+  const auto stamp = directory / "Startup.lzx-v1";
+  const auto source_hash = XXH3_64bits(package.data(), package.size());
+  uint64_t saved_source{}, saved_packed{};
+  if (std::ifstream(stamp) >> saved_source >> saved_packed && saved_source == source_hash) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    const auto size = file.tellg();
+    if (size > 0 && size <= 4 * 1024 * 1024) {
+      std::vector<uint8_t> bytes(static_cast<size_t>(size));
+      file.seekg(0);
+      if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size()) &&
+          XXH3_64bits(bytes.data(), bytes.size()) == saved_packed)
+        return true;
+    }
+  }
+  const auto packed = pack_keyboard_prompts(package, directory);
+  auto publish = [&](const std::filesystem::path& target, const char* data, size_t size) {
+    auto temporary = target;
+    temporary += "." + std::to_string(GetCurrentProcessId()) + ".tmp";
+    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+    out.write(data, size);
+    out.close();
+    if (!out || !MoveFileExW(temporary.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING))
+      throw std::runtime_error("Could not publish keyboard artwork cache");
+  };
+  publish(path, reinterpret_cast<const char*>(packed.data()), packed.size());
+  const auto hashes =
+      std::to_string(source_hash) + " " + std::to_string(XXH3_64bits(packed.data(), packed.size()));
+  publish(stamp, hashes.data(), hashes.size());
+  return false;
+}
 
 std::vector<uint8_t> make_keyboard_prompts(std::span<const uint8_t> startup,
                                            bool controller) {
@@ -577,23 +617,7 @@ std::vector<uint8_t> make_keyboard_prompts(std::span<const uint8_t> startup,
         size > package.size() - output)
       throw std::runtime_error("Invalid startup compression bounds");
     const auto packed = startup.subspan(cursor, packed_size);
-    std::vector<uint8_t> raw;
-    for (size_t pos = 0; pos < packed.size();) {
-      const size_t header = packed[pos] == 255 ? 5 : 2;
-      if (header > packed.size() - pos)
-        throw std::runtime_error("Truncated LZX packet header");
-      const auto count =
-          (size_t(packed[pos + header - 2]) << 8) | packed[pos + header - 1];
-      pos += header;
-      if (!count)
-        break;  // XMem's zero-length terminator precedes allocation padding.
-      if (count > packed.size() - pos)
-        throw std::runtime_error("Invalid LZX packet length");
-      raw.insert(raw.end(), packed.begin() + pos, packed.begin() + pos + count);
-      pos += count;
-    }
-    if (lzx_decompress(raw.data(), raw.size(), package.data() + output, size,
-                       1 << 17, nullptr, 0))
+    if (!decode_package_lzx(packed, std::span(package).subspan(output, size)))
       throw std::runtime_error("Could not decompress startup artwork");
     cursor += packed_size;
     output += size;
@@ -668,10 +692,7 @@ std::vector<prompt_variants> make_prompt_variants(
   for (const auto &p : prompts) {
     const auto k = keyboard.subspan(p.offset + 325, p.size - 353);
     const auto g = gamepad.subspan(p.offset + 325, p.size - 353);
-    result.push_back({{k.begin(), k.end()},
-                      {g.begin(), g.end()},
-                      XXH3_64bits(k.data(), k.size()),
-                      XXH3_64bits(g.data(), g.size())});
+    result.push_back({{k.begin(), k.end()}, {g.begin(), g.end()}, prompt_hash(k), prompt_hash(g)});
   }
   return result;
 }
@@ -679,7 +700,7 @@ std::vector<prompt_variants> make_prompt_variants(
 std::span<const uint8_t> select_prompt_artwork(
     std::span<const prompt_variants> variants, std::span<const uint8_t> texture,
     bool keyboard) {
-  const auto hash = XXH3_64bits(texture.data(), texture.size());
+  const auto hash = prompt_hash(texture);
   for (const auto &variant : variants) {
     const auto &current = keyboard ? variant.gamepad : variant.keyboard;
     const auto current_hash =
@@ -798,21 +819,37 @@ void install_keyboard_prompts(rex::Runtime &runtime,
   if (!input)
     throw std::runtime_error("Prompt switching needs the SDK input system");
   rex::system::SetTextureDataCallback(
-      [input, variants = std::move(variants)](
+      [input, variants = std::move(variants),
+       profile = !rex::cvar::GetFlagByName("perf_log_csv").empty()](
           uint32_t width, uint32_t height, uint32_t format,
           std::span<const uint8_t> data) -> std::span<const uint8_t> {
         if (width != height || (width != 128 && width != 256) || format != 20)
           return {};
-        return select_prompt_artwork(variants, data, input->IsKeyboardActive());
+        const bool keyboard = input->IsKeyboardActive();
+        if (!profile)
+          return select_prompt_artwork(variants, data, keyboard);
+        const auto start = std::chrono::steady_clock::now();
+        const auto replacement = select_prompt_artwork(variants, data, keyboard);
+        using namespace rex::perf;
+        IncrementCounter(CounterId::kPromptMatchNs,
+                         std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             std::chrono::steady_clock::now() - start)
+                             .count());
+        IncrementCounter(CounterId::kPromptCandidates);
+        IncrementCounter(CounterId::kPromptHashBytes, std::min(data.size(), prompt_sample_bytes));
+        if (!replacement.empty())
+          IncrementCounter(CounterId::kPromptReplacements);
+        return replacement;
       });
-  const auto directory = cache_root / "keyboard-prompts";
+  const auto directory = cache_root / "keyboard-prompts" /
+                         std::to_string(XXH3_64bits(rendered.data(), rendered.size()));
   std::filesystem::create_directories(directory);
-  const auto path = directory / "Startup.xxx";
-  const auto package = pack_keyboard_prompts(rendered, directory);
-  std::ofstream output(path, std::ios::binary | std::ios::trunc);
-  output.write(reinterpret_cast<const char *>(package.data()), package.size());
-  output.close();
-  if (!output) throw std::runtime_error("Could not cache keyboard artwork");
+  const auto cache_start = std::chrono::steady_clock::now();
+  const bool reused = cache_keyboard_prompts(rendered, directory);
+  REXLOG_INFO("Keyboard prompt package {} in {} ms", reused ? "reused" : "built",
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - cache_start)
+                  .count());
   for (const auto &entry :
        std::filesystem::directory_iterator(source.parent_path())) {
     const auto filename = entry.path().filename().string();

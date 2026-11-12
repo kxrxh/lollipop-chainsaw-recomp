@@ -1,0 +1,340 @@
+diff --git a/include/rex/graphics/d3d12/pipeline_cache.h b/include/rex/graphics/d3d12/pipeline_cache.h
+--- a/include/rex/graphics/d3d12/pipeline_cache.h
++++ b/include/rex/graphics/d3d12/pipeline_cache.h
+@@ -350,6 +350,7 @@
+     D3D12Shader::D3D12Translation* pending_vertex_shader = nullptr;
+     D3D12Shader::D3D12Translation* pending_pixel_shader = nullptr;
+     uint8_t priority = 0;
++    bool precompile = false;
+   };
+   struct PipelineCreationPriorityComparator {
+     bool operator()(const Pipeline* a, const Pipeline* b) const {
+@@ -396,6 +397,10 @@
+ 
+   // Pipeline creation threads.
+   void CreationThread(size_t thread_index);
++  void CompletePrecompile(Pipeline* pipeline);
++  std::atomic<uint32_t> precompile_completed_{0};
++  std::atomic<uint32_t> precompile_failed_{0};
++  uint32_t precompile_total_ = 0;
+   void CreateQueuedPipelinesOnProcessorThread();
+   std::mutex creation_request_lock_;
+   std::condition_variable creation_request_cond_;
+diff --git a/include/rex/rex_app.h b/include/rex/rex_app.h
+--- a/include/rex/rex_app.h
++++ b/include/rex/rex_app.h
+@@ -160,6 +160,8 @@
+   /// Called immediately before the main guest thread is created.
+   /// Everything is set up -- last chance to patch guest memory/code.
+   virtual void OnPreLaunchModule() {}
++
++  virtual bool ShouldInitializeShaderStorage() const { return true; }
+ 
+   /// Called after the main guest thread is created but before it starts
+   /// executing. The thread is suspended -- attach debuggers/monitors here.
+diff --git a/include/rex/system/gpu_plugin.h b/include/rex/system/gpu_plugin.h
+--- a/include/rex/system/gpu_plugin.h
++++ b/include/rex/system/gpu_plugin.h
+@@ -56,6 +56,13 @@
+ using GpuAbiVersionFn = uint32_t (*)();
+ using GpuCreateFn = IGraphicsSystem* (*)(uint32_t abi_version, const GpuCreateInfo* info);
+ 
++enum class ShaderPrecompileStage { kShaders, kPipelines, kComplete };
++using ShaderPrecompileCallback = std::function<void(ShaderPrecompileStage, uint32_t,
++                                                   uint32_t, uint32_t)>;
++void SetShaderPrecompileCallback(ShaderPrecompileCallback callback);
++void ReportShaderPrecompile(ShaderPrecompileStage stage, uint32_t completed,
++                            uint32_t total, uint32_t failed);
++
+ // Loads rexgpu-<name> from the executable's directory and constructs its
+ // graphics system. Returns nullptr after logging a detailed error (missing
+ // file, missing exports, ABI mismatch, or factory failure). The library
+diff --git a/include/rex/system/lzx.h b/include/rex/system/lzx.h
+--- a/include/rex/system/lzx.h
++++ b/include/rex/system/lzx.h
+@@ -24,3 +24,6 @@
+ 
+ int lzxdelta_apply_patch(rex::xex2_delta_patch* patch, size_t patch_len, uint32_t window_size,
+                          void* dest);
++
++int lzx_decompress_xmem(const void* data, size_t size, void* output, size_t output_size,
++                        uint32_t window_size);
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -36,6 +36,10 @@
+ REXCVAR_DEFINE_BOOL(d3d12_bindless, true, "GPU/D3D12", "Use bindless resources where available")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_BOOL(d3d12_pipeline_collection, false, "GPU/D3D12",
++                    "Diagnostic pipeline collection without color/depth draws; no game image")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_BOOL(d3d12_readback_memexport, false, "GPU/D3D12",
+                     "Read data written by memory export in shaders on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -153,7 +157,8 @@
+ 
+ bool D3D12CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader,
+                                                                uint32_t packet, uint32_t count) {
+-  if (!REXCVAR_GET(occlusion_query_enable) || !occlusion_query_resources_available_) {
++  if (REXCVAR_GET(d3d12_pipeline_collection) || !REXCVAR_GET(occlusion_query_enable) ||
++      !occlusion_query_resources_available_) {
+     return CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(reader, packet, count);
+   }
+ 
+@@ -2419,6 +2424,11 @@
+     return true;
+   }
+ 
++  // Keep shader/pipeline discovery and guest-visible memory exports during offline collection.
++  if (REXCVAR_GET(d3d12_pipeline_collection) && !memexport_used) {
++    return true;
++  }
++
+   // Update the textures - this may bind pipelines.
+   uint32_t used_texture_mask =
+       vertex_shader->GetUsedTextureMaskAfterTranslation() |
+diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
+--- a/src/graphics/d3d12/pipeline_cache.cpp
++++ b/src/graphics/d3d12/pipeline_cache.cpp
+@@ -47,6 +47,7 @@
+ #include <rex/string/buffer.h>
+ #include <rex/thread.h>
+ #include <rex/types.h>
++#include <rex/system/gpu_plugin.h>
+ #include <rex/ui/d3d12/d3d12_util.h>
+ 
+ REXCVAR_DEFINE_BOOL(d3d12_dxbc_disasm, false, "GPU/D3D12", "Dump DXBC disassembly");
+@@ -325,6 +326,10 @@
+   }
+ 
+   // Initialize the Xenos shader storage stream.
++  std::atomic<uint32_t> translations_completed{0};
++  std::atomic<uint32_t> translations_failed{0};
++  system::ReportShaderPrecompile(system::ShaderPrecompileStage::kShaders, 0,
++                                 uint32_t(shader_translations_needed.size()), 0);
+   uint64_t shader_storage_initialization_start = rex::chrono::Clock::QueryHostTickCount();
+   auto shader_storage_file_path =
+       shader_storage_shareable_root / fmt::format("{:08X}.xsh", title_id);
+@@ -422,7 +427,11 @@
+                                        dxc_compiler)) {
+             std::lock_guard<std::mutex> lock(shaders_failed_to_translate_mutex);
+             shaders_failed_to_translate.push_back(translation);
++            ++translations_failed;
+           }
++          system::ReportShaderPrecompile(system::ShaderPrecompileStage::kShaders,
++              ++translations_completed, uint32_t(shader_translations_needed.size()),
++              translations_failed.load());
+         }
+         {
+           std::lock_guard<std::mutex> lock(shaders_translation_thread_mutex);
+@@ -474,7 +483,7 @@
+         std::lock_guard<std::mutex> lock(shaders_translation_thread_mutex);
+         shader_translation_threads_needed =
+             std::min(shader_translation_threads_busy + shaders_to_translate.size() + size_t(1),
+-                     logical_processor_count - size_t(1));
++                     std::max(logical_processor_count - size_t(1), size_t(1)));
+       }
+       while (shader_translation_threads.size() < shader_translation_threads_needed) {
+         auto thread = rex::thread::Thread::Create({}, shader_translation_thread_function);
+@@ -532,7 +541,7 @@
+     size_t creation_thread_needed_count =
+         std::max(std::min(pipeline_stored_descriptions.size(), logical_processor_count) - size_t(1),
+                  creation_thread_original_count);
+-    while (creation_threads_.size() < creation_thread_original_count) {
++    while (creation_threads_.size() < creation_thread_needed_count) {
+       size_t creation_thread_index = creation_threads_.size();
+       std::unique_ptr<rex::thread::Thread> creation_thread = rex::thread::Thread::Create(
+           {}, [this, creation_thread_index]() { CreationThread(creation_thread_index); });
+@@ -541,6 +550,11 @@
+       creation_threads_.push_back(std::move(creation_thread));
+     }
+ 
++    precompile_completed_ = 0;
++    precompile_failed_ = 0;
++    precompile_total_ = uint32_t(pipeline_stored_descriptions.size());
++    system::ReportShaderPrecompile(system::ShaderPrecompileStage::kPipelines, 0,
++                                   precompile_total_, 0);
+     size_t pipelines_created = 0;
+     for (const PipelineStoredDescription& pipeline_stored_description :
+          pipeline_stored_descriptions) {
+@@ -614,6 +628,7 @@
+                   sizeof(pipeline_description));
+ 
+       Pipeline* new_pipeline = new Pipeline;
++      new_pipeline->precompile = true;
+       std::memcpy(&new_pipeline->description, &pipeline_runtime_description,
+                   sizeof(pipeline_runtime_description));
+       new_pipeline->root_signature.store(pipeline_runtime_description.root_signature,
+@@ -646,6 +661,7 @@
+       } else {
+         new_pipeline->state.store(CreateD3D12Pipeline(pipeline_runtime_description),
+                                   std::memory_order_release);
++        CompletePrecompile(new_pipeline);
+       }
+       ++pipelines_created;
+     }
+@@ -664,6 +680,8 @@
+           rex::thread::Wait(creation_threads_.back().get(), false);
+           creation_threads_.pop_back();
+         }
++      }
++      {
+         bool await_creation_completion_event;
+         {
+           // Cleanup so additional threads can be created later again.
+@@ -707,6 +725,14 @@
+   }
+ 
+   shader_storage_cache_root_ = cache_root;
++  const uint32_t missing_translations = uint32_t(shader_translations_needed.size()) -
++      std::min(translations_completed.load(), uint32_t(shader_translations_needed.size()));
++  const uint32_t missing_pipelines = precompile_total_ -
++      std::min(precompile_completed_.load(), precompile_total_);
++  system::ReportShaderPrecompile(system::ShaderPrecompileStage::kComplete,
++      precompile_completed_.load(), precompile_total_,
++      translations_failed.load() + missing_translations + precompile_failed_.load() +
++      (blocking ? missing_pipelines : 0));
+   shader_storage_title_id_ = title_id;
+ 
+   // Start the storage writing thread.
+@@ -3235,6 +3261,8 @@
+                                       std::memory_order_release);
+     }
+ 
++    CompletePrecompile(pipeline_to_create);
++
+     // Pipeline created - the thread is not busy anymore, safe to set the
+     // completion event if needed (at the next iteration, or in some other
+     // thread).
+@@ -3260,11 +3288,21 @@
+     PipelineRuntimeDescription runtime_description;
+     if (!PrepareRuntimeDescriptionForQueuedCreation(pipeline_to_create, runtime_description)) {
+       pipeline_to_create->state.store(nullptr, std::memory_order_release);
++      CompletePrecompile(pipeline_to_create);
+       continue;
+     }
+     pipeline_to_create->state.store(CreateD3D12Pipeline(runtime_description),
+                                     std::memory_order_release);
++    CompletePrecompile(pipeline_to_create);
+   }
+ }
+ 
++void PipelineCache::CompletePrecompile(Pipeline* pipeline) {
++  if (!pipeline->precompile) return;
++  pipeline->precompile = false;
++  if (!pipeline->state.load(std::memory_order_acquire)) ++precompile_failed_;
++  system::ReportShaderPrecompile(system::ShaderPrecompileStage::kPipelines,
++      ++precompile_completed_, precompile_total_, precompile_failed_.load());
++}
++
+ }  // namespace rex::graphics::d3d12
+diff --git a/src/system/gpu_plugin_loader.cpp b/src/system/gpu_plugin_loader.cpp
+--- a/src/system/gpu_plugin_loader.cpp
++++ b/src/system/gpu_plugin_loader.cpp
+@@ -125,4 +125,19 @@
+   return std::unique_ptr<IGraphicsSystem>(graphics_system);
+ }
+ 
++namespace {
++std::atomic<std::shared_ptr<const ShaderPrecompileCallback>> shader_precompile_callback;
++}
++
++void SetShaderPrecompileCallback(ShaderPrecompileCallback callback) {
++  shader_precompile_callback.store(callback
++      ? std::make_shared<const ShaderPrecompileCallback>(std::move(callback)) : nullptr);
++}
++
++void ReportShaderPrecompile(ShaderPrecompileStage stage, uint32_t completed,
++                            uint32_t total, uint32_t failed) {
++  auto callback = shader_precompile_callback.load();
++  if (callback) (*callback)(stage, completed, total, failed);
++}
++
+ }  // namespace rex::system
+diff --git a/src/system/lzx.cpp b/src/system/lzx.cpp
+--- a/src/system/lzx.cpp
++++ b/src/system/lzx.cpp
+@@ -97,8 +97,9 @@
+   free(sys);
+ }
+ 
+-int lzx_decompress(const void* lzx_data, size_t lzx_len, void* dest, size_t dest_len,
+-                   uint32_t window_size, void* window_data, size_t window_data_len) {
++static int lzx_decompress_impl(const void* lzx_data, size_t lzx_len, void* dest, size_t dest_len,
++                               uint32_t window_size, void* window_data, size_t window_data_len,
++                               bool xmem) {
+   int result_code = 1;
+ 
+   uint32_t window_bits;
+@@ -113,6 +114,7 @@
+                                 0x8000, (off_t)dest_len, 0);
+ 
+   if (lzxd) {
++    lzxd->is_xmem = xmem;
+     if (window_data) {
+       // zero the window and then copy window_data to the end of it
+       auto padding_len = window_size - window_data_len;
+@@ -145,6 +147,18 @@
+   }
+ 
+   return result_code;
++}
++
++int lzx_decompress(const void* data, size_t size, void* output, size_t output_size,
++                   uint32_t window_size, void* window_data, size_t window_data_len) {
++  return lzx_decompress_impl(data, size, output, output_size, window_size,
++                             window_data, window_data_len, false);
++}
++
++int lzx_decompress_xmem(const void* data, size_t size, void* output, size_t output_size,
++                        uint32_t window_size) {
++  const int result = lzx_decompress_impl(data, size, output, output_size, window_size, nullptr, 0, true);
++  return result ? lzx_decompress(data, size, output, output_size, window_size, nullptr, 0) : 0;
+ }
+ 
+ int lzxdelta_apply_patch(rex::xex2_delta_patch* patch, size_t patch_len, uint32_t window_size,
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -483,7 +483,7 @@
+     }
+ 
+     auto* graphics_system = runtime_->graphics_system();
+-    if (graphics_system && !runtime_->cache_root().empty()) {
++    if (ShouldInitializeShaderStorage() && graphics_system && !runtime_->cache_root().empty()) {
+       uint32_t title_id = runtime_->kernel_state()->title_id();
+       if (title_id != 0) {
+         REXLOG_INFO("Initializing shader storage for title {:08X}...", title_id);
+diff --git a/thirdparty/libmspack/libmspack/mspack/lzx.h b/thirdparty/libmspack/libmspack/mspack/lzx.h
+--- a/thirdparty/libmspack/libmspack/mspack/lzx.h
++++ b/thirdparty/libmspack/libmspack/mspack/lzx.h
+@@ -73,6 +73,7 @@
+   unsigned char  header_read;     /* have we started decoding at all yet?    */
+   unsigned char  input_end;       /* have we reached the end of input?       */
+   unsigned char  is_delta;        /* does stream follow LZX DELTA spec?      */
++  unsigned char  is_xmem;         /* XMem omits odd uncompressed-block padding */
+ 
+   int error;
+ 
+diff --git a/thirdparty/libmspack/libmspack/mspack/lzxd.c b/thirdparty/libmspack/libmspack/mspack/lzxd.c
+--- a/thirdparty/libmspack/libmspack/mspack/lzxd.c
++++ b/thirdparty/libmspack/libmspack/mspack/lzxd.c
+@@ -338,6 +338,7 @@
+   lzx->error           = MSPACK_ERR_OK;
+   lzx->num_offsets     = position_slots[window_bits - 15] << 3;
+   lzx->is_delta        = is_delta;
++  lzx->is_xmem         = 0;
+ 
+   lzx->o_ptr = lzx->o_end = &lzx->e8_buf[0];
+   lzxd_reset_state(lzx);
+@@ -467,7 +468,7 @@
+       if (lzx->block_remaining == 0) {
+         /* realign if previous block was an odd-sized UNCOMPRESSED block */
+         if ((lzx->block_type == LZX_BLOCKTYPE_UNCOMPRESSED) &&
+-            (lzx->block_length & 1))
++            (lzx->block_length & 1) && !lzx->is_xmem)
+         {
+           READ_IF_NEEDED;
+           i_ptr++;

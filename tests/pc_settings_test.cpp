@@ -6,6 +6,9 @@
 #include <stdexcept>
 #include <rex/cvar.h>
 
+REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU", "Test renderer default");
+REXCVAR_DEFINE_STRING(render_target_path_d3d12, "", "GPU", "Test renderer selection");
+
 static void check(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
 }
@@ -31,12 +34,27 @@ int main(int argc, char** argv) try {
   values["window_height"] = "1440";
   check(validate_pc_settings(values), "Recommended profile validates");
   const std::filesystem::path path = argv[1];
+  if (argc == 3 && (std::string_view(argv[2]) == "--shader-default" ||
+                    std::string_view(argv[2]) == "--shader-cli")) {
+    const bool explicit_async = std::string_view(argv[2]) == "--shader-cli";
+    if (explicit_async)
+      rex::cvar::SetFlagFromCommandLine("async_shader_compilation", "true");
+    if (explicit_async)
+      rex::cvar::SetFlagFromCommandLine("render_target_path_d3d12", "rtv");
+    configure_pc_settings(path);
+    check(rex::cvar::Query<bool>("async_shader_compilation") == explicit_async,
+          "Wait for uncached shaders by default; explicit diagnostic launch flag wins");
+    check(rex::cvar::GetFlagByName("render_target_path_d3d12") == (explicit_async ? "rtv" : "rov"),
+          "Direct launches use the precompilable renderer; explicit diagnostic selection wins");
+    return 0;
+  }
   if (argc == 3) {
     std::filesystem::create_directories(path.parent_path());
     const bool duplicate = std::string_view(argv[2]) == "--duplicate";
     const bool legacy60 = std::string_view(argv[2]) == "--legacy-60";
     const bool precedence = std::string_view(argv[2]) == "--fps-precedence";
-    if (precedence) rex::cvar::SetFlagFromCommandLine("lollipop_fps", "120");
+    if (precedence)
+      rex::cvar::SetFlagFromCommandLine("lollipop_fps", "120");
     {
       std::ofstream file(path);
       file << "vsync = \"false\"\n";

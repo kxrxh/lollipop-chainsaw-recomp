@@ -32,6 +32,8 @@ std::span<const uint8_t> select_prompt_artwork(std::span<const prompt_variants> 
 std::vector<uint8_t> make_keyboard_title(std::span<const uint8_t> coalesced);
 std::vector<uint8_t> pack_keyboard_prompts(std::span<const uint8_t> package,
                                            const std::filesystem::path& directory);
+bool cache_keyboard_prompts(std::span<const uint8_t> package,
+                            const std::filesystem::path& directory);
 std::unique_ptr<rex::filesystem::Device>
 make_keyboard_game_device(const std::filesystem::path& game, const std::filesystem::path& cache);
 void install_keyboard_prompts(rex::Runtime& runtime, const std::filesystem::path& game_root,

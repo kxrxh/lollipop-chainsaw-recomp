@@ -1,4 +1,7 @@
 #include "game_settings.h"
+#include "game/startup_hooks.h"
+#include "game/timing_hooks.h"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -7,11 +10,13 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
-#include <string>
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
 #include <rex/system/thread_state.h>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 REXCVAR_DEFINE_INT32(lollipop_music_volume, 10, "Lollipop", "Music volume, 0 to 10").range(0, 10);
 REXCVAR_DEFINE_INT32(lollipop_sfx_volume, 10, "Lollipop", "Sound effects volume, 0 to 10").range(0, 10);
@@ -30,6 +35,9 @@ std::atomic<uint32_t> hidden_movie{};
 std::atomic<int64_t> legacy_close_after{};
 std::mutex state_mutex;
 std::array<int, 7> engine_values{};
+std::mutex console_mutex;
+std::string console_pending;
+std::string console_result = "idle";
 constexpr const char* flags[] = {"lollipop_music_volume", "lollipop_sfx_volume", "lollipop_subtitles",
     "lollipop_camera_invert_y", "lollipop_camera_invert_x", "lollipop_manual_aim", "vibration"};
 constexpr const char* getters[] = {"ASHUS_GetGameBGMVolume", "ASHUS_GetGameSEVolume",
@@ -84,6 +92,20 @@ class guest_calls {
     runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), process_event, args, 4);
     const auto offset = rex::memory::load_and_swap<uint16_t>(memory_ + function + 140);
     return offset <= 124 ? read(scratch_ + offset) : 0;
+  }
+  void console(uint32_t actor, const std::string& command) {
+    const auto function = find("Engine.Actor.ConsoleCommand");
+    if (!function)
+      throw std::runtime_error("Native console is unavailable");
+    std::memset(memory_ + scratch_, 0, 128);
+    string(scratch_, scratch_ + 512, command.c_str());
+    write(scratch_ + 12, 1);
+    const auto result = process(actor, function);
+    if (result) {
+      uint64_t args[] = {result};
+      runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), 0x82252130,
+                                                  args, 1);
+    }
   }
   void hide_legacy(uint32_t movie) {
     const auto header = scratch_ + 32, text = scratch_ + 512;
@@ -141,7 +163,28 @@ std::string game_settings_state() {
   return result;
 }
 
+std::string queue_game_console(const std::string& command) {
+  if (command.empty() || command.size() > 240 ||
+      command.find_first_of("\r\n\0", 0, 3) != std::string::npos ||
+      std::ranges::any_of(command, [](unsigned char c) { return c < 32 || c > 126; }))
+    return "error console expects 1..240 printable ASCII characters";
+  std::lock_guard lock(console_mutex);
+  if (console_result == "pending" || console_result == "running")
+    return "error console busy";
+  console_pending = command;
+  console_result = "pending";
+  return "ok queued";
+}
+
+std::string game_console_state() {
+  std::lock_guard lock(console_mutex);
+  return console_result;
+}
+
 void update_game_settings(rex::Runtime& runtime, PPCContext& context) {
+  // Loading movies also advance on a worker while the engine serializes objects.
+  if (!is_engine_tick_thread())
+    return;
   static auto next = std::chrono::steady_clock::time_point{};
   const auto now = std::chrono::steady_clock::now();
   const auto movie = legacy_movie.load();
@@ -150,10 +193,24 @@ void update_game_settings(rex::Runtime& runtime, PPCContext& context) {
   if (!hide && !close && now < next) return;
   next = now + std::chrono::milliseconds(250);
   guest_calls guest(runtime, context);
+  // StaticFindObject checks these two flags before touching the object table.
+  if (guest.read(0x83351964) || guest.read(0x83340FB0))
+    return;
   if (hide) { guest.hide_legacy(movie); hidden_movie.store(movie); }
   if (close && legacy_movie.exchange(0) == movie) guest.close_legacy(movie);
-  // The startup UI exists before the game has read its native save.
-  if (!loaded.load()) return;
+  static bool startup_check_found = false;
+  if (!startup_check_found) {
+    const auto function = guest.find("AshGame.ASH_SystemInit.XBLCheck_Start");
+    if (function) {
+      set_startup_live_check(function);
+      startup_check_found = true;
+    }
+  }
+  if (!loaded.load()) {
+    std::lock_guard lock(console_mutex);
+    if (console_pending.empty())
+      return;
+  }
   auto valid = [](uint32_t pointer) { return pointer >= 0x40000000 && pointer < 0xBFFFF000; };
   const auto world = guest.read(0x83353B5C);
   if (!valid(world)) return;
@@ -162,7 +219,28 @@ void update_game_settings(rex::Runtime& runtime, PPCContext& context) {
   const auto actors = guest.read(level + 60);
   if (!valid(actors)) return;
   const auto info = guest.read(actors);
-  if (!valid(info)) return;
+  if (!valid(info))
+    return;
+  std::string command;
+  {
+    std::lock_guard lock(console_mutex);
+    command = std::exchange(console_pending, {});
+    if (!command.empty())
+      console_result = "running";
+  }
+  if (!command.empty()) {
+    std::string result = "complete";
+    try {
+      guest.console(info, command);
+    } catch (const std::exception& error) {
+      result = "error " + std::string(error.what());
+    }
+    std::lock_guard lock(console_mutex);
+    console_result = std::move(result);
+  }
+  // The startup UI exists before the game has read its native save.
+  if (!loaded.load())
+    return;
   const auto game_property = guest.find("Engine.WorldInfo.Game");
   const auto ui_property = guest.find("AshGame.ASH_GameInfo.mInterface");
   if (!game_property || !ui_property) return;
