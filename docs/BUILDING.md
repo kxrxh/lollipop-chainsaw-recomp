@@ -1,80 +1,24 @@
 # Build guide
 
-The current kit targets **Windows x64**. A Python or shell wrapper alone
-would not add macOS or Linux support; those platforms need separate runtime,
-graphics and build validation.
+Commands below run from the repository folder on Windows x64.
+For install and play instructions, see the [README](../README.md).
 
-## Requirements
+## Build the installer
 
-The Windows x64 installer asks for an ISO and a destination. Its compiled C#
-application uses Windows' .NET Framework and tar; setup and launch do not invoke
-PowerShell or run project scripts. It verifies pinned downloads of extract-xiso,
-MinGit and LLVM before unpacking them in the destination's `out/tools/packages/`.
-Compatible Git 2.36+ and LLVM 20.1.8 installations are reused before downloading replacements.
-Interrupted downloads stay in that cache and resume on retry; SHA-256 is
-checked before extraction. Servers without resume support restart the transfer.
-It installs the Microsoft Visual C++ runtime and only the x64 C++ compiler,
-CMake tools and Windows SDK components needed from Visual Studio Build Tools
-when missing. Windows may request administrator approval or a restart.
+Run this in PowerShell:
 
-Setup shows the current step, its elapsed time, download size and speed, and
-percentages reported by downloads, Git and the compiler. Steps without measured
-percentages show an activity indicator. On error, the complete setup log expands
-inside the launcher; **Open setup log** also opens the file in Notepad. The log
-is in `out/launcher/latest.log` under the destination.
-
-To package the standalone installer, run `./installer/build.ps1` on
-Windows x64. It writes `out/installer/Lollipop Chainsaw Setup.exe`. The EXE
-embeds public project files and extracts its versioned source kit under the
-current user's Local AppData. It runs Git, CMake, code generation, the compiler
-and CTest directly. Only the native tests run during installation; PowerShell
-development checks remain enabled for manual builds (`LOLLIPOP_SCRIPT_TESTS=ON`).
-The payload contains no `.ps1` files, game data or generated translations.
-The installed **Play Lollipop Chainsaw.exe** includes the launcher and source kit,
-so it works independently of the original download or checkout. From a source
-checkout, open the packaged EXE in `out/installer/` after building it.
-
-The launcher's layout is in `installer/launcher.xaml`; its illustration and paper
-texture are in `assets/installer/` and are embedded in the standalone installer.
-The compiled setup logic is in `installer/setup.cs`, `installer/setup-install.cs` and
-`installer/setup-tools.cs`. Packaging uses `installer/build.ps1` as a developer tool.
-
-For a manual build, install the following tools.
-
-- [PowerShell 7.2 or newer](https://github.com/PowerShell/PowerShell/releases).
-- Git for Windows, available on PATH.
-- Visual Studio 2022 Build Tools with **Desktop development with C++**, the
-  MSVC x64 libraries, a Windows SDK, and CMake/Ninja tools.
-- [LLVM 20.1.8 for Windows x64](https://github.com/llvm/llvm-project/releases/tag/llvmorg-20.1.8),
-  on PATH or supplied with `-LlvmDirectory`.
-- A supported Xbox 360 disc dump that you provide locally.
-- Enough free space for the extracted game, SDK build and translated C++.
-
-The scripts initialize the Visual Studio environment for their own process.
-Use `pwsh`, not Windows PowerShell 5.
-
-## Local directories
-
-All defaults are inside the checkout. These data and output folders are ignored
-by Git; they do not need to exist before setup:
-
-```text
-repository/
-├── game/                         your extracted disc files
-├── user/                         saves and runtime settings
-├── cache/                        shader and artwork caches
-└── out/
-    ├── generated/                translated C++; generated locally
-    ├── tools/rexglue-source/     downloaded pinned SDK source
-    ├── sdk/                      installed patched SDK
-    └── build/
-        ├── sdk/                  SDK build output
-        └── win-amd64-release/    game executable and tests
+```powershell
+./installer/build.ps1
 ```
 
-Scripts resolve their defaults from their own location, including when the
-checkout path contains spaces. Existing CMake caches contain absolute paths;
-use a fresh build directory after moving a checkout.
+Open `out/installer/Lollipop Chainsaw Setup.exe`, choose your ISO and an install
+folder, then select Install game. Setup downloads missing tools, imports the
+disc and builds the game. Windows may ask for administrator approval or a restart.
+To resume, open setup again and choose the same ISO and folder.
+
+Packaging uses the .NET Framework compiler included with Windows. You do not
+need to install the manual build tools below to package the installer.
+The installer source and layout are in [installer/](../installer/).
 
 ## Supported game
 
@@ -86,118 +30,196 @@ use a fresh build directory after moving a checkout.
 | Executable version | `0.0.0.2` |
 | `default.xex` SHA-256 | `A687F47D537B011600146C665E59F5D2B4D4243284799D84FEE7DA45CDD2DF26` |
 
-Other editions and title updates need separate address validation. The kit
-rejects a mismatched executable before code generation.
+Setup and the manual build reject other executables. Other disc editions and
+updates need their own code and hook validation.
 
-## 1. Prepare the game
+## Manual build
 
-For an extracted disc folder containing `default.xex`, `AshGame/` and `Engine/`:
+### Requirements
+
+- [PowerShell 7.2 or newer](https://github.com/PowerShell/PowerShell/releases).
+- Git for Windows on PATH.
+- Visual Studio 2022 Build Tools with the x64 C++ tools, Windows SDK and
+  CMake/Ninja components.
+- [LLVM 20.1.8](https://github.com/llvm/llvm-project/releases/tag/llvmorg-20.1.8),
+  on PATH or supplied with `-LlvmDirectory`.
+- The supported disc files and space for the SDK, generated code and game build.
+
+Use `pwsh` for the manual build. The scripts set up the Visual Studio environment
+automatically; a Developer Command Prompt is not required.
+
+### Import the game
+
+For an extracted folder containing `default.xex`, `AshGame/` and `Engine/`:
 
 ```powershell
 ./prepare-game.ps1 -InputPath "D:/Disc Dumps/Lollipop Chainsaw"
 ```
 
-For an ISO, obtain [extract-xiso](https://github.com/XboxDev/extract-xiso)
-separately and put it on PATH or specify its executable:
+For an ISO, install [extract-xiso](https://github.com/XboxDev/extract-xiso)
+separately and pass its path, or put it on PATH:
 
 ```powershell
 ./prepare-game.ps1 -InputPath "D:/Disc Dumps/Lollipop Chainsaw.iso" -ExtractXiso "D:/Tools/extract-xiso.exe"
 ```
 
-Unpack `.7z` or `.zip` archives first. Import preserves the original input,
-checks the executable and refuses to overwrite an existing `game/` directory.
-Failed extraction remains in an ignored `import-*` folder for inspection.
-To verify files already in the expected location, pass that folder as `-InputPath`.
-Use `-Destination` to select another import location.
+Unpack archives before importing. The importer checks the game version and
+copies or extracts into `game/`. It leaves the source intact and refuses to
+overwrite an existing destination. Any partial import remains in an `import-*`
+folder beside the destination for inspection.
 
-## 2. Build the patched SDK
+To check files already in `game/`, run:
 
-From the repository directory:
+```powershell
+./prepare-game.ps1 -InputPath ./game
+```
+
+### Build the SDK
 
 ```powershell
 ./build-sdk.ps1
 ```
 
-Expected SDK commit: `bd833a2ab69d305f99ddf57418fc38ffec8af93d`.
-The script clones the pinned public SDK when absent, fetches the required submodules,
-and applies [the SDK fixes](../patches/rexglue-fixes.patch) and
-[shader-preparation patch](../patches/rexglue-shader-precompile.patch)
-and installs a Release SDK in `out/sdk/`. Conflicting local SDK source changes
-are rejected. If LLVM is not on PATH, pass its bin directory:
+This downloads ReXGlue 0.10.1 at commit
+`bd833a2ab69d305f99ddf57418fc38ffec8af93d`, applies the
+[SDK fixes](../patches/rexglue-fixes.patch) and
+[shader-preparation patch](../patches/rexglue-shader-precompile.patch), and
+installs the SDK in `out/sdk/`.
+
+If LLVM is not on PATH, supply the folder containing `clang.exe` and `clang++.exe`:
 
 ```powershell
 ./build-sdk.ps1 -LlvmDirectory "C:/Program Files/LLVM/bin"
-./build.ps1 -LlvmDirectory "C:/Program Files/LLVM/bin"
 ```
 
-If an existing SDK checkout carries an older patch, build the current version
-from a fresh source and build directory. Both commands use the standard
-`out/sdk` install location.
-
-```powershell
-./build-sdk.ps1 -SourceDirectory out/tools/rexglue-sdk-perf -BuildDirectory out/build/sdk-perf
-./build.ps1
-```
-
-## 3. Recompile and run
+### Build and run the game
 
 ```powershell
 ./build.ps1
 ./run.ps1
 ```
 
-`build.ps1` validates the executable, generates code, compiles and runs the
-checks. The locally generated game executable is
-`out/build/win-amd64-release/lollipop.exe`. Prefer `run.ps1`: it supplies the
-checkout's game, save and cache paths plus the tested profile.
+`build.ps1` checks the executable, generates code, compiles and runs CTest.
+It also accepts `-LlvmDirectory` if needed.
 
-Existing installations can be reused without copying data or changing the
-repository's manifest. For example:
+The game executable is `out/build/win-amd64-release/lollipop.exe`. `run.ps1`
+sets the game, save and cache paths. The first launch prepares shaders before
+starting the game; see [shader preparation](COMPATIBILITY.md#shader-preparation)
+if it fails.
+
+### Custom paths
+
+You can use an existing disc folder and SDK without importing them again:
 
 ```powershell
 ./build.ps1 -GameDirectory "E:/Games/My Disc Dump" -SdkDirectory "E:/SDKs/rexglue"
 ./run.ps1 -GameDirectory "E:/Games/My Disc Dump"
 ```
 
-`build.ps1` also accepts `-GeneratedDirectory` and `-BuildDirectory`;
-`build-sdk.ps1` accepts `-SourceDirectory`, `-InstallDirectory` and
-`-BuildDirectory`. Custom build directories contain their own game executable.
-`run.ps1` accepts `-GameDirectory`, `-UserDirectory` and `-CacheDirectory`;
-use these for filesystem paths and append native flags such as `--lollipop_fps=90`.
-For direct CMake use, set `LOLLIPOP_GAME_DIR`, `LOLLIPOP_GENERATED_DIR` and
-`rexglue_DIR` as needed. A configured codegen manifest is written only to build
-output; the checked-in manifest retains portable defaults.
+| Script | Path parameters |
+| --- | --- |
+| `prepare-game.ps1` | `-InputPath`, `-Destination`, `-ExtractXiso` |
+| `build-sdk.ps1` | `-SourceDirectory`, `-InstallDirectory`, `-BuildDirectory`, `-LlvmDirectory` |
+| `build.ps1` | `-GameDirectory`, `-SdkDirectory`, `-GeneratedDirectory`, `-BuildDirectory`, `-LlvmDirectory` |
+| `run.ps1` | `-GameDirectory`, `-UserDirectory`, `-CacheDirectory`, `-BuildDirectory` |
 
-Startup shows a loading screen with measured shader-preparation progress before
-the game starts. The launcher's **Precompile shaders** action prepares the available
-inventory without starting gameplay. The command-line equivalent is:
+Pass the same `-BuildDirectory` to `run.ps1` when using a custom game build.
+Append native game flags after the path options, for example
+`./run.ps1 --lollipop_fps=60`.
+
+For direct CMake builds, set `rexglue_DIR`, `LOLLIPOP_GAME_DIR`,
+`LOLLIPOP_GENERATED_DIR` and `LOLLIPOP_MANIFEST` to match your installation.
+`build.ps1` writes the configured manifest to its build directory; the repository's
+manifest keeps its portable defaults.
+
+## Files and logs
+
+Paths below are relative to the checkout or the destination chosen in setup.
+Custom path options change the corresponding locations.
+
+| Location | Contents |
+| --- | --- |
+| `game/` | Imported disc files |
+| `user/` | Saves and `pc-settings.toml` |
+| `cache/` | Shader and keyboard artwork caches |
+| `out/generated/` | Generated C++ translations |
+| `out/tools/` | Downloaded SDK source and setup tools |
+| `out/sdk/` | Installed SDK |
+| `out/build/sdk/` | SDK build |
+| `out/build/win-amd64-release/` | Game executable and tests |
+| `out/launcher/latest.log` | Standalone setup and launcher log |
+| `out/build/win-amd64-release/logs/` | Game logs, unless `--log_file` is supplied |
+| `cache/shader-precompile.log` | Log from the launcher's Precompile shaders action or `run.ps1 -PrecompileShaders` |
+
+The installed launcher can run without the original checkout or setup download.
+Its source kit is cached under
+`%LOCALAPPDATA%/Lollipop Chainsaw Recomp/installer/`.
+
+## Setup and build problems
+
+### Setup stopped or Windows requested a restart
+
+Restart if requested, then select the same ISO and destination. Completed
+downloads and imported game files are reused. Incomplete downloads resume when
+the server supports it. Open setup log in the launcher shows the full error;
+the file is `out/launcher/latest.log` under the destination.
+
+For a new installation, choose an empty folder. An existing manual build or save
+folder is not accepted as a new setup destination.
+
+### The installation is already in use or is not writable
+
+Close the game and its other launcher window. Check that you can write to the
+chosen folder, or choose another destination.
+
+### Unsupported or incomplete disc
+
+Compare `default.xex` with the [supported version](#supported-game). Re-extract
+the original disc if the hash differs or `AshGame/` or `Engine/` is missing.
+An archive file cannot be used directly as the import source.
+
+### LLVM, Visual Studio, CMake or Ninja was not found
+
+For manual builds, check the [requirements](#requirements). Use LLVM 20.1.8 and
+pass `-LlvmDirectory` if it is not on PATH. In Visual Studio Installer, add the
+x64 C++ tools, Windows SDK and CMake tools components to your Build Tools install.
+
+### The SDK patch conflicts with local changes
+
+For a manual build, use new SDK source and build directories. This keeps the
+old checkout available for inspection and still installs to `out/sdk/`:
 
 ```powershell
-./run.ps1 -PrecompileShaders
+./build-sdk.ps1 -SourceDirectory out/tools/rexglue-clean -BuildDirectory out/build/sdk-clean
+./build.ps1
 ```
 
-Preparation uses your current graphics settings and reads shader programs from
-your own disc. The first scan takes longer; keep `cache/` to reuse its library.
-Damaged local shader caches are rebuilt automatically. Ordinary launches with
-`--store_shaders=false` skip preparation; precompile-only requests require shader storage.
-The checked-in inventory contains 1,916 pipelines from sweeps across all seven
-stages, boss maps, final-stage variants and opening/ending/result scenes. See the
-[coverage notes](COMPATIBILITY.md#known-issues). Unrecorded outfit or combat-effect
-combinations can still require [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
-Unknown combinations wait for complete draws, so they can pause instead of
-revealing missing materials.
-Startup automatically
-continues offline without Xbox LIVE connection or offline-play confirmation dialogs.
+### CMake still refers to an old checkout
 
-## Updating and removal
+Rerun `build.ps1` after moving the repository. It refreshes the game build's
+configuration when the source folder changes. If an SDK build still refers to
+the old path, use a new SDK build directory. Keep custom path arguments consistent
+between build and launch commands.
 
-Keep `user/` (or your custom save directory) to preserve saves, and keep the original
-disc dump separately. Generated code and build products can be rebuilt and are
-excluded from the source kit. SDK version changes require fresh patch and
-address validation.
+### PowerShell says running scripts is disabled
 
-## Repository scope
+For a single manual build, run:
 
-This is a WIP source kit with a local install-and-play launcher. Share
-only the repository contents; keep game data, generated translations, saves,
-SDK tools and local build output private.
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
+```
+
+For installer packaging with Windows PowerShell:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./installer/build.ps1
+```
+
+These commands apply the policy setting to that process.
+
+## Updating or removing an installation
+
+Back up `user/` before reinstalling or moving the game. Keep the original disc
+dump separately. Build output and caches can be recreated; saves cannot.
+For game crashes, input problems and settings recovery, see
+[compatibility and troubleshooting](COMPATIBILITY.md).
