@@ -13,6 +13,9 @@
 - Added keyboard/mouse controls and live device prompts; fixed held-modifier
   movement, blaster shortcuts and QTE labels.
 - Fixed input polling, rendering synchronization and texture-copy bounds.
+- Fixed controller deadzones ignoring left/down drift and disabling themselves
+  at 100%.
+- Added Quit Game to PC settings with a confirmation that defaults to Cancel.
 - Moved installer source into [installer/](installer/), removed redundant script
   wrappers and simplified the README and guides.
 

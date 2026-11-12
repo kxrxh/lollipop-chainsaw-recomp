@@ -181,8 +181,9 @@ protected:
 
   void OnPostSetup() override {
     set_settings_guest_memory(runtime()->virtual_membase());
-    settings_menu_ = make_settings_menu(*imgui_drawer(), *immediate_drawer(), *runtime(),
-                                        settings_path_, game_data_root());
+    settings_menu_ =
+        make_settings_menu(*imgui_drawer(), *immediate_drawer(), *runtime(), settings_path_,
+                           game_data_root(), [this] { window()->RequestClose(); });
     rex::perf::SetCsvLogPath(rex::cvar::GetFlagByName("perf_log_csv"));
     const auto& directory = REXCVAR_GET(lollipop_test_directory);
     if (!directory.empty()) {

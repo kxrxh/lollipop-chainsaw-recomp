@@ -59,6 +59,12 @@ windowed mode; Render resolution controls the game's internal resolution.
 Options and F4 open PC settings. Close PC settings before pressing F6 to open
 advanced settings and rebind keys. Restart after rebinding to refresh the prompt
 artwork. During cutscenes, Esc opens the skip dialog and Enter confirms it.
+To exit, open Options or press F4, then select Quit Game and confirm. Cancel
+returns to settings; progress since the last checkpoint is not saved when quitting.
+
+If a controller moves or turns the camera by itself, increase Movement deadzone
+or Camera deadzone in the Controls page. Start with a small value and stop when
+the drift disappears. A value of 100% disables that stick.
 
 ## Shader preparation
 

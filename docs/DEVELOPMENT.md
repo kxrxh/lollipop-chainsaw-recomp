@@ -49,6 +49,19 @@ Use a separate save directory for game checks. For tests that need existing
 progress, copy the saves to a new directory before launching; do not point
 automation at the player's only save copy.
 
+With the [control bridge](#background-control-bridge) running on that isolated
+save, the quit-menu smoke check tests keyboard, controller and mouse navigation,
+Cancel as the default, gameplay input blocking and unchanged PC preferences.
+It closes the test game after confirming Quit Game:
+
+```powershell
+./tests/settings_menu_smoke.ps1 -GameProcessId 1234 -Directory out/test-control
+```
+
+Replace `1234` with the test game's process ID. Finish shader preparation first.
+Repeat on fresh test processes with `-ConfirmWith keyboard` or
+`-ConfirmWith gamepad` to check each confirmation path.
+
 ## Settings and runtime integration
 
 `src/settings/pc_settings.cpp` defines the PC profile. Preferences are written

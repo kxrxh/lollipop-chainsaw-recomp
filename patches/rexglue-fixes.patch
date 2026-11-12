@@ -890,7 +890,7 @@ index ec0df7c..c787a72 100644
    if (length == 0 || start >= kBufferSize) {
      return;
 diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
-index 40740ee..e71de75 100644
+index 40740ee..ea347b9 100644
 --- a/src/input/input_system.cpp
 +++ b/src/input/input_system.cpp
 @@ -47,12 +47,17 @@ namespace {
@@ -1029,7 +1029,29 @@ index 40740ee..e71de75 100644
    REXCVAR_SET(vibration, !REXCVAR_GET(vibration));
    // The guest's next SetState may never come while a motor is running.
    X_INPUT_VIBRATION silence = {};
-@@ -416,6 +446,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
+@@ -376,14 +406,18 @@ void InputSystem::AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gam
+   // Radial: the cutoff follows the stick's angle, so a diagonal is not held to
+   // a larger displacement than a cardinal push.
+   auto apply = [](double percentage, const JoystickValue& max, int16_t& axis_x, int16_t& axis_y) {
+-    if (percentage <= 0.0 || percentage >= 1.0) {
++    if (percentage <= 0.0) {
++      return;
++    }
++    if (percentage >= 1.0) {
++      axis_x = axis_y = 0;
+       return;
+     }
+     const double deadzone_x = max.first * percentage;
+     const double deadzone_y = max.second * percentage;
+     const double theta = std::atan2(static_cast<double>(axis_y), static_cast<double>(axis_x));
+-    const double cutoff_x = std::cos(theta) * deadzone_x;
+-    const double cutoff_y = std::sin(theta) * deadzone_y;
++    const double cutoff_x = std::abs(std::cos(theta) * deadzone_x);
++    const double cutoff_y = std::abs(std::sin(theta) * deadzone_y);
+     if (axis_x > -cutoff_x && axis_x < cutoff_x) {
+       axis_x = 0;
+     }
+@@ -416,6 +450,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
  }
  
  X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
@@ -1037,7 +1059,7 @@ index 40740ee..e71de75 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_ || !vibration) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -461,6 +492,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
+@@ -461,6 +496,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
  
  X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
                                     X_INPUT_KEYSTROKE* out_keystroke) {
