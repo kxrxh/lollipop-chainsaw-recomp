@@ -4,7 +4,7 @@
 
 - Added a Windows installer with ISO import, verified downloads and resumable setup.
 - Added startup shader preparation, a launcher precompile action and a pipeline
-  inventory collected across stage and boss maps.
+  inventory collected across stage/boss maps and prologue combat.
 - Fixed damaged shader-cache recovery and launches with shader storage disabled.
 - Reduced checkpoint loading overhead and cached keyboard artwork for reuse.
 - Unified Options with display, graphics, audio, camera and controller settings,
@@ -18,6 +18,7 @@
 - Added Quit Game to PC settings with a confirmation that defaults to Cancel.
 - Added Update / Repair without reimporting the ISO, with staged builds,
   interrupted-update recovery and preservation of saves and settings.
+- Added optional GPU draw and shader diagnostics for investigating reload crashes.
 - Moved installer source into [installer/](installer/), removed redundant script
   wrappers and simplified the README and guides.
 
