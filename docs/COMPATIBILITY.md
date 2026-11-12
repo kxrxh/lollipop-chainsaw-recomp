@@ -12,15 +12,18 @@ bus-door QTE, crawler encounter and bus vault. The second rescue was reached;
 it has not been cleared. Settings checks covered saving, discarding changes,
 display rollback and pausing.
 
+Texture reload checks passed three restarts with a 64 MB cache, plus
+death/Continue and an opening-gate replay with the default cache limits.
+
 Keyboard/controller prompt switching was checked in menus and the prologue's
 gate interaction. Automated controller tests use injected input; physical
 controllers and multi-monitor setups need more testing.
 
 ## Known issues
 
-- D3D12 `DEVICE_HUNG` crashes have been reproduced during a prologue reload
-  after death and while replaying the opening gate after Continue. The cause
-  remains unresolved.
+- D3D12 `DEVICE_HUNG` crashes have occurred during prologue reloads and gate
+  replays after Continue. A texture-watch race has been fixed; it is not yet
+  proven to account for every observed GPU hang.
 - Loading and cutscene transitions can stall.
 - Unrecorded shader combinations can cause pauses while they compile.
 - Heavy automated camera and streaming tests have also caused GPU hangs.
@@ -124,8 +127,8 @@ For a renderer comparison in a manual build:
 RTV is a diagnostic alternative and may be slower. When reporting a problem,
 include the game log, GPU, graphics settings and the steps that led to it.
 
-For a repeatable D3D12 crash, an updated build can record the GPU draw and
-shader identifiers near the failure:
+For a repeatable D3D12 crash, an updated build can record GPU progress and any
+available shader labels near the failure:
 
 ```powershell
 ./run.ps1 --d3d12_debug=true --gpu_debug_markers=true
@@ -133,6 +136,7 @@ shader identifiers near the failure:
 
 These diagnostics can slow rendering. The log may report that the optional
 Direct3D debug layer is unavailable; DRED breadcrumb recording can still work.
+Shader labels depend on runtime support; the log reports missing contexts.
 
 ### Keyboard and controller prompts do not update
 

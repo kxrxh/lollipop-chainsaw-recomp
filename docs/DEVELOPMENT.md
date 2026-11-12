@@ -137,6 +137,24 @@ portable inventory. It can be prepared from a player's runtime cache on later
 launches. Stream `Swan_Event_PL` into an initialized final-stage world; direct
 map boot is unsupported.
 
+## Texture reload stress check
+
+Use a copied native save in an unused directory under `out/`. A reduced cache
+limit exercises texture eviction and CPU memory-invalidation callbacks together:
+
+```powershell
+./run.ps1 -UserDirectory out/texture-test-user -CacheDirectory out/texture-test-cache `
+    --texture_cache_memory_limit_soft=64 --texture_cache_memory_limit_hard=64 `
+    --texture_cache_memory_limit_soft_lifetime=0 --perf_log_csv=out/texture-test-frames.csv
+```
+
+Load the prologue through the main menu, then repeat native Restart and
+death/Continue. Check that `texture_cache_evictions` rises in the frame log,
+gameplay resumes, and there is no access violation or GPU device loss. Repeat
+with the default limits afterward. Texture destruction must hold the shared
+memory critical region while checking and removing watch handles; callbacks can
+clear and recycle those handles on a CPU thread.
+
 ## Background control bridge
 
 Launch with a separate save directory and the bridge enabled:
