@@ -176,7 +176,8 @@ endif()
 
 if(WIN32)
     set(setup_framework "$ENV{SystemRoot}/Microsoft.NET/Framework64/v4.0.30319")
-    set(setup_sources installer/setup.cs installer/setup-install.cs installer/setup-tools.cs tests/setup_test.cs)
+    set(setup_sources installer/setup.cs installer/setup-install.cs installer/setup-tools.cs
+        installer/setup-update.cs tests/setup_test.cs)
     list(TRANSFORM setup_sources PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     set(setup_native_sources)
     foreach(source IN LISTS setup_sources)

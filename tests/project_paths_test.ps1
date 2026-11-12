@@ -47,7 +47,7 @@ try {
     $payload = $assembly.GetManifestResourceStream('kit.zip')
     $archive = [IO.Compression.ZipArchive]::new($payload, [IO.Compression.ZipArchiveMode]::Read)
     try {
-        foreach ($name in 'installer/setup.cs','installer/setup-install.cs','installer/setup-tools.cs',
+        foreach ($name in 'installer/setup.cs','installer/setup-install.cs','installer/setup-tools.cs','installer/setup-update.cs',
                           'installer/launcher.xaml','tests/setup_test.cs') {
             if (-not $archive.GetEntry($name)) { throw "Installer payload is missing $name" }
         }

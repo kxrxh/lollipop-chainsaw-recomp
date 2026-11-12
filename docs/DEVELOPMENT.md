@@ -45,6 +45,13 @@ Installer packaging uses `./installer/build.ps1`. Its source kit includes the
 files needed for the game build and compiled tests. PowerShell script checks are
 disabled during installation with `LOLLIPOP_SCRIPT_TESTS=OFF`.
 
+Setup's Update / Repair builds in `out/build/game-compile/` and sends runtime
+outputs to `out/build/game-staging/`. Only a successful build and CTest run can
+publish that directory to `out/build/win-amd64-release/`. A small recovery record
+in `out/launcher/` protects the directory swap. Installer tests cover incomplete
+outputs, interrupted publication, locked files, metadata validation and save,
+settings and key-binding preservation.
+
 Use a separate save directory for game checks. For tests that need existing
 progress, copy the saves to a new directory before launching; do not point
 automation at the player's only save copy.

@@ -29,9 +29,14 @@ Then open `out/installer/Lollipop Chainsaw Setup.exe`.
 3. Select Play Lollipop Chainsaw. For later launches, open
    `Play Lollipop Chainsaw.exe` in the install folder.
 
-If setup is interrupted, choose the same ISO and folder to continue.
+If setup is interrupted after importing the disc, open it again and choose the
+same folder, then select Update / Repair. The imported files are reused.
 Your saves are in the install folder's `user/` directory. Keep that directory
 when moving or reinstalling the game.
+
+To apply a newer version, close the game, open the new setup, choose your
+existing install folder and select Update / Repair. You do not need the ISO
+again. Your saves and settings are kept.
 
 ## Known issues
 

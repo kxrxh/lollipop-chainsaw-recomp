@@ -72,7 +72,7 @@ Startup prepares the recorded shaders before gameplay. The first scan reads
 shader programs from your disc files; later launches reuse the local library.
 Damaged local caches are rebuilt automatically.
 
-The launcher also has a Precompile shaders action. From a manual build:
+The launcher also has a Prepare shaders action. From a manual build:
 
 ```powershell
 ./run.ps1 -PrecompileShaders
@@ -96,7 +96,7 @@ new combinations are in [pipeline collection](DEVELOPMENT.md#shader-preparation-
 
 ### Shader preparation fails
 
-For the launcher's Precompile shaders action or the command above, check
+For the launcher's Prepare shaders action or the command above, check
 `cache/shader-precompile.log`. Ordinary launch logs are listed in the
 [build guide](BUILDING.md#files-and-logs).
 

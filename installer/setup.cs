@@ -119,9 +119,10 @@ Find<Button>("Primary").Click += delegate {
   if (Screen == "Failure")
     Home();
   else
-    Start(Screen == "Ready", false);
+    Start(Screen == "Ready", false, Screen == "Update");
 };
 Find<Button>("Precompile").Click += delegate { Start(true, true); };
+Find<Button>("Update").Click += delegate { Start(false, false, true); };
 Find<Button>("Secondary").Click += delegate {
   if (Screen == "Failure") {
     try {
@@ -140,9 +141,11 @@ Find<Button>("Help").Click += delegate {
       "Use the original Xbox 360 ISO, media ID 31BE13D9 (version 0.0.0.2). " +
           "Choose a folder with room for the game and its build files.\n\n" +
           "First-time setup needs internet. Allow the Windows approval prompt if it appears. " +
-          "After a restart, choose the same ISO and folder to continue.\n\n" +
+          "After a restart, choose the same folder. Once the disc is imported, " +
+          "Update / Repair can continue without the ISO.\n\n" +
           "When installed, open Play Lollipop Chainsaw.exe in that folder. Your saves are in its " +
-          "user folder.",
+          "user folder.\n\nTo apply a newer setup, choose the existing install folder and select " +
+          "Update / Repair. You do not need to choose the ISO again. Saves and settings are kept.",
       "Setup help");
 };
 Window.Closing += delegate(object sender, System.ComponentModel.CancelEventArgs args) {
@@ -159,7 +162,7 @@ timer.Tick += delegate {
   Find<TextBlock>("StepStatus").Text = stepLabel + "  /  " + elapsed.Elapsed.ToString(@"mm\:ss");
 };
 var ownFolder = Path.GetDirectoryName(executable);
-if (Installer.Ready(ownFolder))
+if (Installer.Ready(ownFolder) || GameUpdate.CanUpdate(ownFolder))
   Destination = ownFolder;
 Home();
 }
@@ -200,8 +203,13 @@ internal void Show(string state, string tab, string title, string body, string a
           Path.Combine(Destination, "out/build/win-amd64-release/shader-precompile-v1.ready"));
   precompile.ToolTip =
       precompile.IsEnabled
-          ? "Prepare the available pipeline inventory. Coverage depends on the recorded scenes."
+          ? "Prepare recorded shaders before playing to reduce compilation pauses."
           : "Update or rebuild this installation to enable shader preparation.";
+  var canUpdate = state == "Ready" && GameUpdate.CanUpdate(Destination);
+  Find<Button>("Update").Visibility =
+      canUpdate ? Visibility.Visible : Visibility.Collapsed;
+  Find<System.Windows.Controls.Primitives.UniformGrid>("GameActions").Columns = canUpdate ? 2 : 1;
+  precompile.Margin = new Thickness(canUpdate ? 5 : 0, 0, 0, 10);
   foreach (var name in new[] { "DiscTab", "SetupTab", "PlayTab" }) {
     var label = Find<TextBlock>(name);
     label.Foreground =
@@ -229,9 +237,19 @@ internal void Show(string state, string tab, string title, string body, string a
 internal void Home() {
   if (Installer.Ready(Destination)) {
     Show("Ready", "PlayTab", "Ready to play",
-         "Your game is installed. Next time, open " +
-             "Play Lollipop Chainsaw.exe in your install folder.",
+         GameUpdate.CanUpdate(Destination)
+             ? "Choose Play to start, or Update / Repair to apply this setup's version. " +
+                   "Your saves and settings are kept."
+             : "Your game is installed. Next time, open " +
+                   "Play Lollipop Chainsaw.exe in your install folder.",
          "Play Lollipop Chainsaw", "Choose another folder", Destination);
+    return;
+  }
+  if (GameUpdate.CanUpdate(Destination)) {
+    Show("Update", "SetupTab", "Finish updating your game",
+         "Choose Update / Repair to finish setup. Your disc files, saves and settings are kept. " +
+             "You do not need the ISO again.",
+         "Update / Repair", "Choose another folder", Destination);
     return;
   }
   Show("Install", "DiscTab", "Install your game",
@@ -270,7 +288,7 @@ internal void Failure(string message) {
   Find<Expander>("ErrorLog").IsExpanded = true;
 }
 
-internal async void Start(bool play, bool shaders) {
+internal async void Start(bool play, bool shaders, bool updateGame = false) {
   if (Busy)
     return;
   Busy = true;
@@ -290,7 +308,7 @@ internal async void Start(bool play, bool shaders) {
   });
   try {
     var installer = new Installer(kit, Destination, executable, progress);
-    await Task.Run(delegate { installer.Run(Source, play, shaders); });
+    await Task.Run(delegate { installer.Run(Source, play, shaders, updateGame); });
     Home();
   } catch (Exception error) {
     Failure(error.Message);

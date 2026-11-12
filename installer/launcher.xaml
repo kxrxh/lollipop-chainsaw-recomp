@@ -98,8 +98,12 @@
           </StackPanel>
         </ScrollViewer>
         <StackPanel Grid.Row="2" Margin="0,24,0,0">
-          <Button Name="Precompile" Content="Precompile shaders" Margin="0,0,0,10" HorizontalContentAlignment="Center" Visibility="Collapsed"
-                  ToolTip="Prepare the available pipeline inventory. Coverage depends on the recorded scenes."/>
+          <UniformGrid Name="GameActions" Columns="2">
+            <Button Name="Update" Content="Update / Repair" Margin="0,0,5,10" HorizontalContentAlignment="Center" Visibility="Collapsed"
+                    ToolTip="Apply this setup's version of the game. Saves and settings are kept."/>
+            <Button Name="Precompile" Content="Prepare shaders" Margin="5,0,0,10" HorizontalContentAlignment="Center" Visibility="Collapsed"
+                    ToolTip="Prepare recorded shaders before playing to reduce compilation pauses."/>
+          </UniformGrid>
           <Button Name="Primary" IsDefault="True" Background="#D12266" Foreground="White" BorderBrush="#D12266"
                   FontSize="16" FontWeight="SemiBold" MinHeight="52" HorizontalContentAlignment="Center"/>
           <Button Name="Secondary" Margin="0,10,0,0" HorizontalContentAlignment="Center"/>

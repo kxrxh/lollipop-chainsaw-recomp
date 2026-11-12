@@ -145,8 +145,11 @@ Custom path options change the corresponding locations.
 | `out/generated/` | Generated C++ translations |
 | `out/tools/` | Downloaded SDK source and setup tools |
 | `out/sdk/` | Installed SDK |
-| `out/build/sdk/` | SDK build |
-| `out/build/win-amd64-release/` | Game executable and tests |
+| `out/build/sdk/` | Manual SDK build |
+| `out/build/sdk-*/` | SDK builds created by setup |
+| `out/build/game-compile/` | Compilation and test files created by setup |
+| `out/build/game-staging/` | Temporary game files used while building and testing |
+| `out/build/win-amd64-release/` | Playable game; manual builds also put their tests here |
 | `out/launcher/latest.log` | Standalone setup and launcher log |
 | `out/build/win-amd64-release/logs/` | Game logs, unless `--log_file` is supplied |
 | `cache/shader-precompile.log` | Log from the launcher's Precompile shaders action or `run.ps1 -PrecompileShaders` |
@@ -159,10 +162,12 @@ Its source kit is cached under
 
 ### Setup stopped or Windows requested a restart
 
-Restart if requested, then select the same ISO and destination. Completed
-downloads and imported game files are reused. Incomplete downloads resume when
-the server supports it. Open setup log in the launcher shows the full error;
-the file is `out/launcher/latest.log` under the destination.
+Restart if requested, then choose the same destination. Once the disc has been
+imported, Update / Repair can continue without the ISO. Otherwise, choose the
+same ISO to finish importing it. Completed downloads and imported game files
+are reused. Incomplete downloads resume when the server supports it. Open setup
+log in the launcher shows the full error; the file is `out/launcher/latest.log`
+under the destination.
 
 For a new installation, choose an empty folder. An existing manual build or save
 folder is not accepted as a new setup destination.
@@ -219,7 +224,20 @@ These commands apply the policy setting to that process.
 
 ## Updating or removing an installation
 
-Back up `user/` before reinstalling or moving the game. Keep the original disc
-dump separately. Build output and caches can be recreated; saves cannot.
+Close the game and its old launcher. Open the newer setup, choose the existing
+install folder and select Update / Repair. The ISO is not needed again. The
+update keeps disc files, saves, PC preferences and advanced key bindings.
+
+Updates compile and run their tests in a separate staging directory before
+replacing the playable files. If building fails, the existing working game stays
+available. Select Back to play it or retry Update / Repair. After an interruption
+during file replacement, Update / Repair recovers the previous build or completes
+the tested replacement before continuing.
+
+Setup caches SDK checkouts by their pinned commit and patch contents, so a newer
+patch uses a separate checkout. Existing SDK source folders are kept.
+
+Back up `user/` before removing or moving the game. Keep the original disc dump
+separately. Build output and caches can be recreated; saves cannot.
 For game crashes, input problems and settings recovery, see
 [compatibility and troubleshooting](COMPATIBILITY.md).

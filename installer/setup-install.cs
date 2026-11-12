@@ -9,7 +9,6 @@ using System.Text.RegularExpressions;
 
 namespace lollipop {
 internal sealed class Installer {
-  private const string Identity = "Lollipop Chainsaw Recomp v1";
   private const string GameHash =
       "a687f47d537b011600146c665e59f5d2b4d4243284799d84fee7da45cdd2df26";
   private const string SdkCommit = "bd833a2ab69d305f99ddf57418fc38ffec8af93d";
@@ -46,7 +45,7 @@ internal sealed class Installer {
 
   internal static void Initialize(string folder) {
     var marker = Path.Combine(folder, "out/launcher/install.id");
-    if (File.Exists(marker) && File.ReadAllText(marker) == Identity)
+    if (File.Exists(marker) && File.ReadAllText(marker) == GameUpdate.Identity)
       return;
     foreach (var name in new[] { "out", "game", "user", "cache", "Play Lollipop Chainsaw.exe" }) {
       var path = Path.Combine(folder, name);
@@ -55,7 +54,7 @@ internal sealed class Installer {
                               "folder for this installation.");
     }
     Directory.CreateDirectory(Path.GetDirectoryName(marker));
-    File.WriteAllText(marker, Identity);
+    File.WriteAllText(marker, GameUpdate.Identity);
   }
 
   internal static void ValidateGame(string folder) {
@@ -76,8 +75,12 @@ internal sealed class Installer {
         new InstallProgress { Activity = title, Status = description, Step = step, Total = total });
   }
 
-  internal void Run(string source, bool play, bool shaders) {
-    if (!play) {
+  internal void Run(string source, bool play, bool shaders, bool update = false) {
+    var hadPlayableBuild = Ready(destination);
+    if (update) {
+      if (play || shaders || !GameUpdate.CanUpdate(destination))
+        throw new IOException("Choose an installation created by this setup to update or repair it.");
+    } else if (!play) {
       if (!File.Exists(source) ||
           !String.Equals(Path.GetExtension(source), ".iso", StringComparison.OrdinalIgnoreCase))
         throw new IOException("Choose an Xbox 360 ISO file to install.");
@@ -100,6 +103,12 @@ internal sealed class Installer {
       tools = new Tools(progress, delegate(string line) { lock (log) log.WriteLine(line); });
       try {
         log.WriteLine("Lollipop Chainsaw Recomp — standalone setup");
+        if (update) {
+          GameUpdate.CheckClosed(destination, executable);
+          GameUpdate.Recover(destination);
+          hadPlayableBuild = Ready(destination);
+          ValidateGame(Game);
+        }
         if (play) {
           Step(shaders ? "Preparing shaders" : "Game is running",
                shaders ? "Compiling the recorded shader inventory for your graphics settings."
@@ -109,7 +118,7 @@ internal sealed class Installer {
           return;
         }
         var pending = Path.Combine(state, "setup.pending");
-        File.WriteAllText(pending, "Installing");
+        File.WriteAllText(pending, update ? "Updating" : "Installing");
         Step("Preparing Windows runtime", "Checking the Windows runtime required by the game.", 6);
         InstallRuntime();
         Step(Directory.Exists(Game) ? "Checking imported disc" : "Reading your disc",
@@ -136,16 +145,20 @@ internal sealed class Installer {
         BuildSdk(git, cmake, ninja, clangxx);
         Step("Building your game", "Compiling your Windows game and running its final checks.", 6);
         BuildGame(cmake, ninja, clangxx, Path.Combine(cmakeBin, "ctest.exe"));
-        if (!File.Exists(Path.Combine(Build, "lollipop.exe")))
+        if (!File.Exists(Path.Combine(GameUpdate.Stage(destination), "lollipop.exe")))
           throw new IOException("The build did not produce a playable game.");
         var launcher = Path.Combine(destination, "Play Lollipop Chainsaw.exe");
         if (!String.Equals(Path.GetFullPath(executable), Path.GetFullPath(launcher),
                            StringComparison.OrdinalIgnoreCase))
           File.Copy(executable, launcher, true);
+        GameUpdate.Publish(destination, hadPlayableBuild);
         File.Delete(pending);
         tools.Report("Installation complete", "Ready to play", 100);
       } catch (Exception error) {
         log.WriteLine(error.ToString());
+        if (update && hadPlayableBuild && File.Exists(Path.Combine(Build, "lollipop.exe")) &&
+            !File.Exists(Path.Combine(state, "publish.pending")))
+          File.Delete(Path.Combine(state, "setup.pending"));
         throw;
       }
     }
@@ -266,7 +279,8 @@ internal sealed class Installer {
   }
 
   private void BuildSdk(string git, string cmake, string ninja, string clangxx) {
-    var source = Path.Combine(destination, "out/tools/rexglue-source");
+    var id = GameUpdate.SdkId(kit, SdkCommit);
+    var source = Path.Combine(destination, "out/tools/rexglue-source-" + id);
     if (!Directory.Exists(source)) {
       var stage = Path.Combine(destination, "out/tools/sdk-clone-" + Guid.NewGuid().ToString("N"));
       tools.Run(git, destination,
@@ -310,7 +324,7 @@ internal sealed class Installer {
       tools.Run(git, destination, new[] { "-C", source, "apply", "--check", patch }, true);
       tools.Run(git, destination, new[] { "-C", source, "apply", patch }, true);
     }
-    var build = Path.Combine(destination, "out/build/sdk");
+    var build = Path.Combine(destination, "out/build/sdk-" + id);
     tools.Run(
         cmake, destination,
         new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
@@ -338,10 +352,11 @@ internal sealed class Installer {
 
   private void BuildGame(string cmake, string ninja, string clangxx, string ctest) {
     ValidateGame(Game);
-    Directory.CreateDirectory(Build);
+    var build = Path.Combine(destination, "out/build/game-compile");
+    Directory.CreateDirectory(build);
     var sdk = Path.Combine(destination, "out/sdk");
     var generated = Path.Combine(destination, "out/generated");
-    var manifest = Path.Combine(Build, "codegen.toml");
+    var manifest = Path.Combine(build, "codegen.toml");
     File.WriteAllText(
         manifest,
         Manifest(File.ReadAllText(Path.Combine(kit, "lollipop_manifest.toml")), Game, generated),
@@ -349,7 +364,7 @@ internal sealed class Installer {
     tools.Run(Path.Combine(sdk, "bin/rexglue.exe"), destination, new[] { "codegen", manifest },
               true);
     var configure = new List<string>();
-    var cache = Path.Combine(Build, "CMakeCache.txt");
+    var cache = Path.Combine(build, "CMakeCache.txt");
     if (File.Exists(cache)) {
       var previous =
           Regex.Match(File.ReadAllText(cache), @"(?m)^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)\r?$");
@@ -359,15 +374,16 @@ internal sealed class Installer {
         configure.Add("--fresh");
     }
     configure.AddRange(
-        new[] { "-S", kit, "-B", Build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
+        new[] { "-S", kit, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
                 "-DCMAKE_CXX_COMPILER=" + clangxx, "-DCMAKE_PREFIX_PATH=" + sdk,
                 "-Drexglue_DIR=" + Path.Combine(sdk, "lib/cmake/rexglue"),
                 "-DLOLLIPOP_GAME_DIR=" + Game, "-DLOLLIPOP_GENERATED_DIR=" + generated,
                 "-DLOLLIPOP_MANIFEST=" + manifest, "-DLOLLIPOP_SCRIPT_TESTS=OFF",
+                "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=" + GameUpdate.Stage(destination),
                 "-DCMAKE_BUILD_TYPE=Release" });
     tools.Run(cmake, destination, configure, true);
-    tools.Run(cmake, destination, new[] { "--build", Build, "--parallel", "6" }, true);
-    tools.Run(ctest, destination, new[] { "--test-dir", Build, "--output-on-failure" }, true);
+    tools.Run(cmake, destination, new[] { "--build", build, "--parallel", "6" }, true);
+    tools.Run(ctest, destination, new[] { "--test-dir", build, "--output-on-failure" }, true);
   }
 
   private void Play(bool shaders) {

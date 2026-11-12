@@ -16,6 +16,8 @@
 - Fixed controller deadzones ignoring left/down drift and disabling themselves
   at 100%.
 - Added Quit Game to PC settings with a confirmation that defaults to Cancel.
+- Added Update / Repair without reimporting the ISO, with staged builds,
+  interrupted-update recovery and preservation of saves and settings.
 - Moved installer source into [installer/](installer/), removed redundant script
   wrappers and simplified the README and guides.
 

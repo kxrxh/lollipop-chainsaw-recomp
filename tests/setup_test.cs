@@ -109,6 +109,7 @@ internal static class SetupTests {
             "LLVM pin was lost");
       ManifestTest(args[0], sandbox);
       FolderTest(sandbox);
+      UpdateTest(sandbox);
       DownloadTest(tools, progress, sandbox);
       LauncherTest(sandbox, executable);
       Console.WriteLine("Standalone installer checks passed.");
@@ -188,6 +189,115 @@ internal static class SetupTests {
     }, "Archive escaped its destination");
     Check(!File.Exists(Path.Combine(sandbox, "escaped.txt")),
           "Archive wrote outside its destination");
+  }
+
+  private static void UpdateTest(string sandbox) {
+    var kit = Path.Combine(sandbox, "update kit [1]");
+    Directory.CreateDirectory(Path.Combine(kit, "patches"));
+    File.WriteAllText(Path.Combine(kit, "patches/rexglue-fixes.patch"), "first patch");
+    File.WriteAllText(Path.Combine(kit, "patches/rexglue-shader-precompile.patch"), "second patch");
+    var id = GameUpdate.SdkId(kit, "commit-a");
+    Check(id == GameUpdate.SdkId(kit, "commit-a") && id != GameUpdate.SdkId(kit, "commit-b"),
+          "SDK cache did not include the pinned commit");
+    File.AppendAllText(Path.Combine(kit, "patches/rexglue-fixes.patch"), " changed");
+    Check(id != GameUpdate.SdkId(kit, "commit-a"), "New SDK patches reused an old patched checkout");
+    var destination = Path.Combine(sandbox, "update player's game");
+    Installer.Initialize(destination);
+    foreach (var directory in new[] { "game/AshGame", "game/Engine", "user", "cache",
+                                       "out/build/win-amd64-release" })
+      Directory.CreateDirectory(Path.Combine(destination, directory));
+    File.WriteAllText(Path.Combine(destination, "game/default.xex"), "disc");
+    File.WriteAllText(Path.Combine(destination, "user/save"), "save");
+    File.WriteAllText(Path.Combine(destination, "user/pc-settings.toml"), "preferences");
+    File.WriteAllText(Path.Combine(destination, "cache/player-cache"), "cache");
+    var active = Path.Combine(destination, "out/build/win-amd64-release");
+    File.WriteAllText(Path.Combine(active, "lollipop.exe"), "old game");
+    File.WriteAllText(Path.Combine(active, "rexruntime.dll"), "old runtime");
+    File.WriteAllText(Path.Combine(active, "UPPER.DLL"), "another runtime");
+    File.WriteAllText(Path.Combine(active, "lollipop.toml"), "custom key bindings");
+    Check(GameUpdate.CanUpdate(destination) && !GameUpdate.CanUpdate(null) &&
+              !GameUpdate.CanUpdate(Path.Combine(sandbox, "existing game")),
+          "Update ownership check accepted an unrelated folder");
+    using (File.Open(Path.Combine(active, "rexruntime.dll"), FileMode.Open, FileAccess.Read,
+                     FileShare.None))
+      Fails(delegate { GameUpdate.CheckClosed(destination, "setup.exe"); },
+            "A running or locked game was accepted for update");
+    using (File.Open(Path.Combine(active, "UPPER.DLL"), FileMode.Open, FileAccess.Read,
+                     FileShare.None))
+      Fails(delegate { GameUpdate.CheckClosed(destination, "setup.exe"); },
+            "A locked runtime with an uppercase extension was ignored");
+    var stage = GameUpdate.Stage(destination);
+    Directory.CreateDirectory(stage);
+    File.WriteAllText(Path.Combine(stage, "lollipop.exe"), "new game");
+    Fails(delegate { GameUpdate.Publish(destination, true); }, "Incomplete update replaced the old game");
+    Check(File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "old game",
+          "Failed update changed the playable build");
+    File.WriteAllText(Path.Combine(stage, "rexruntime.dll"), "new runtime");
+    File.WriteAllText(Path.Combine(stage, "rexgpu-xenos.dll"), "new renderer");
+    File.WriteAllText(Path.Combine(stage, "lollipop.toml"), "stale staged key bindings");
+    File.SetAttributes(Path.Combine(stage, "lollipop.toml"), FileAttributes.ReadOnly);
+    var state = Path.Combine(destination, "out/launcher");
+    File.WriteAllText(Path.Combine(state, "setup.pending"), "Updating");
+    GameUpdate.Publish(destination, true);
+    Check(Installer.Ready(destination) && !Directory.Exists(stage) &&
+              File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "new game" &&
+              File.ReadAllText(Path.Combine(active, "lollipop.toml")) == "custom key bindings",
+          "Published update lost the game or advanced key bindings");
+    var transaction = Guid.NewGuid().ToString("N");
+    var previous = Path.Combine(state, transaction);
+    File.WriteAllText(Path.Combine(state, "publish.pending"), transaction + "\nready");
+    File.WriteAllText(Path.Combine(state, "setup.pending"), "Updating");
+    Directory.Move(active, previous);
+    GameUpdate.Recover(destination);
+    Check(Installer.Ready(destination) &&
+              File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "new game",
+          "An interruption between directory moves stranded the previous game");
+    Directory.CreateDirectory(previous);
+    File.WriteAllText(Path.Combine(previous, "lollipop.exe"), "previous game");
+    File.WriteAllText(Path.Combine(state, "publish.pending"), transaction + "\nready");
+    File.WriteAllText(Path.Combine(state, "setup.pending"), "Updating");
+    GameUpdate.Recover(destination);
+    Check(Installer.Ready(destination) && !Directory.Exists(previous) &&
+              File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "new game",
+          "Recovery after publication replaced the tested game");
+    foreach (var invalid in new[] { "../escape", "", transaction + "\n", transaction + "\nother" }) {
+      File.WriteAllText(Path.Combine(state, "publish.pending"), invalid);
+      Fails(delegate { GameUpdate.Recover(destination); }, "Unsafe recovery path was accepted");
+    }
+    File.Delete(Path.Combine(state, "publish.pending"));
+    Check(File.ReadAllText(Path.Combine(destination, "game/default.xex")) == "disc" &&
+              File.ReadAllText(Path.Combine(destination, "user/save")) == "save" &&
+              File.ReadAllText(Path.Combine(destination, "user/pc-settings.toml")) == "preferences" &&
+              File.ReadAllText(Path.Combine(destination, "cache/player-cache")) == "cache",
+          "Updating changed disc files, saves, preferences or player caches");
+    Directory.CreateDirectory(stage);
+    File.WriteAllText(Path.Combine(state, "publish.pending"), transaction + "\nincomplete");
+    File.WriteAllText(Path.Combine(state, "setup.pending"), "Installing");
+    Directory.Move(active, previous);
+    GameUpdate.Recover(destination);
+    Check(!Installer.Ready(destination) && File.Exists(Path.Combine(active, "lollipop.exe")),
+          "Recovery advertised an untested previous build as playable");
+    File.Delete(Path.Combine(state, "setup.pending"));
+    var fresh = Path.Combine(sandbox, "interrupted first publication");
+    Installer.Initialize(fresh);
+    var freshState = Path.Combine(fresh, "out/launcher");
+    File.WriteAllText(Path.Combine(freshState, "setup.pending"), "Installing");
+    File.WriteAllText(Path.Combine(freshState, "publish.pending"), transaction);
+    GameUpdate.Recover(fresh);
+    Check(File.Exists(Path.Combine(freshState, "setup.pending")) &&
+              !File.Exists(Path.Combine(freshState, "publish.pending")),
+          "An interruption before the first publication prevented a retry");
+    foreach (var version in new[] { "first game", "repaired game" }) {
+      var freshStage = GameUpdate.Stage(fresh);
+      Directory.CreateDirectory(freshStage);
+      foreach (var file in new[] { "lollipop.exe", "rexruntime.dll", "rexgpu-xenos.dll" })
+        File.WriteAllText(Path.Combine(freshStage, file), version);
+      File.WriteAllText(Path.Combine(freshState, "setup.pending"), "Installing");
+      GameUpdate.Publish(fresh, false);
+      Check(!File.Exists(Path.Combine(freshState, "setup.pending")) &&
+                File.ReadAllText(Path.Combine(fresh, "out/build/win-amd64-release/lollipop.exe")) == version,
+            "A tested first installation or repair was not published as ready");
+    }
   }
 
   private static void DownloadTest(Tools tools, RecordedProgress progress, string sandbox) {
@@ -310,7 +420,11 @@ internal static class SetupTests {
     var pending = Path.Combine(destination, "out/launcher/setup.pending");
     File.WriteAllText(pending, "Installing");
     Check(!Installer.Ready(destination), "Incomplete build exposed Play");
-    File.Delete(pending);
+    var resuming = new Launcher(sandbox, Path.Combine(destination, "Play Lollipop Chainsaw.exe"));
+    try {
+      Check(resuming.Destination == destination && resuming.Screen == "Update",
+            "Installed launcher forgot its folder after an interrupted update");
+    } finally { resuming.Window.Close(); }
     var launcher = new Launcher(sandbox, executable);
     try {
       Check(!launcher.Find<Button>("Primary").IsEnabled, "Installer accepted missing inputs");
@@ -321,6 +435,10 @@ internal static class SetupTests {
         Check(art.PixelWidth >= 512 && art.PixelHeight >= 512, "Embedded artwork did not load");
       }
       launcher.Destination = destination;
+      launcher.Home();
+      Check(launcher.Screen == "Update" && launcher.Find<Button>("Primary").IsEnabled,
+            "Interrupted setup required the ISO again instead of offering repair");
+      File.Delete(pending);
       launcher.Home();
       Check(launcher.Screen == "Ready" && !launcher.Find<Button>("Precompile").IsEnabled,
             "Old build cannot play or improperly permits shader preparation");
@@ -338,14 +456,14 @@ internal static class SetupTests {
             "Unknown progress invented a percentage");
       var surface = (FrameworkElement)launcher.Window.Content;
       foreach (var size in new[] { new Size(1080, 680), new Size(860, 580) }) {
-        foreach (var state in new[] { "Install", "Busy", "Ready", "Failure" }) {
+        foreach (var state in new[] { "Install", "Busy", "Ready", "Update", "Failure" }) {
           launcher.Show(state, "DiscTab", "Install your game",
                         "Choose your Xbox 360 ISO and an install folder.", "Install game",
                         "Choose another folder", null);
           surface.Measure(size);
           surface.Arrange(new Rect(size));
           surface.UpdateLayout();
-          foreach (var name in new[] { "Primary", "Secondary", "Precompile", "Help" }) {
+          foreach (var name in new[] { "Primary", "Secondary", "Precompile", "Update", "Help" }) {
             var control = launcher.Find<Button>(name);
             if (control.Visibility != Visibility.Visible)
               continue;
@@ -376,6 +494,19 @@ internal static class SetupTests {
             "Play did not use installation paths");
       Check(File.ReadAllText(Path.Combine(destination, "user/save")) == "preserve",
             "Play changed the existing save");
+      launcher.Source = null;
+      launcher.Start(false, false, true);
+      Pump(launcher);
+      Check(launcher.Screen == "Failure" && Installer.Ready(destination) &&
+                launcher.Find<TextBox>("LogText").Text.Contains("This disc does not match") &&
+                File.ReadAllText(Path.Combine(destination, "user/save")) == "preserve",
+            "Update needed the ISO or damaged the installation after failed validation");
+      File.WriteAllText(pending, "Installing");
+      launcher.Start(false, false, true);
+      Pump(launcher);
+      Check(!Installer.Ready(destination) && File.Exists(pending),
+            "A failed repair advertised an untested installation as playable");
+      File.Delete(pending);
       using (var installationLock =
                  File.Open(Path.Combine(destination, "out/launcher/launcher.lock"),
                            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
@@ -383,6 +514,7 @@ internal static class SetupTests {
         Fails(delegate { installer.Run(null, true, false); }, "Installation lock was ignored");
       }
       var workArea = new Size(800, 512);
+      launcher.Home();
       launcher.FitWorkArea(workArea);
       launcher.Window.ShowInTaskbar = false;
       launcher.Window.ShowActivated = false;
@@ -392,6 +524,14 @@ internal static class SetupTests {
       Check(launcher.Window.ActualWidth <= workArea.Width &&
                 launcher.Window.ActualHeight <= workArea.Height,
             "Window minimum size overrides the display work area");
+      foreach (var name in new[] { "Primary", "Secondary", "Precompile", "Update", "Help" }) {
+        var control = launcher.Find<Button>(name);
+        var point = control.TranslatePoint(new Point(0, 0), surface);
+        Check(control.Visibility == Visibility.Visible && point.X >= 0 && point.Y >= 0 &&
+                  point.X + control.ActualWidth <= surface.ActualWidth + 1 &&
+                  point.Y + control.ActualHeight <= surface.ActualHeight + 1,
+              "Ready action clipped in the real small-window layout: " + name);
+      }
     } finally {
       launcher.Window.Close();
     }
