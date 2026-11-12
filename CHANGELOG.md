@@ -1,23 +1,19 @@
 # Changelog
 
-## Unreleased · WIP
+## Unreleased
 
-- Fixed stale keyboard hints during controller play in native menus, cutscenes and gameplay.
-- Organized host code into focused modules with project namespaces and independently checked headers.
-- Made setup/build/run scripts portable, with local defaults, explicit directory overrides and pinned SDK checkout.
-- Unified the original Options menu with display, graphics, audio, camera and controller settings.
-- Added per-user Apply/Discard, automatic pause/resume and a 15-second display rollback timer.
-- Added 30/60/90/120 FPS limits with matching engine/vblank pacing and legacy-profile migration.
-- Added comic-style settings artwork, native control icons and mouse, keyboard and controller navigation.
-- Added RePOP-style keyboard/mouse controls, mouse deadzone compensation and live input-device hints.
-- Fixed modifier-held movement, Shift+LMB blaster input and vertical QTE key prompts.
-- Preserved physical controllers in the optional test bridge and added settings/input regression checks.
-- Initial Windows x64 recompilation kit for the verified Xbox 360 executable.
-- 1440p / 60 FPS profile, 16× anisotropic filtering and engine timing hooks.
-- Fixed concurrent input polling, UI paint waits and D3D12 fence registration.
-- Added async pipeline synchronization and texture-copy bounds fixes.
-- Skipped draws that cannot affect output, reducing queue stalls and animation jumps.
-- Added optional gameplay controls, native capture and frame/Tick logging.
-- Added ROM import validation and build documentation.
+- Added a Windows installer with ISO import, verified downloads and resumable setup.
+- Added startup shader preparation, a launcher precompile action and a pipeline
+  inventory collected across stage and boss maps.
+- Fixed damaged shader-cache recovery and launches with shader storage disabled.
+- Reduced checkpoint loading overhead and cached keyboard artwork for reuse.
+- Unified Options with display, graphics, audio, camera and controller settings,
+  including pause handling and display rollback.
+- Added 30, 60, 90 and 120 FPS limits, with 1440p / 60 FPS defaults.
+- Added keyboard/mouse controls and live device prompts; fixed held-modifier
+  movement, blaster shortcuts and QTE labels.
+- Fixed input polling, rendering synchronization and texture-copy bounds.
+- Moved installer source into [installer/](installer/), removed redundant script
+  wrappers and simplified the README and guides.
 
-Known limitations are recorded in [compatibility](docs/COMPATIBILITY.md).
+See [compatibility and known issues](docs/COMPATIBILITY.md) for current limitations.
