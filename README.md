@@ -65,4 +65,4 @@ Lollipop Chainsaw Recomp by [kxrxh](https://github.com/kxrxh).
 Built with [ReXGlue](https://github.com/rexglue/rexglue-sdk) and its Xenia
 foundations, with fixes adapted from PM.RAZOR's SSX work. See
 [THIRD_PARTY.md](THIRD_PARTY.md) for credits and artwork notices, and
-[LICENSE](LICENSE) for the project license. This is an unofficial project.
+[LICENSE](LICENSE) for the BSD-3-Clause project license. This is an unofficial project.

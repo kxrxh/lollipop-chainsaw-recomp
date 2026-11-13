@@ -3,8 +3,8 @@
 ## Project
 
 Lollipop Chainsaw Recomp by [kxrxh](https://github.com/kxrxh).
-Original code uses the [Attribution License](LICENSE). Redistributed versions
-and forks must preserve the author credit and link.
+Original code uses the [BSD-3-Clause license](LICENSE). Source and binary
+redistributions must retain the copyright notice, license terms and disclaimer.
 
 ## Runtime and tools
 
@@ -30,7 +30,8 @@ its implementation was not copied.
 
 Lollipop Chainsaw and Lollipop Chainsaw RePOP, their characters, logos and
 game data belong to their respective rights holders. This is an unofficial
-project and does not imply endorsement.
+project and does not imply endorsement. Game code, game data, promotional artwork,
+characters and trademarks are not covered by the project license.
 
 The README banner is adapted from the supplied RePOP promotional artwork, with the
 subtitle changed to RECOMP. The application icon follows the supplied game
