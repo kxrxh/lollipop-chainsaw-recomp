@@ -4,55 +4,28 @@
   <img src="assets/banner.png" alt="Lollipop Chainsaw Recomp" width="100%">
 </p>
 
-Play the original Xbox 360 version of Lollipop Chainsaw on Windows, using your
-own copy of the game. Game files are not included.
-
-Keyboard, mouse and controllers are supported. Display, graphics, audio and
-control settings are available through the game's Options menu.
-Select Quit Game on the main menu to exit, then confirm.
+The original Xbox 360 game, recompiled for Windows. Requires your own game copy;
+game files are not included.
 
 ## Getting started
 
-You need 64-bit Windows, an internet connection for setup, and an ISO of the
+Requires Windows x64, internet for setup, and an ISO of the
 [supported Xbox 360 disc](docs/BUILDING.md#supported-game).
 
-From the repository folder, run this in PowerShell to build the launcher:
+Build the launcher from PowerShell:
 
 ```powershell
 ./launcher/build.ps1
 ```
 
-Then open `out/launcher/Lollipop Chainsaw Launcher.exe`.
+Open `out/launcher/Lollipop Chainsaw Launcher.exe`:
 
-1. Select Set up game, then choose your ISO and an install folder in Manage game.
-2. Select Install game. The launcher downloads the tools it needs and builds the game
-   on your PC. The first installation can take a while.
-3. Select Play. For later launches, open
-   `Play Lollipop Chainsaw.exe` in the install folder.
+1. **Set up game** → choose your ISO and an install folder.
+2. **Install game** → wait for the build to finish.
+3. **Play**. Next time, open `Play Lollipop Chainsaw.exe` in the install folder.
 
-For an easier first run, choose Difficulty, then Easy on the game's title menu
-before selecting Game Start.
-
-If installation is interrupted after importing the disc, reopen the launcher,
-select Locate game and choose the same folder, then select Repair game.
-The imported files are reused.
-Your saves are in the install folder's `user/` directory. Keep that directory
-when moving or reinstalling the game.
-
-The bundled recomp version is visible in the corner. Updates tracks launcher, bundled recomp and installed game
-versions separately. Manage game provides shader preparation and shortcuts to
-the game and saves folders. Game settings are in the game's Options menu.
-The launcher's Game settings page configures display mode, window resolution,
-VSync, aspect ratio, render resolution, anti-aliasing, texture filtering,
-frame rate and dithering. Changes are saved with Save settings or before Play
-and apply on the next launch. Audio and control preferences are preserved.
-Help & support opens an in-app guide; close it with Got it, the close button or Escape.
-
-Open Updates to read build notes and check for a stable GitHub release.
-To apply a newer version, close the game, download and open its launcher, select
-Locate game and choose your existing install folder. In Manage game, select
-Apply launcher build / Repair. You do not need the ISO again. Your saves and
-settings are kept. Update checks need internet; launching an installed game does not.
+Display and graphics: launcher **Game settings**. Audio and controls: in-game **Options**.
+Back up the install folder's `user/` directory to keep your saves.
 
 ## Launcher
 
@@ -69,25 +42,17 @@ settings are kept. Update checks need internet; launching an installed game does
 
 ## Known issues
 
-The project is still in development. Menus and early gameplay have been tested,
-but a full playthrough has not been verified. Some loading and cutscene
-transitions can stall. Graphics crashes have occurred during checkpoint reloads
-and a later prologue transition.
+A full playthrough is unverified. Loading/cutscene stalls and D3D12 crashes remain.
+See [compatibility and troubleshooting](docs/COMPATIBILITY.md).
 
-See the [compatibility notes](docs/COMPATIBILITY.md) for details.
+## Docs
 
-## Development
-
-The [build guide](docs/BUILDING.md) covers requirements and manual builds.
-Launcher source is in [launcher/](launcher/). The
-[development guide](docs/DEVELOPMENT.md) covers the game code and testing tools.
-Recent changes are in the [changelog](CHANGELOG.md).
+[Build guide](docs/BUILDING.md) ·
+[Update / repair](docs/BUILDING.md#updating-or-removing-an-installation) ·
+[Development](docs/DEVELOPMENT.md) · [Changelog](CHANGELOG.md)
 
 ## Credits
 
-Lollipop Chainsaw Recomp by [kxrxh](https://github.com/kxrxh).
-
-Built with [ReXGlue](https://github.com/rexglue/rexglue-sdk) and its Xenia
-foundations, with fixes adapted from PM.RAZOR's SSX work. See
-[THIRD_PARTY.md](THIRD_PARTY.md) for credits and artwork notices, and
-[LICENSE](LICENSE) for the BSD-3-Clause project license. This is an unofficial project.
+By [kxrxh](https://github.com/kxrxh). Built with
+[ReXGlue](https://github.com/rexglue/rexglue-sdk) and Xenia.
+[BSD-3-Clause](LICENSE) · [Credits and artwork notices](THIRD_PARTY.md).
