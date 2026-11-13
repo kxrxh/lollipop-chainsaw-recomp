@@ -142,6 +142,7 @@ internal static class SetupTests {
       MarkdownTests.Run();
       GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
       LauncherInstallationTests.Run(sandbox);
+      GameLocationTests.Run(sandbox);
       LauncherTest(sandbox, executable);
       Console.WriteLine("Standalone launcher checks passed.");
       return 0;
@@ -556,7 +557,8 @@ internal static class SetupTests {
     var pending = Path.Combine(destination, "out/launcher/setup.pending");
     File.WriteAllText(pending, "Installing");
     Check(!Installer.Ready(destination), "Incomplete build exposed Play");
-    var resuming = new Launcher(sandbox, Path.Combine(destination, "Play Lollipop Chainsaw.exe"));
+    var resuming = new Launcher(sandbox, Path.Combine(destination, "Play Lollipop Chainsaw.exe"),
+                                Path.Combine(sandbox, "resuming-location.txt"));
     try {
       Check(resuming.Destination == destination && resuming.Screen == "Update",
             "Installed launcher forgot its folder after an interrupted update");
@@ -565,7 +567,8 @@ internal static class SetupTests {
     } finally {
       resuming.Window.Close();
     }
-    var launcher = new Launcher(sandbox, executable);
+    var launcher =
+        new Launcher(sandbox, executable, Path.Combine(sandbox, "launcher-location.txt"));
     try {
       Check(launcher.CurrentPage == "Home" && launcher.Find<Button>("Primary").IsEnabled,
             "New launcher did not open the game overview");

@@ -9,21 +9,9 @@ game files are not included.
 
 ## Getting started
 
-Requires Windows x64, internet for setup, and an ISO of the
+Download the [latest launcher](https://github.com/kxrxh/lollipop-chainsaw-recomp/releases/latest)
+and run it. Requires Windows x64, internet for setup, and an ISO of the
 [supported Xbox 360 disc](docs/BUILDING.md#supported-game).
-
-Build the launcher from PowerShell:
-
-```powershell
-./launcher/build.ps1
-```
-
-Open `out/launcher/Lollipop Chainsaw Launcher.exe` to install from your ISO.
-Keep **Create a desktop shortcut to the launcher** enabled for easy access.
-Start the game with **Play** in the launcher.
-
-Display and graphics: launcher **Game settings**. Audio and controls: in-game **Options**.
-Back up the install folder's `user/` directory to keep your saves.
 
 ## Launcher
 
@@ -45,7 +33,7 @@ See [compatibility and troubleshooting](docs/COMPATIBILITY.md).
 
 ## Docs
 
-[Build guide](docs/BUILDING.md) ·
+[Build from source (optional)](docs/BUILDING.md) ·
 [Update / repair](docs/BUILDING.md#updating-or-removing-an-installation) ·
 [Development](docs/DEVELOPMENT.md) · [Changelog](CHANGELOG.md)
 

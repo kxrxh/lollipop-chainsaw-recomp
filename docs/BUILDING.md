@@ -28,6 +28,12 @@ Setup installs `Lollipop Chainsaw Launcher.exe` in the game folder. Keep
 **Create desktop shortcut** in Manage game afterward. The shortcut opens the
 launcher; select Play there to start the game.
 
+The launcher remembers the last selected game folder across restarts and downloaded
+launcher updates. Its preference is stored in
+`%LOCALAPPDATA%/Lollipop Chainsaw Recomp/launcher/game-location.txt`.
+A launcher installed inside a game folder uses that installation. If a saved folder
+is unavailable, use Locate game to select it again.
+
 ## Supported game
 
 | Field | Supported value |

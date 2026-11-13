@@ -221,7 +221,7 @@
                 <TextBlock Text="Install your game" Style="{StaticResource HelpHeading}" Margin="0,0,0,8"/>
                 <TextBlock Style="{StaticResource HelpBody}" Text="Open Manage game, choose your Xbox 360 ISO and a new game folder, then select Install game. Use the original disc with media ID 31BE13D9, version 0.0.0.2. First-time installation needs internet and may ask for Windows approval."/>
                 <TextBlock Text="Already installed?" Style="{StaticResource HelpHeading}"/>
-                <TextBlock Style="{StaticResource HelpBody}" Text="Open Lollipop Chainsaw Launcher and select Play. Setup can add a desktop shortcut to the launcher. You can also create one from Manage game. Use Locate game to select an existing installation."/>
+                <TextBlock Style="{StaticResource HelpBody}" Text="Open Lollipop Chainsaw Launcher and select Play. Setup can add a desktop shortcut to the launcher. You can also create one from Manage game. The launcher remembers your game folder; use Locate game to change it."/>
                 <TextBlock Text="Updates &amp; repair" Style="{StaticResource HelpHeading}"/>
                 <TextBlock Style="{StaticResource HelpBody}" Text="Open Updates to see launcher, bundled recomp and installed game versions, and check for a stable recomp release. Download its launcher, select your existing game folder, then use Apply launcher build / Repair in Manage game. An imported disc does not need the ISO again. This also resumes interrupted installation."/>
                 <TextBlock Text="Saves &amp; settings" Style="{StaticResource HelpHeading}"/>

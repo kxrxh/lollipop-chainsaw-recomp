@@ -18,16 +18,17 @@ internal sealed class Launcher {
   internal string CurrentPage = "Home";
   internal bool Busy, CheckingUpdates;
   internal readonly GraphicsSettings Settings;
-  private readonly string kit, executable;
+  private readonly string kit, executable, locationFile;
   private readonly DispatcherTimer timer = new DispatcherTimer();
   private readonly Stopwatch elapsed = new Stopwatch();
   private string stepLabel = "";
   private Release? latest;
   private IInputElement? helpReturnFocus;
 
-  internal Launcher(string kit, string executable) {
+  internal Launcher(string kit, string executable, string? locationFile = null) {
     this.kit = kit;
     this.executable = executable;
+    this.locationFile = locationFile ?? GameLocation.DefaultFile;
     Window = new MainWindow();
     FitWorkArea(SystemParameters.WorkArea.Size);
     Window.Icon = Image("lollipop.png");
@@ -114,8 +115,9 @@ internal sealed class Launcher {
     };
     Settings = new GraphicsSettings(this);
     var ownFolder = Path.GetDirectoryName(executable);
-    if (Installer.Ready(ownFolder) || GameUpdate.CanUpdate(ownFolder))
-      Destination = ownFolder;
+    Destination = Installer.Ready(ownFolder) || GameUpdate.CanUpdate(ownFolder)
+                      ? ownFolder
+                      : GameLocation.Load(this.locationFile);
     Home();
   }
 
@@ -307,6 +309,8 @@ internal sealed class Launcher {
            "Install your Xbox 360 copy, or locate a game you've already installed.", "Set up game",
            "Locate game", null);
     }
+    if (Destination != null && !GameLocation.Save(locationFile, Destination))
+      Find<TextBlock>("Description").Text += " Couldn't remember this folder for next time.";
   }
 
   internal void Progress(string activity, string status, int percent) {

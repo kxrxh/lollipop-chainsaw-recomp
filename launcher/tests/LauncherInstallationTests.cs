@@ -49,7 +49,7 @@ internal static class LauncherInstallationTests {
     Check(!Directory.GetFiles(destination, "*.tmp").Any(),
           "A failed launcher replacement left staging files");
 
-    var launcher = new Launcher(sandbox, target);
+    var launcher = new Launcher(sandbox, target, Path.Combine(sandbox, "shortcut-location.txt"));
     try {
       Check(launcher.Destination == destination && launcher.CurrentPage == "Home" &&
                 launcher.Screen == "Ready",
