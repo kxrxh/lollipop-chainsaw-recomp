@@ -5,7 +5,9 @@
 - Added a Windows installer with ISO import, verified downloads and resumable setup.
 - Added startup shader preparation, a launcher precompile action and a pipeline
   inventory collected across stage/boss maps and prologue combat.
+- Expanded shader preparation with Star Soul and later prologue encounter states.
 - Fixed damaged shader-cache recovery and launches with shader storage disabled.
+- Retry brief file-sharing locks when publishing shader caches.
 - Reduced checkpoint loading overhead and cached keyboard artwork for reuse.
 - Unified Options with display, graphics, audio, camera and controller settings,
   including pause handling and display rollback.
@@ -17,6 +19,8 @@
   handles.
 - Fixed controller deadzones ignoring left/down drift and disabling themselves
   at 100%.
+- Held triggers stay blocked after leaving PC settings until released, preventing
+  accidental Star Soul activation or blaster fire.
 - Added Quit Game to PC settings with a confirmation that defaults to Cancel.
 - Added Update / Repair without reimporting the ISO, with staged builds,
   interrupted-update recovery and preservation of saves and settings.

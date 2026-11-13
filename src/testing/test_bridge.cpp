@@ -65,6 +65,7 @@ class test_driver final : public rex::input::InputDriver {
     caps->type = 1;
     caps->sub_type = 1;
     caps->gamepad.buttons = 0xFFFF;
+    caps->gamepad.left_trigger = caps->gamepad.right_trigger = 255;
     caps->gamepad.thumb_lx = caps->gamepad.thumb_ly = 32767;
     caps->gamepad.thumb_rx = caps->gamepad.thumb_ry = 32767;
     return X_ERROR_SUCCESS;
@@ -185,24 +186,29 @@ std::string execute_test_command(test_controls& controls,
   }
   if (operation == "input") {
     int buttons, lx, ly, rx, ry, duration;
-    if (!(words >> buttons >> lx >> ly >> rx >> ry >> duration) ||
-        !(words >> std::ws).eof() || buttons < 0 || buttons > 65535 ||
-        lx < -32768 || lx > 32767 || ly < -32768 || ly > 32767 || rx < -32768 ||
-        rx > 32767 || ry < -32768 || ry > 32767 || duration < 0 ||
-        duration > 10000) {
-      return "error input expects buttons lx ly rx ry duration_ms (0..10000)";
+    int lt = 0, rt = 0;
+    bool valid = bool(words >> buttons >> lx >> ly >> rx >> ry >> duration);
+    if (valid && !(words >> std::ws).eof()) {
+      valid = bool(words >> lt >> rt) && (words >> std::ws).eof();
+    }
+    if (!valid || buttons < 0 || buttons > 65535 || lx < -32768 || lx > 32767 || ly < -32768 ||
+        ly > 32767 || rx < -32768 || rx > 32767 || ry < -32768 || ry > 32767 || duration < 0 ||
+        duration > 10000 || lt < 0 || lt > 255 || rt < 0 || rt > 255) {
+      return "error input expects buttons lx ly rx ry duration_ms (0..10000) [lt rt] (0..255)";
     }
     std::lock_guard lock(controls.mutex);
-    auto& state = controls.keyboard_input.load() ? controls.state : controls.gamepad_state;
-    auto& release = controls.keyboard_input.load() ? controls.release_at : controls.gamepad_release_at;
+    const bool keyboard = controls.keyboard_input.load();
+    auto& state = keyboard ? controls.state : controls.gamepad_state;
+    auto& release = keyboard ? controls.release_at : controls.gamepad_release_at;
     state.packet_number = uint32_t(state.packet_number) + 1;
     state.gamepad.buttons = uint16_t(buttons);
     state.gamepad.thumb_lx = int16_t(lx);
     state.gamepad.thumb_ly = int16_t(ly);
     state.gamepad.thumb_rx = int16_t(rx);
     state.gamepad.thumb_ry = int16_t(ry);
-    release =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(duration);
+    state.gamepad.left_trigger = uint8_t(lt);
+    state.gamepad.right_trigger = uint8_t(rt);
+    release = std::chrono::steady_clock::now() + std::chrono::milliseconds(duration);
     return "ok input";
   }
   std::string name, value;
@@ -259,8 +265,12 @@ std::jthread start_test_bridge(rex::input::InputSystem& input,
             const auto ui_status = input.GetStateForUI(0, &ui);
             result = "ok status=" + std::to_string(status) +
                      " guest_buttons=" + std::to_string(uint16_t(guest.gamepad.buttons)) +
+                     " guest_lt=" + std::to_string(uint8_t(guest.gamepad.left_trigger)) +
+                     " guest_rt=" + std::to_string(uint8_t(guest.gamepad.right_trigger)) +
                      " ui_status=" + std::to_string(ui_status) +
                      " ui_buttons=" + std::to_string(uint16_t(ui.gamepad.buttons)) +
+                     " ui_lt=" + std::to_string(uint8_t(ui.gamepad.left_trigger)) +
+                     " ui_rt=" + std::to_string(uint8_t(ui.gamepad.right_trigger)) +
                      " hints=" + (input.IsKeyboardActive() ? "keyboard" : "gamepad");
           } else if (command == "gpu_capture_start" || command == "gpu_capture_stop") {
             const auto capture = rex::ui::RenderDocAPI::CreateIfConnected();

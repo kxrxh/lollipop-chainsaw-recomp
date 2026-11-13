@@ -173,7 +173,7 @@ index 52116f1..e26caaa 100644
    void set_is_active_callback(std::function<bool()> is_active_callback) {
      is_active_callback_ = is_active_callback;
 diff --git a/include/rex/input/input_system.h b/include/rex/input/input_system.h
-index 0c27eed..ef39725 100644
+index 0c27eed..52de503 100644
 --- a/include/rex/input/input_system.h
 +++ b/include/rex/input/input_system.h
 @@ -14,6 +14,7 @@
@@ -206,10 +206,12 @@ index 0c27eed..ef39725 100644
    using JoystickValue = std::pair<uint16_t, uint16_t>;
    /// Re-enumerates every driver and notifies the assignment when the set
    /// changed.
-@@ -101,6 +110,8 @@ class InputSystem : public system::IInputSystem {
+@@ -101,6 +110,10 @@ class InputSystem : public system::IInputSystem {
    std::atomic<int> ui_input_blockers_{0};
    // Masked out per user until the guest sees them released.
    std::array<uint16_t, kMaxGuestUsers> consumed_buttons_ = {};
++  std::array<bool, kMaxGuestUsers> consumed_left_trigger_ = {};
++  std::array<bool, kMaxGuestUsers> consumed_right_trigger_ = {};
 +  // Guest pollers and UI dialogs share device tables; public input methods nest.
 +  mutable std::recursive_mutex devices_mutex_;
  };
@@ -962,7 +964,7 @@ index ec0df7c..c787a72 100644
    if (length == 0 || start >= kBufferSize) {
      return;
 diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
-index 40740ee..ea347b9 100644
+index 40740ee..a55f3a7 100644
 --- a/src/input/input_system.cpp
 +++ b/src/input/input_system.cpp
 @@ -47,12 +47,17 @@ namespace {
@@ -1027,7 +1029,16 @@ index 40740ee..ea347b9 100644
    SCOPE_profile_cpu_f("hid");
    if (!out_caps || !assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -270,6 +281,7 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
+@@ -252,6 +263,8 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
+   if (!connected) {
+     user_max_joystick_value_[user_index] = {};
+     consumed_buttons_[user_index] = 0;
++    consumed_left_trigger_[user_index] = false;
++    consumed_right_trigger_[user_index] = false;
+     return;
+   }
+
+@@ -270,6 +283,7 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
  }
  
  X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
@@ -1035,16 +1046,29 @@ index 40740ee..ea347b9 100644
    SCOPE_profile_cpu_f("hid");
  
    // A dialog owns the controller.
-@@ -280,7 +292,7 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+@@ -280,20 +294,30 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
      return X_ERROR_SUCCESS;
    }
  
 -  X_RESULT result = GetStateForUI(user_index, out_state);
 +  X_RESULT result = ReadState(user_index, out_state, false);
  
-   if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers &&
-       consumed_buttons_[user_index] != 0) {
-@@ -294,6 +306,11 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+-  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers &&
+-      consumed_buttons_[user_index] != 0) {
++  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers) {
+     const uint16_t buttons = out_state->gamepad.buttons;
+     // Each button leaves the mask once the player lets go of it.
+     consumed_buttons_[user_index] &= buttons;
+     out_state->gamepad.buttons = static_cast<uint16_t>(buttons & ~consumed_buttons_[user_index]);
++    consumed_left_trigger_[user_index] &= out_state->gamepad.left_trigger >= kTriggerThreshold;
++    consumed_right_trigger_[user_index] &= out_state->gamepad.right_trigger >= kTriggerThreshold;
++    if (consumed_left_trigger_[user_index])
++      out_state->gamepad.left_trigger = 0;
++    if (consumed_right_trigger_[user_index])
++      out_state->gamepad.right_trigger = 0;
+   }
+
+   return result;
  }
  
  X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_state) {
@@ -1056,7 +1080,7 @@ index 40740ee..ea347b9 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -311,10 +328,16 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
+@@ -311,10 +335,16 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
        continue;
      }
      X_INPUT_STATE state = {};
@@ -1075,7 +1099,7 @@ index 40740ee..ea347b9 100644
      if (!any) {
        merged = state;
        any = true;
-@@ -338,11 +361,17 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
+@@ -338,17 +368,25 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
    return X_ERROR_SUCCESS;
  }
  
@@ -1093,7 +1117,15 @@ index 40740ee..ea347b9 100644
    // Whatever is held right now stays masked until released, so the press that
    // dismissed the dialog is not also read as a press in the game.
    X_INPUT_STATE state = {};
-@@ -360,6 +389,7 @@ bool InputSystem::GetVibrationEnabled() const {
+   for (uint32_t user_index = 0; user_index < kMaxGuestUsers; user_index++) {
+     if (GetStateForUI(user_index, &state) == X_ERROR_SUCCESS) {
+       consumed_buttons_[user_index] |= static_cast<uint16_t>(state.gamepad.buttons);
++      consumed_left_trigger_[user_index] |= state.gamepad.left_trigger >= kTriggerThreshold;
++      consumed_right_trigger_[user_index] |= state.gamepad.right_trigger >= kTriggerThreshold;
+     }
+   }
+
+@@ -360,6 +398,7 @@ bool InputSystem::GetVibrationEnabled() const {
  }
  
  void InputSystem::ToggleVibration() {
@@ -1101,7 +1133,7 @@ index 40740ee..ea347b9 100644
    REXCVAR_SET(vibration, !REXCVAR_GET(vibration));
    // The guest's next SetState may never come while a motor is running.
    X_INPUT_VIBRATION silence = {};
-@@ -376,14 +406,18 @@ void InputSystem::AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gam
+@@ -376,14 +415,18 @@ void InputSystem::AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gam
    // Radial: the cutoff follows the stick's angle, so a diagonal is not held to
    // a larger displacement than a cardinal push.
    auto apply = [](double percentage, const JoystickValue& max, int16_t& axis_x, int16_t& axis_y) {
@@ -1123,7 +1155,7 @@ index 40740ee..ea347b9 100644
      if (axis_x > -cutoff_x && axis_x < cutoff_x) {
        axis_x = 0;
      }
-@@ -416,6 +450,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
+@@ -416,6 +459,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
  }
  
  X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
@@ -1131,7 +1163,7 @@ index 40740ee..ea347b9 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_ || !vibration) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -461,6 +496,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
+@@ -461,6 +505,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
  
  X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
                                     X_INPUT_KEYSTROKE* out_keystroke) {

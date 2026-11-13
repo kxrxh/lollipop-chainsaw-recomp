@@ -179,9 +179,9 @@ Use `-Directory` if the bridge is in a different location.
 | --- | --- |
 | `get name` | Read a runtime setting |
 | `set name value` | Change a live setting; restart-only settings are rejected |
-| `input buttons lx ly rx ry duration_ms` | Set controller input for up to 10 seconds |
+| `input buttons lx ly rx ry duration_ms [lt rt]` | Set controller input for up to 10 seconds, optionally including triggers |
 | `input_device keyboard` / `input_device gamepad` | Choose the injected device |
-| `input_state` | Read guest/UI buttons and the active hint device |
+| `input_state` | Read guest/UI buttons, triggers and the active hint device |
 | `game_settings_state` | Read cached native option values |
 | `game_console command` | Queue a native console command on the engine thread |
 | `game_console_state` | Read console status |
@@ -193,7 +193,9 @@ Use `-Directory` if the bridge is in a different location.
 | `quit` | Close the test process |
 
 Button masks are decimal Xbox bits; stick axes range from -32768 to 32767.
-The example presses A. Mouse/key `down` values are 1 for down and 0 for up; send
+The example presses A. Optional trigger values range from 0 to 255; omitting
+them releases both triggers. For example, `input 0 0 0 0 0 150 0 255` pulls RT
+for Star Soul. Mouse/key `down` values are 1 for down and 0 for up; send
 both events. UI keys are `enter`, `escape`, `backspace`, `tab`, `up`, `down`,
 `left` and `right`.
 

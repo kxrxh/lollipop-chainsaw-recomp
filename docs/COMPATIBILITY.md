@@ -7,10 +7,17 @@ other disc versions, Vulkan, macOS and Linux remain unverified.
 
 Recorded gameplay checks used an Intel Core i7-10700K, 32 GB RAM and an NVIDIA
 GeForce RTX 3080, at 2560×1440 with the D3D12 ROV renderer. Boot, menus, prologue
-movement and combat have been checked, including the first student rescue,
-bus-door QTE, crawler encounter and bus vault. The second rescue was reached;
-it has not been cleared. Settings checks covered saving, discarding changes,
-display rollback and pausing.
+movement and combat have been checked, including the first two student rescues,
+bus-door QTE, crawler encounter, bus vault, bus rollover, gate QTE and the third
+student's escort wave. The third student died in the following 25-zombie encounter;
+its successful rescue and later progression remain unverified. Settings checks
+covered saving, discarding changes, display rollback and pausing.
+
+A full app restart resumed the checkpoint after the second rescue. Live trigger
+checks covered blocking held input after settings closed, release, a fresh RT
+press and Star Soul combat through the eight-zombie encounter.
+Its fresh-cache Star Soul and triple Sparkle Hunt check recorded no pipeline
+misses over 960 measured frames.
 
 Texture reload checks passed three restarts with a 64 MB cache, plus
 death/Continue and an opening-gate replay with the default cache limits.

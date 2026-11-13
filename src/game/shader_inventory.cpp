@@ -69,9 +69,20 @@ void publish(const std::filesystem::path& path, std::span<const uint8_t> data) {
   std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
   file.write(reinterpret_cast<const char*>(data.data()), data.size());
   file.close();
-  if (!file || !MoveFileExW(temporary.c_str(), path.c_str(),
-                            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-    throw std::runtime_error("Could not publish shader inventory: " + path.string());
+  if (!file)
+    throw std::runtime_error("Could not write shader inventory: " + temporary.string());
+  for (unsigned attempt = 0;; ++attempt) {
+    if (MoveFileExW(temporary.c_str(), path.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+      return;
+    const auto error = GetLastError();
+    // A held destination can report Access denied during replacement.
+    if (attempt == 9 || (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION &&
+                         error != ERROR_ACCESS_DENIED))
+      throw std::runtime_error("Could not publish shader inventory (Windows error " +
+                               std::to_string(error) + "): " + path.string());
+    Sleep(25);
+  }
 }
 void add_programs(std::map<uint64_t, shader_program>& programs,
                   std::vector<shader_program> additions) {

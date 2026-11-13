@@ -86,6 +86,7 @@ target_include_directories(lollipop_shader_inventory_test PRIVATE src)
 target_link_libraries(lollipop_shader_inventory_test PRIVATE rex::runtime)
 add_test(NAME lollipop_shader_inventory COMMAND lollipop_shader_inventory_test
     "${CMAKE_CURRENT_BINARY_DIR}/shader-inventory-test")
+set_tests_properties(lollipop_shader_inventory PROPERTIES TIMEOUT 30)
 
 add_executable(lollipop_copy_export_test tests/copy_export_test.cpp)
 target_link_libraries(lollipop_copy_export_test PRIVATE rex::runtime)

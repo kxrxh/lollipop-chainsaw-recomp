@@ -4,9 +4,13 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
+#include <windows.h>
 
 #include <rex/hash.h>
 
@@ -116,6 +120,29 @@ int main(int argc, char** argv) try {
   };
   const std::string header = "lollipop-pipelines-v1 d3d12-rov 20260226\n";
   prepare(header);
+  {
+    const auto path = root / "cache/shaders/shareable/565707D0.xsh";
+    const auto handle = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    check(handle != INVALID_HANDLE_VALUE, "Hold cache file without delete sharing");
+    std::unique_ptr<void, decltype(&CloseHandle)> held(handle, &CloseHandle);
+    std::jthread release([held = std::move(held)]() mutable {
+      Sleep(75);
+      held.reset();
+    });
+    prepare(header);
+  }
+  {
+    const auto path = root / "cache/shaders/shareable/565707D0.xsh";
+    const auto handle = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    check(handle != INVALID_HANDLE_VALUE, "Keep cache locked through publication failure");
+    std::unique_ptr<void, decltype(&CloseHandle)> held(handle, &CloseHandle);
+    rejects([&] { prepare(header); });
+    std::ifstream preserved(path, std::ios::binary);
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(preserved)), {});
+    check(bytes == valid_library, "Failed publication preserves the original cache");
+  }
   prepare(header);
   prepare("lollipop-pipelines-v1 d3d12-rov 20260226\r\n");
   rejects([&] { prepare(header + "not-a-pipeline\n"); });
