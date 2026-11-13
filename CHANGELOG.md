@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 — 2026-11-13
+
 - Remember the selected game folder across launcher restarts and updates.
 - Launch through Lollipop Chainsaw Launcher, with desktop shortcuts available during setup and in Manage game.
 - Removed manual smoke scripts, the scripted gameplay benchmark and unused launcher assets.
