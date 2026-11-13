@@ -169,4 +169,24 @@
       </Setter.Value></Setter>
     </Style>
 
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="#F5F3F7"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="CheckBox">
+          <Grid Background="Transparent">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Border Name="CheckFace" Width="18" Height="18" CornerRadius="4" Background="#211A24" BorderBrush="#73687B" BorderThickness="1" VerticalAlignment="Center">
+              <TextBlock Name="CheckMark" Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#141018" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+            </Border>
+            <ContentPresenter Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True"><Setter TargetName="CheckFace" Property="Background" Value="#FF91C3"/><Setter TargetName="CheckFace" Property="BorderBrush" Value="#FF91C3"/><Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="CheckFace" Property="BorderBrush" Value="#FFF9FD"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="CheckFace" Property="BorderBrush" Value="#FFF9FD"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
 </ResourceDictionary>

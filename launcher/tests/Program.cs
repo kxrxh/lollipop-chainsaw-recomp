@@ -141,6 +141,7 @@ internal static class SetupTests {
       ReleaseTest(args[0]);
       MarkdownTests.Run();
       GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
+      LauncherInstallationTests.Run(sandbox);
       LauncherTest(sandbox, executable);
       Console.WriteLine("Standalone launcher checks passed.");
       return 0;
@@ -559,6 +560,8 @@ internal static class SetupTests {
     try {
       Check(resuming.Destination == destination && resuming.Screen == "Update",
             "Installed launcher forgot its folder after an interrupted update");
+      Check(resuming.Find<CheckBox>("DesktopShortcut").Visibility == Visibility.Visible,
+            "Resuming an interrupted installation hid the desktop shortcut option");
     } finally {
       resuming.Window.Close();
     }
@@ -569,6 +572,9 @@ internal static class SetupTests {
       launcher.Find<Button>("Primary").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
       Check(launcher.CurrentPage == "Manage" && !launcher.Find<Button>("Primary").IsEnabled,
             "Install action accepted missing inputs");
+      Check(launcher.Find<CheckBox>("DesktopShortcut").IsChecked == true &&
+                !launcher.Find<Button>("CreateDesktopShortcut").IsEnabled,
+            "Setup lost its desktop shortcut option or accepted an uninstalled game");
       launcher.SetPage("Settings");
       Check(!launcher.Find<StackPanel>("SettingsFields").IsEnabled &&
                 !launcher.Find<Button>("SaveSettings").IsEnabled,
@@ -606,6 +612,8 @@ internal static class SetupTests {
             "Interrupted setup required the ISO again instead of offering repair");
       File.Delete(pending);
       launcher.Home();
+      Check(launcher.Find<Button>("CreateDesktopShortcut").IsEnabled,
+            "Manage game did not offer a desktop shortcut for an installed game");
       launcher.SetPage("Settings");
       Check(launcher.Find<StackPanel>("SettingsFields").IsEnabled &&
                 launcher.Find<ScrollViewer>("PageScroll").Visibility == Visibility.Collapsed &&
@@ -724,6 +732,8 @@ internal static class SetupTests {
               launcher.SetHelp(false);
               Check(!launcher.Find<Button>("HomeNav").IsEnabled &&
                         !launcher.Find<Button>("Primary").IsEnabled &&
+                        !launcher.Find<Button>("CreateDesktopShortcut").IsEnabled &&
+                        !launcher.Find<CheckBox>("DesktopShortcut").IsEnabled &&
                         !launcher.Find<Button>("SaveSettings").IsEnabled,
                     "Closing help re-enabled actions during an operation");
             }

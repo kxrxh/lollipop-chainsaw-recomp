@@ -23,6 +23,11 @@ Development builds use a `-dev` suffix. Stable recomp release tags use `vMAJOR.M
 uses the public GitHub latest-release API. Release downloads open in the browser.
 The launcher never replaces itself while running.
 
+Setup installs `Lollipop Chainsaw Launcher.exe` in the game folder. Keep
+**Create a desktop shortcut to the launcher** checked during setup, or use
+**Create desktop shortcut** in Manage game afterward. The shortcut opens the
+launcher; select Play there to start the game.
+
 ## Supported game
 
 | Field | Supported value |

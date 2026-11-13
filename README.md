@@ -18,11 +18,9 @@ Build the launcher from PowerShell:
 ./launcher/build.ps1
 ```
 
-Open `out/launcher/Lollipop Chainsaw Launcher.exe`:
-
-1. **Set up game** → choose your ISO and an install folder.
-2. **Install game** → wait for the build to finish.
-3. **Play**. Next time, open `Play Lollipop Chainsaw.exe` in the install folder.
+Open `out/launcher/Lollipop Chainsaw Launcher.exe` to install from your ISO.
+Keep **Create a desktop shortcut to the launcher** enabled for easy access.
+Start the game with **Play** in the launcher.
 
 Display and graphics: launcher **Game settings**. Audio and controls: in-game **Options**.
 Back up the install folder's `user/` directory to keep your saves.

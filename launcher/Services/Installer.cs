@@ -47,7 +47,8 @@ internal sealed class Installer {
     var marker = Path.Combine(folder, "out/launcher/install.id");
     if (File.Exists(marker) && File.ReadAllText(marker) == GameUpdate.Identity)
       return;
-    foreach (var name in new[] { "out", "game", "user", "cache", "Play Lollipop Chainsaw.exe" }) {
+    foreach (var name in new[] { "out", "game", "user", "cache", LauncherInstallation.FileName,
+                                 LauncherInstallation.LegacyFileName }) {
       var path = Path.Combine(folder, name);
       if (File.Exists(path) || Directory.Exists(path))
         throw new IOException("This folder already contains game or setup files. Choose a new " +
@@ -149,10 +150,7 @@ internal sealed class Installer {
         BuildGame(cmake, ninja, clangxx);
         if (!File.Exists(Path.Combine(GameUpdate.Stage(destination), "lollipop.exe")))
           throw new IOException("The build did not produce a playable game.");
-        var launcher = Path.Combine(destination, "Play Lollipop Chainsaw.exe");
-        if (!String.Equals(Path.GetFullPath(executable), Path.GetFullPath(launcher),
-                           StringComparison.OrdinalIgnoreCase))
-          File.Copy(executable, launcher, true);
+        LauncherInstallation.Install(executable, destination);
         GameUpdate.Publish(destination, hadPlayableBuild);
         File.Delete(pending);
         tools.Report("Installation complete", "Ready to play", 100);

@@ -83,6 +83,7 @@ internal sealed class Launcher {
     };
     Find<Button>("OpenInstall").Click += delegate { OpenPath(Destination); };
     Find<Button>("OpenSaves").Click += delegate { OpenPath(Path.Combine(Destination!, "user")); };
+    Find<Button>("CreateDesktopShortcut").Click += delegate { CreateDesktopShortcut(); };
     Find<Button>("CheckUpdates").Click += delegate { CheckUpdates(); };
     Find<Button>("ViewRelease").Click += delegate {
       OpenPath(latest == null ? Releases.Page
@@ -237,6 +238,11 @@ internal sealed class Launcher {
         state == "Install" ? Visibility.Visible : Visibility.Collapsed;
     Find<StackPanel>("GameActions").Visibility =
         state == "Ready" ? Visibility.Visible : Visibility.Collapsed;
+    Find<CheckBox>("DesktopShortcut").IsEnabled = !busy;
+    Find<CheckBox>("DesktopShortcut").Visibility =
+        state is "Install" or "Update" ? Visibility.Visible : Visibility.Collapsed;
+    Find<Button>("CreateDesktopShortcut").IsEnabled = state == "Ready";
+    Find<TextBlock>("ShortcutStatus").Text = "";
     var precompile = Find<Button>("Precompile");
     precompile.IsEnabled =
         Destination != null &&
@@ -374,6 +380,25 @@ internal sealed class Launcher {
     }
   }
 
+  internal void CreateDesktopShortcut(string? desktopDirectory = null) {
+    if (Busy || !Installer.Ready(Destination))
+      return;
+    try {
+      using var installationLock =
+          File.Open(Path.Combine(Destination!, "out/launcher/launcher.lock"), FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None);
+      if (!File.Exists(LauncherInstallation.PathFor(Destination!)))
+        LauncherInstallation.Install(executable, Destination!);
+      LauncherInstallation.CreateShortcut(
+          Destination!, desktopDirectory ??
+                            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+      Find<TextBlock>("ShortcutStatus").Text = "Desktop shortcut created.";
+    } catch (Exception error) {
+      Find<TextBlock>("ShortcutStatus").Text =
+          "Couldn't create the desktop shortcut. " + error.Message;
+    }
+  }
+
   internal async void Start(bool play, bool shaders, bool updateGame = false) {
     if (Busy)
       return;
@@ -385,6 +410,8 @@ internal sealed class Launcher {
       SetPage("Settings");
       return;
     }
+    var createDesktopShortcut = !play && (!updateGame || !Installer.Ready(Destination)) &&
+                                Find<CheckBox>("DesktopShortcut").IsChecked == true;
     Busy = true;
     Show("Busy", play ? "Getting ready to play" : "Preparing your game",
          "Keep the launcher open while this finishes.", null, null, null);
@@ -408,8 +435,11 @@ internal sealed class Launcher {
     try {
       var installer = new Installer(kit, Destination, executable, progress);
       await Task.Run(delegate { installer.Run(Source, play, shaders, updateGame); });
+      Busy = false;
       Settings.Reload();
       Home();
+      if (createDesktopShortcut)
+        CreateDesktopShortcut();
       if (shaders)
         Find<TextBlock>("Description").Text = "Shader preparation complete. Ready when you are.";
     } catch (Exception error) {

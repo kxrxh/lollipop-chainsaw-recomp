@@ -43,11 +43,14 @@ internal static class GameUpdate {
           CheckWritable(path);
       }
     }
-    var installedLauncher = Path.Combine(destination, "Play Lollipop Chainsaw.exe");
-    if (File.Exists(installedLauncher) &&
-        !String.Equals(Path.GetFullPath(installedLauncher), Path.GetFullPath(launcher),
-                       StringComparison.OrdinalIgnoreCase))
-      CheckWritable(installedLauncher);
+    foreach (var name in new[] { LauncherInstallation.FileName,
+                                 LauncherInstallation.LegacyFileName }) {
+      var installedLauncher = Path.Combine(destination, name);
+      if (File.Exists(installedLauncher) &&
+          !String.Equals(Path.GetFullPath(installedLauncher), Path.GetFullPath(launcher),
+                         StringComparison.OrdinalIgnoreCase))
+        CheckWritable(installedLauncher);
+    }
   }
 
   private static void CheckWritable(string path) {
