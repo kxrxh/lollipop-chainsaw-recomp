@@ -1,5 +1,6 @@
 #include "prompt_artwork.h"
 #include "game/package_lzx.h"
+#include "game/main_menu.h"
 
 #include <algorithm>
 #include <array>
@@ -633,17 +634,17 @@ std::vector<uint8_t> make_keyboard_prompts(std::span<const uint8_t> startup,
   return package;
 }
 
-std::array<std::vector<uint8_t>, 6> make_settings_prompt_artwork(
-    std::span<const uint8_t> startup, bool keyboard) {
+std::array<std::vector<uint8_t>, 5> make_settings_prompt_artwork(std::span<const uint8_t> startup,
+                                                                 bool keyboard) {
   auto package = make_keyboard_prompts(startup, true);
   gdiplus_session renderer;
-  constexpr size_t offsets[] = {0x198b24, 0x19cc85, 0x1ad209, 0x1b962c,
-                                0x1a4f47, 0x1c9bb0};
-  constexpr const char* labels[] = {"ENT", "ESC", "TAB", "TAB", "WASD", "F4"};
-  std::array<std::vector<uint8_t>, 6> result;
+  constexpr size_t offsets[] = {0x198b24, 0x19cc85, 0x1ad209, 0x1b962c, 0x1a4f47};
+  constexpr const char* labels[] = {"ENT", "ESC", "TAB", "TAB", "WASD"};
+  std::array<std::vector<uint8_t>, 5> result;
   for (size_t n = 0; n < result.size(); ++n) {
     const prompt p{offsets[n], 16737, nullptr, labels[n]};
-    if (keyboard) paint_prompt(package, p);
+    if (keyboard)
+      paint_prompt(package, p);
     auto& rgba = result[n];
     rgba.resize(128 * 128 * 4);
     for (unsigned y = 0; y < 128; y += 4) {
@@ -799,90 +800,84 @@ std::vector<uint8_t> make_keyboard_title(std::span<const uint8_t> coalesced) {
   return result;
 }
 
-void install_keyboard_prompts(rex::Runtime &runtime,
-                              const std::filesystem::path &game_root,
-                              const std::filesystem::path &cache_root) {
-  if (!rex::cvar::Query<bool>("mnk_mode")) return;
-  const auto source = game_root / "AshGame/CookedXbox360/Startup.xxx";
-  std::ifstream file(source, std::ios::binary | std::ios::ate);
-  if (!file || file.tellg() != 294912)
-    throw std::runtime_error(
-        "Could not read the verified Startup.xxx for keyboard prompts");
-  std::vector<uint8_t> packed(294912);
-  file.seekg(0);
-  if (!file.read(reinterpret_cast<char *>(packed.data()), packed.size()))
-    throw std::runtime_error("Could not read startup artwork");
-  const auto rendered = make_keyboard_prompts(packed);
-  auto variants =
-      make_prompt_variants(rendered, make_keyboard_prompts(packed, true));
-  auto *input = dynamic_cast<rex::input::InputSystem *>(runtime.input_system());
-  if (!input)
-    throw std::runtime_error("Prompt switching needs the SDK input system");
-  rex::system::SetTextureDataCallback(
-      [input, variants = std::move(variants),
-       profile = !rex::cvar::GetFlagByName("perf_log_csv").empty()](
-          uint32_t width, uint32_t height, uint32_t format,
-          std::span<const uint8_t> data) -> std::span<const uint8_t> {
-        if (width != height || (width != 128 && width != 256) || format != 20)
-          return {};
-        const bool keyboard = input->IsKeyboardActive();
-        if (!profile)
-          return select_prompt_artwork(variants, data, keyboard);
-        const auto start = std::chrono::steady_clock::now();
-        const auto replacement = select_prompt_artwork(variants, data, keyboard);
-        using namespace rex::perf;
-        IncrementCounter(CounterId::kPromptMatchNs,
-                         std::chrono::duration_cast<std::chrono::nanoseconds>(
-                             std::chrono::steady_clock::now() - start)
-                             .count());
-        IncrementCounter(CounterId::kPromptCandidates);
-        IncrementCounter(CounterId::kPromptHashBytes, std::min(data.size(), prompt_sample_bytes));
-        if (!replacement.empty())
-          IncrementCounter(CounterId::kPromptReplacements);
-        return replacement;
-      });
-  const auto directory = cache_root / "keyboard-prompts" /
-                         std::to_string(XXH3_64bits(rendered.data(), rendered.size()));
-  std::filesystem::create_directories(directory);
-  const auto cache_start = std::chrono::steady_clock::now();
-  const bool reused = cache_keyboard_prompts(rendered, directory);
-  REXLOG_INFO("Keyboard prompt package {} in {} ms", reused ? "reused" : "built",
-              std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::steady_clock::now() - cache_start)
-                  .count());
-  for (const auto &entry :
-       std::filesystem::directory_iterator(source.parent_path())) {
-    const auto filename = entry.path().filename().string();
-    if (!filename.starts_with("Coalesced_") || !filename.ends_with(".bin"))
-      continue;
-    std::ifstream config(entry.path(), std::ios::binary | std::ios::ate);
-    if (!config || config.tellg() < 0 || config.tellg() > 4 * 1024 * 1024)
-      throw std::runtime_error("Could not read title localization");
-    std::vector<uint8_t> original(static_cast<size_t>(config.tellg()));
-    config.seekg(0);
-    if (!config.read(reinterpret_cast<char *>(original.data()),
-                     original.size()))
-      throw std::runtime_error("Could not read title localization");
-    const auto localized = make_keyboard_title(original);
-    std::ofstream title(directory / entry.path().filename(),
-                        std::ios::binary | std::ios::trunc);
-    title.write(reinterpret_cast<const char *>(localized.data()),
-                localized.size());
-    title.close();
-    if (!title)
-      throw std::runtime_error("Could not cache keyboard title prompt");
+void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& game_root,
+                              const std::filesystem::path& cache_root) {
+  auto directory = cache_root / "main-menu";
+  if (rex::cvar::Query<bool>("mnk_mode")) {
+    const auto source = game_root / "AshGame/CookedXbox360/Startup.xxx";
+    std::ifstream file(source, std::ios::binary | std::ios::ate);
+    if (!file || file.tellg() != 294912)
+      throw std::runtime_error("Could not read the verified Startup.xxx for keyboard prompts");
+    std::vector<uint8_t> packed(294912);
+    file.seekg(0);
+    if (!file.read(reinterpret_cast<char*>(packed.data()), packed.size()))
+      throw std::runtime_error("Could not read startup artwork");
+    const auto rendered = make_keyboard_prompts(packed);
+    auto variants = make_prompt_variants(rendered, make_keyboard_prompts(packed, true));
+    auto* input = dynamic_cast<rex::input::InputSystem*>(runtime.input_system());
+    if (!input)
+      throw std::runtime_error("Prompt switching needs the SDK input system");
+    rex::system::SetTextureDataCallback(
+        [input, variants = std::move(variants),
+         profile = !rex::cvar::GetFlagByName("perf_log_csv").empty()](
+            uint32_t width, uint32_t height, uint32_t format,
+            std::span<const uint8_t> data) -> std::span<const uint8_t> {
+          if (width != height || (width != 128 && width != 256) || format != 20)
+            return {};
+          const bool keyboard = input->IsKeyboardActive();
+          if (!profile)
+            return select_prompt_artwork(variants, data, keyboard);
+          const auto start = std::chrono::steady_clock::now();
+          const auto replacement = select_prompt_artwork(variants, data, keyboard);
+          using namespace rex::perf;
+          IncrementCounter(CounterId::kPromptMatchNs,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               std::chrono::steady_clock::now() - start)
+                               .count());
+          IncrementCounter(CounterId::kPromptCandidates);
+          IncrementCounter(CounterId::kPromptHashBytes, std::min(data.size(), prompt_sample_bytes));
+          if (!replacement.empty())
+            IncrementCounter(CounterId::kPromptReplacements);
+          return replacement;
+        });
+    directory = cache_root / "keyboard-prompts" /
+                std::to_string(XXH3_64bits(rendered.data(), rendered.size()));
+    std::filesystem::create_directories(directory);
+    const auto cache_start = std::chrono::steady_clock::now();
+    const bool reused = cache_keyboard_prompts(rendered, directory);
+    REXLOG_INFO("Keyboard prompt package {} in {} ms", reused ? "reused" : "built",
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - cache_start)
+                    .count());
+    for (const auto& entry : std::filesystem::directory_iterator(source.parent_path())) {
+      const auto filename = entry.path().filename().string();
+      if (!filename.starts_with("Coalesced_") || !filename.ends_with(".bin"))
+        continue;
+      std::ifstream config(entry.path(), std::ios::binary | std::ios::ate);
+      if (!config || config.tellg() < 0 || config.tellg() > 4 * 1024 * 1024)
+        throw std::runtime_error("Could not read title localization");
+      std::vector<uint8_t> original(static_cast<size_t>(config.tellg()));
+      config.seekg(0);
+      if (!config.read(reinterpret_cast<char*>(original.data()), original.size()))
+        throw std::runtime_error("Could not read title localization");
+      const auto localized = make_keyboard_title(original);
+      std::ofstream title(directory / entry.path().filename(), std::ios::binary | std::ios::trunc);
+      title.write(reinterpret_cast<const char*>(localized.data()), localized.size());
+      title.close();
+      if (!title)
+        throw std::runtime_error("Could not cache keyboard title prompt");
+    }
   }
+  cache_main_menu(game_root, directory);
   // The async loader trusts TOC sizes instead of querying the overridden files.
-  for (const auto &entry :
-       std::filesystem::directory_iterator(game_root / "AshGame")) {
+  for (const auto& entry : std::filesystem::directory_iterator(game_root / "AshGame")) {
     const auto filename = entry.path().filename().string();
-    if (!filename.starts_with("Xbox360TOC") ||
-        entry.path().extension() != ".txt")
+    if (!filename.starts_with("Xbox360TOC") || entry.path().extension() != ".txt")
       continue;
     std::ifstream input(entry.path());
     std::ofstream toc(directory / entry.path().filename(), std::ios::trunc);
     if (!input || !toc)
-      throw std::runtime_error("Could not prepare keyboard asset TOC");
+      throw std::runtime_error("Could not prepare game UI asset TOC");
     std::string line;
     while (std::getline(input, line)) {
       std::istringstream fields(line);
@@ -892,25 +887,23 @@ void install_keyboard_prompts(rex::Runtime &runtime,
         const auto name = path.substr(path.find_last_of('\\') + 1);
         const auto cached = directory / name;
         if (std::filesystem::is_regular_file(cached))
-          line.replace(0, line.find(' '),
-                       std::to_string(std::filesystem::file_size(cached)));
+          line.replace(0, line.find(' '), std::to_string(std::filesystem::file_size(cached)));
       }
       toc << line << '\n';
     }
     toc.close();
     if (!input.eof() || !toc)
-      throw std::runtime_error("Could not cache keyboard asset TOC");
+      throw std::runtime_error("Could not cache game UI asset TOC");
   }
   auto device = make_keyboard_game_device(game_root, directory);
   if (!device->Initialize())
-    throw std::runtime_error("Could not mount keyboard artwork");
-  auto *vfs = runtime.file_system();
-  if (!vfs->RegisterDevice(std::move(device)) ||
-      !vfs->UnregisterSymbolicLink("game:") ||
+    throw std::runtime_error("Could not mount game UI assets");
+  auto* vfs = runtime.file_system();
+  if (!vfs->RegisterDevice(std::move(device)) || !vfs->UnregisterSymbolicLink("game:") ||
       !vfs->UnregisterSymbolicLink("d:") ||
       !vfs->RegisterSymbolicLink("game:", "\\Device\\LollipopGame") ||
       !vfs->RegisterSymbolicLink("d:", "\\Device\\LollipopGame"))
-    throw std::runtime_error("Could not install keyboard artwork override");
+    throw std::runtime_error("Could not install game UI asset override");
 }
 
-}  // namespace lollipop
+} // namespace lollipop

@@ -16,8 +16,8 @@ class Device;
 
 namespace lollipop {
 
-// Confirm, back, previous/next page, navigation, settings; 128px RGBA.
-std::array<std::vector<uint8_t>, 6> make_settings_prompt_artwork(std::span<const uint8_t> startup,
+// Confirm, back, previous/next page, navigation; 128px RGBA.
+std::array<std::vector<uint8_t>, 5> make_settings_prompt_artwork(std::span<const uint8_t> startup,
                                                                  bool keyboard);
 std::vector<uint8_t> make_keyboard_prompts(std::span<const uint8_t> startup,
                                            bool controller = false);
@@ -36,7 +36,7 @@ bool cache_keyboard_prompts(std::span<const uint8_t> package,
                             const std::filesystem::path& directory);
 std::unique_ptr<rex::filesystem::Device>
 make_keyboard_game_device(const std::filesystem::path& game, const std::filesystem::path& cache);
-void install_keyboard_prompts(rex::Runtime& runtime, const std::filesystem::path& game_root,
-                              const std::filesystem::path& cache_root);
+void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& game_root,
+                            const std::filesystem::path& cache_root);
 
 } // namespace lollipop

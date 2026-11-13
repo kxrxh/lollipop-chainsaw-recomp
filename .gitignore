@@ -27,6 +27,7 @@
 /assets/settings/*
 !/assets/settings/panel.png
 !/assets/settings/controls.png
+!/assets/settings/quit-game.png
 /generated/
 /out/
 /logs/

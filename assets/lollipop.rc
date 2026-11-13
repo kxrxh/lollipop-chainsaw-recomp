@@ -2,4 +2,5 @@
 #include "settings_resources.h"
 IDR_SETTINGS_PANEL RCDATA "settings/panel.png"
 IDR_SETTINGS_CONTROLS RCDATA "settings/controls.png"
+IDR_MAIN_MENU_QUIT RCDATA "settings/quit-game.png"
 104 RCDATA "shaders/pipelines.txt"

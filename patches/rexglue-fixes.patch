@@ -688,7 +688,15 @@ index 19874a5..4d9d814 100644
    if (submission_completed_ <= submission_completed_before) {
      // Not updated - no need to reclaim or download things.
      return;
-@@ -3241,6 +3311,40 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
+@@ -3194,2 +3264,7 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
++  // Eviction may recreate the same guest texture key after a mid-frame GPU wait.
++  cbuffer_binding_descriptor_indices_vertex_.up_to_date = false;
++  cbuffer_binding_descriptor_indices_pixel_.up_to_date = false;
++  bindful_textures_written_vertex_ = false;
++  bindful_textures_written_pixel_ = false;
+   texture_cache_->CompletedSubmissionUpdated(submission_completed_);
+ }
+@@ -3241,6 +3316,40 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
      }
    }
 
@@ -729,7 +737,7 @@ index 19874a5..4d9d814 100644
    D3D12_DRED_PAGE_FAULT_OUTPUT page_fault = {};
    if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&page_fault)) && page_fault.PageFaultVA != 0) {
      REXGPU_ERROR("DRED page fault at VA 0x{:016X}", page_fault.PageFaultVA);
-@@ -3266,7 +3370,6 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -3266,7 +3375,6 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
    HRESULT device_removed_reason = device->GetDeviceRemovedReason();
    if (FAILED(device_removed_reason)) {
      device_removed_ = true;
@@ -737,7 +745,7 @@ index 19874a5..4d9d814 100644
      if (graphics_system_) {
        graphics_system_->OnHostGpuLossFromAnyThread(device_removed_reason !=
                                                     DXGI_ERROR_DEVICE_REMOVED);
-@@ -3278,7 +3381,7 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -3278,7 +3386,7 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
    // resources early) and specifically for frames (not to queue too many), and
    // await the availability of the current frame.
    CheckSubmissionFence(is_opening_frame ? closed_frame_submissions_[frame_current_ % kQueueFrames]
@@ -746,7 +754,7 @@ index 19874a5..4d9d814 100644
    // TODO(Triang3l): If failed to await (completed submission < awaited frame
    // submission), do something like dropping the draw command that wanted to
    // open the frame.
-@@ -3497,7 +3600,8 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
+@@ -3497,7 +3605,8 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
  }
  
  bool D3D12CommandProcessor::CanEndSubmissionImmediately() const {
@@ -756,7 +764,7 @@ index 19874a5..4d9d814 100644
  }
  
  void D3D12CommandProcessor::ClearCommandAllocatorCache() {
-@@ -4944,7 +5048,7 @@ bool D3D12CommandProcessor::EndGuestOcclusionQuery(
+@@ -4944,7 +5053,7 @@ bool D3D12CommandProcessor::EndGuestOcclusionQuery(
    }
  
    uint64_t query_submission = submission_current_ ? submission_current_ - 1 : 0;

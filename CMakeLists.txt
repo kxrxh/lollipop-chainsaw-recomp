@@ -40,6 +40,10 @@ add_executable(lollipop WIN32
     src/main.cpp
     src/app/application.cpp
     src/game/game_settings.cpp
+    src/game/game_bridge.cpp
+    src/game/game_menus.cpp
+    src/game/native_quit_dialog.cpp
+    src/game/main_menu.cpp
     src/game/package_lzx.cpp
     src/game/shader_inventory.cpp
     src/game/startup_hooks.cpp
@@ -50,6 +54,7 @@ add_executable(lollipop WIN32
     src/settings/pc_settings.cpp
     src/testing/test_bridge.cpp
     src/ui/settings_menu.cpp
+    src/ui/exit_flow.cpp
     src/ui/shader_loading.cpp)
 if(WIN32)
     enable_language(RC)
@@ -57,6 +62,8 @@ if(WIN32)
     set_property(SOURCE assets/lollipop.rc APPEND PROPERTY OBJECT_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/settings/panel.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/settings/controls.png")
+    set_property(SOURCE assets/lollipop.rc APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/settings/quit-game.png")
     set_property(SOURCE assets/lollipop.rc APPEND PROPERTY OBJECT_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/pipelines.txt")
     target_include_directories(lollipop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/assets")
@@ -93,10 +100,12 @@ target_link_libraries(lollipop_copy_export_test PRIVATE rex::runtime)
 add_test(NAME lollipop_checkpoint_copy_export COMMAND lollipop_copy_export_test)
 
 set(LOLLIPOP_HEADERS
-    app/application.h game/game_settings.h game/package_lzx.h game/startup_hooks.h game/timing_hooks.h
+    app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h
+    game/native_quit_dialog.h game/main_menu.h game/package_lzx.h
+    game/startup_hooks.h game/timing_hooks.h
     game/shader_inventory.h ui/shader_loading.h
     input/keyboard_controls.h input/live_prompts.h input/prompt_artwork.h
-    settings/pc_settings.h testing/test_bridge.h ui/settings_menu.h)
+    settings/pc_settings.h testing/test_bridge.h ui/settings_menu.h ui/exit_flow.h)
 set(header_checks)
 foreach(header IN LISTS LOLLIPOP_HEADERS)
     string(REPLACE "/" "_" check_name "${header}")
@@ -127,8 +136,9 @@ add_test(NAME lollipop_settings_shader_cli COMMAND lollipop_settings_test
     "${CMAKE_CURRENT_BINARY_DIR}/settings-test/shader-cli.toml" --shader-cli)
 
 add_executable(lollipop_keyboard_test tests/keyboard_controls_test.cpp
-    src/input/keyboard_controls.cpp src/input/prompt_artwork.cpp src/game/package_lzx.cpp)
-target_include_directories(lollipop_keyboard_test PRIVATE src)
+    src/input/keyboard_controls.cpp src/input/prompt_artwork.cpp
+    src/game/package_lzx.cpp src/game/main_menu.cpp)
+target_include_directories(lollipop_keyboard_test PRIVATE src assets)
 target_link_libraries(lollipop_keyboard_test PRIVATE rex::runtime gdiplus bcrypt)
 add_test(NAME lollipop_keyboard_controls COMMAND lollipop_keyboard_test
     "${LOLLIPOP_GAME_DIR}/AshGame/CookedXbox360/Startup.xxx"
@@ -137,6 +147,14 @@ add_test(NAME lollipop_input_identity
     COMMAND "${CMAKE_COMMAND}"
         "-DGAME_XEX=${LOLLIPOP_GAME_DIR}/default.xex"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/verify_input.cmake")
+
+add_executable(lollipop_main_menu_test tests/main_menu_test.cpp src/game/main_menu.cpp
+    src/game/package_lzx.cpp)
+target_include_directories(lollipop_main_menu_test PRIVATE src assets)
+target_link_libraries(lollipop_main_menu_test PRIVATE rex::runtime bcrypt)
+add_test(NAME lollipop_main_menu COMMAND lollipop_main_menu_test
+    "${LOLLIPOP_GAME_DIR}/AshGame/CookedXbox360/MENU_PL.xxx"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/settings/quit-game.png")
 
 add_executable(lollipop_timing_test tests/timing_test.cpp src/game/timing_hooks.cpp)
 target_include_directories(lollipop_timing_test PRIVATE src)
@@ -150,8 +168,14 @@ target_link_libraries(lollipop_input_test PRIVATE rex::runtime)
 add_test(NAME lollipop_concurrent_input COMMAND lollipop_input_test)
 set_tests_properties(lollipop_concurrent_input PROPERTIES TIMEOUT 30)
 
+add_executable(lollipop_exit_flow_test tests/exit_flow_test.cpp src/ui/exit_flow.cpp)
+target_include_directories(lollipop_exit_flow_test PRIVATE src)
+target_link_libraries(lollipop_exit_flow_test PRIVATE rex::runtime)
+add_test(NAME lollipop_exit_flow COMMAND lollipop_exit_flow_test)
+
 add_executable(lollipop_bridge_test tests/test_bridge_test.cpp
-    src/testing/test_bridge.cpp src/game/game_settings.cpp src/game/startup_hooks.cpp src/game/timing_hooks.cpp)
+    src/testing/test_bridge.cpp src/game/game_settings.cpp src/game/game_bridge.cpp
+    src/game/native_quit_dialog.cpp src/game/startup_hooks.cpp src/game/timing_hooks.cpp)
 target_include_directories(lollipop_bridge_test PRIVATE src)
 target_link_libraries(lollipop_bridge_test PRIVATE rex::runtime)
 add_test(NAME lollipop_test_bridge COMMAND lollipop_bridge_test)

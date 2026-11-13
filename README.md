@@ -8,7 +8,8 @@ Play the original Xbox 360 version of Lollipop Chainsaw on Windows, using your
 own copy of the game. Game files are not included.
 
 Keyboard, mouse and controllers are supported. Display, graphics, audio and
-control settings are available in Options, or by pressing F4.
+control settings are available through the game's Options menu.
+Select Quit Game on the main menu to exit, then confirm.
 
 ## Getting started
 

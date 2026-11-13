@@ -32,7 +32,10 @@ controllers and multi-monitor setups need more testing.
 
 - D3D12 `DEVICE_HUNG` crashes have occurred during prologue reloads, gate replays
   after Continue and the phone-call transition after the third rescue. A
-  texture-watch race has been fixed; GPU hangs remain under investigation.
+  texture-watch race and stale texture-binding state after eviction have been
+  fixed. Three diagnostic phone load/unload cycles passed under cache pressure,
+  plus one with default limits. Normal story traversal through that transition
+  remains unverified.
 - Loading and cutscene transitions can stall.
 - Unrecorded shader combinations can cause pauses while they compile.
 - Heavy automated camera and streaming tests have also caused GPU hangs.
@@ -71,11 +74,11 @@ windowed mode; Render resolution controls the game's internal resolution.
 | Confirm menus / skip | Enter or middle mouse |
 | Cancel menus | Backspace or Space |
 
-Options and F4 open PC settings. Close PC settings before pressing F6 to open
-advanced settings and rebind keys. Restart after rebinding to refresh the prompt
-artwork. During cutscenes, Esc opens the skip dialog and Enter confirms it.
-To exit, open Options or press F4, then select Quit Game and confirm. Cancel
-returns to settings; progress since the last checkpoint is not saved when quitting.
+Options opens PC settings through the game's menus. There is no settings hotkey.
+During cutscenes, Esc opens the skip dialog and Enter confirms it.
+To exit, select Quit Game on the main menu and confirm. Quit Game is also
+available in Options. Cancel returns to the menu you opened it from; progress
+since the last checkpoint is not saved when quitting.
 
 If a controller moves or turns the camera by itself, increase Movement deadzone
 or Camera deadzone in the Controls page. Start with a small value and stop when
@@ -162,7 +165,7 @@ To use controllers with the original Xbox artwork:
 ./run.ps1 --no-mnk_mode
 ```
 
-Mouse sensitivity is available in Options and F6's advanced input settings.
+Mouse sensitivity is available in Options.
 
 ### PC settings are unusable or do not persist
 

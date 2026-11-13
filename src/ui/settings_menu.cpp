@@ -1,84 +1,73 @@
 #include "settings_menu.h"
-#include "settings/pc_settings.h"
-#include "game/timing_hooks.h"
-#include "settings_resources.h"
-#include "input/prompt_artwork.h"
 #include "game/game_settings.h"
+#include "game/timing_hooks.h"
+#include "input/prompt_artwork.h"
+#include "settings/pc_settings.h"
+#include "settings_resources.h"
+#include "ui/exit_flow.h"
 
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <chrono>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
-#include <string>
 #include <stdexcept>
+#include <string>
 #include <windows.h>
 
 #include <imgui.h>
 #include <rex/cvar.h>
 #include <rex/input/input_system.h>
 #include <rex/logging.h>
-#include <rex/ppc.h>
 #include <rex/runtime.h>
-#include <rex/ui/imgui_dialog.h>
 #include <rex/ui/image_decode.h>
+#include <rex/ui/imgui_dialog.h>
 #include <rex/ui/immediate_drawer.h>
 
 REXCVAR_DEFINE_BOOL(lollipop_pc_settings, false, "Lollipop", "Open PC settings");
 
 namespace lollipop {
 namespace {
-std::atomic<unsigned char*> guest_memory{};
 std::array<ImFont*, 4> menu_fonts{};
 constexpr ImU32 ink = IM_COL32(1, 1, 1, 255);
 constexpr ImU32 paper = IM_COL32(245, 231, 194, 255);
 
-std::string guest_string(uint32_t address) {
-  const auto* memory = guest_memory.load();
-  if (!memory || address < 0x40000000 || address > 0xBFFFFFF0) return {};
-  auto read = [&](uint32_t at) {
-    return (uint32_t(memory[at]) << 24) | (uint32_t(memory[at + 1]) << 16) |
-           (uint32_t(memory[at + 2]) << 8) | memory[at + 3];
-  };
-  const auto data = read(address), count = read(address + 4);
-  if (!count || count > 512 || data < 0x40000000 || data > 0xC0000000u - count * 2) return {};
-  if (memory[data + (count - 1) * 2] || memory[data + (count - 1) * 2 + 1]) return {};
-  std::string value;
-  for (uint32_t i = 0; i + 1 < count; ++i) {
-    if (memory[data + i * 2] || memory[data + i * 2 + 1] > 127) return {};
-    value += char(memory[data + i * 2 + 1]);
-  }
-  return value;
-}
-
 std::unique_ptr<rex::ui::ImmediateTexture> load_art(rex::ui::ImmediateDrawer& drawer, int id) {
   const auto module = GetModuleHandleW(nullptr);
   const auto resource = FindResourceW(module, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10));
-  if (!resource) throw std::runtime_error("Missing embedded PC settings artwork");
+  if (!resource)
+    throw std::runtime_error("Missing embedded PC settings artwork");
   const auto bytes = static_cast<const uint8_t*>(LockResource(LoadResource(module, resource)));
-  if (!bytes) throw std::runtime_error("Could not load PC settings artwork");
+  if (!bytes)
+    throw std::runtime_error("Could not load PC settings artwork");
   int width = 0, height = 0;
-  const auto rgba = rex::ui::DecodeImageRGBA(bytes, SizeofResource(module, resource), width, height);
-  if (rgba.empty()) throw std::runtime_error("Could not decode PC settings artwork");
+  const auto rgba =
+      rex::ui::DecodeImageRGBA(bytes, SizeofResource(module, resource), width, height);
+  if (rgba.empty())
+    throw std::runtime_error("Could not decode PC settings artwork");
   auto texture = drawer.CreateTexture(width, height, rex::ui::ImmediateTextureFilter::kLinear,
                                       false, rgba.data());
-  if (!texture) throw std::runtime_error("Could not upload PC settings artwork");
+  if (!texture)
+    throw std::runtime_error("Could not upload PC settings artwork");
   return texture;
 }
 
 class settings_menu final : public rex::ui::ImGuiDialog {
- public:
-  settings_menu(rex::ui::ImGuiDrawer& drawer, rex::ui::ImmediateDrawer& immediate, rex::Runtime& runtime,
-                std::filesystem::path config, const std::filesystem::path& game_root,
-                std::function<void()> quit)
-      : ImGuiDialog(&drawer), input_(*static_cast<rex::input::InputSystem*>(runtime.input_system())),
-        config_(std::move(config)), launched_(read_pc_settings()), quit_(std::move(quit)),
-        panel_(load_art(immediate, IDR_SETTINGS_PANEL)), controls_(load_art(immediate, IDR_SETTINGS_CONTROLS)) {
-    std::ifstream file(game_root / "AshGame/CookedXbox360/Startup.xxx", std::ios::binary | std::ios::ate);
-    if (!file || file.tellg() != 294912) throw std::runtime_error("Could not read settings button artwork");
+public:
+  settings_menu(rex::ui::ImGuiDrawer& drawer, rex::ui::ImmediateDrawer& immediate,
+                rex::Runtime& runtime, std::filesystem::path config,
+                const std::filesystem::path& game_root, std::function<void()> quit)
+      : ImGuiDialog(&drawer),
+        input_(*static_cast<rex::input::InputSystem*>(runtime.input_system())),
+        config_(std::move(config)), launched_(read_pc_settings()), exit_(input_, std::move(quit)),
+        panel_(load_art(immediate, IDR_SETTINGS_PANEL)),
+        controls_(load_art(immediate, IDR_SETTINGS_CONTROLS)) {
+    std::ifstream file(game_root / "AshGame/CookedXbox360/Startup.xxx",
+                       std::ios::binary | std::ios::ate);
+    if (!file || file.tellg() != 294912)
+      throw std::runtime_error("Could not read settings button artwork");
     std::vector<uint8_t> startup(294912);
     file.seekg(0);
     if (!file.read(reinterpret_cast<char*>(startup.data()), startup.size()))
@@ -87,46 +76,59 @@ class settings_menu final : public rex::ui::ImGuiDialog {
       const auto images = make_settings_prompt_artwork(startup, device == 1);
       for (size_t i = 0; i < images.size(); ++i) {
         unsigned left = 128, top = 128, right = 0, bottom = 0;
-        for (unsigned y = 0; y < 128; ++y) for (unsigned x = 0; x < 128; ++x) {
-          if (images[i][(y * 128 + x) * 4 + 3] <= 16) continue;
-          left = std::min(left, x); top = std::min(top, y);
-          right = std::max(right, x + 1); bottom = std::max(bottom, y + 1);
-        }
-        if (right <= left || bottom <= top) throw std::runtime_error("Empty settings button artwork");
-        prompt_bounds_[device][i] = ImVec4(left / 128.0f, top / 128.0f, right / 128.0f, bottom / 128.0f);
-        prompts_[device][i] = immediate.CreateTexture(128, 128, rex::ui::ImmediateTextureFilter::kLinear,
-                                                     false, images[i].data());
-        if (!prompts_[device][i]) throw std::runtime_error("Could not upload settings button artwork");
+        for (unsigned y = 0; y < 128; ++y)
+          for (unsigned x = 0; x < 128; ++x) {
+            if (images[i][(y * 128 + x) * 4 + 3] <= 16)
+              continue;
+            left = std::min(left, x);
+            top = std::min(top, y);
+            right = std::max(right, x + 1);
+            bottom = std::max(bottom, y + 1);
+          }
+        if (right <= left || bottom <= top)
+          throw std::runtime_error("Empty settings button artwork");
+        prompt_bounds_[device][i] =
+            ImVec4(left / 128.0f, top / 128.0f, right / 128.0f, bottom / 128.0f);
+        prompts_[device][i] = immediate.CreateTexture(
+            128, 128, rex::ui::ImmediateTextureFilter::kLinear, false, images[i].data());
+        if (!prompts_[device][i])
+          throw std::runtime_error("Could not upload settings button artwork");
       }
     }
   }
   ~settings_menu() override {
-    if (visible_ || release_pending_) input_.RemoveUIInputBlocker();
+    if ((visible_ || release_pending_) && !suspended_)
+      input_.RemoveUIInputBlocker();
     set_settings_pause(false);
   }
 
- private:
+private:
   void show(bool visible) {
-    if (visible == visible_) return;
+    if (visible == visible_)
+      return;
     if (visible) {
       draft_ = read_pc_settings();
       saved_ = draft_;
       game_ready_seen_ = game_settings_ready();
       status_.clear();
-      discard_ = quit_confirmation_ = false;
+      discard_ = false;
       selected_ = 0;
       previous_buttons_ = 0xFFFF;
-      if (!release_pending_) input_.AddUIInputBlocker();
+      if (!release_pending_)
+        input_.AddUIInputBlocker();
       release_pending_ = false;
       set_settings_pause(true);
     } else {
-      if (preview_) revert();
+      if (preview_)
+        revert();
       // The keyboard driver is neutral while the UI captures it; wait for the
       // closing key's release so it cannot become a fresh guest button press.
       release_pending_ = ImGui::IsKeyDown(ImGuiKey_Enter) || ImGui::IsKeyDown(ImGuiKey_Escape) ||
                          ImGui::IsKeyDown(ImGuiKey_Backspace);
-      if (!release_pending_) input_.RemoveUIInputBlocker();
-      if (!release_pending_) set_settings_pause(false);
+      if (!release_pending_)
+        input_.RemoveUIInputBlocker();
+      if (!release_pending_)
+        set_settings_pause(false);
     }
     visible_ = visible;
     rex::cvar::SetFlagByName("lollipop_pc_settings", visible ? "true" : "false");
@@ -141,7 +143,8 @@ class settings_menu final : public rex::ui::ImGuiDialog {
 
   void commit() {
     if (!save_pc_settings(config_, draft_, status_)) {
-      if (preview_) revert();
+      if (preview_)
+        revert();
       status_ = "Save failed. Previous settings kept.";
       return;
     }
@@ -158,13 +161,17 @@ class settings_menu final : public rex::ui::ImGuiDialog {
     for (const auto& [name, value] : saved_) {
       const auto* flag = rex::cvar::GetFlagInfo(name);
       if (flag && flag->lifecycle == rex::cvar::Lifecycle::kRequiresRestart &&
-          value != launched_.at(name)) return true;
+          value != launched_.at(name))
+        return true;
     }
     return false;
   }
 
   void apply() {
-    if (!game_settings_ready()) { status_ = "Game settings are still loading."; return; }
+    if (!game_settings_ready()) {
+      status_ = "Game settings are still loading.";
+      return;
+    }
     if (!validate_pc_settings(draft_)) {
       status_ = "Please choose valid settings before applying.";
       return;
@@ -186,11 +193,12 @@ class settings_menu final : public rex::ui::ImGuiDialog {
     status_.clear();
     auto& value = draft_.at(setting.name);
     if (setting.choices.empty()) {
-      const auto number = std::clamp(std::stof(value) + direction * setting.step,
-                                     setting.minimum, setting.maximum);
+      const auto number =
+          std::clamp(std::stof(value) + direction * setting.step, setting.minimum, setting.maximum);
       value = setting.step >= 1 ? std::to_string(int(number)) : std::to_string(number);
     } else {
-      auto it = std::ranges::find_if(setting.choices, [&](const auto& c) { return value == c.value; });
+      auto it =
+          std::ranges::find_if(setting.choices, [&](const auto& c) { return value == c.value; });
       int index = it == setting.choices.end() ? 0 : int(it - setting.choices.begin());
       const auto count = int(setting.choices.size());
       value = setting.choices[(index + direction + count) % count].value;
@@ -202,9 +210,11 @@ class settings_menu final : public rex::ui::ImGuiDialog {
   void text(ImDrawList& draw, ImVec2 pos, float size, ImU32 color, const char* value) {
     auto* font = ImGui::GetFont();
     for (auto* candidate : menu_fonts) {
-      if (!candidate) continue;
+      if (!candidate)
+        continue;
       font = candidate;
-      if (candidate->LegacySize >= size) break;
+      if (candidate->LegacySize >= size)
+        break;
     }
     pos = ImVec2(std::round(pos.x), std::round(pos.y));
     draw.AddText(font, size, pos, color, value);
@@ -230,12 +240,16 @@ class settings_menu final : public rex::ui::ImGuiDialog {
     const auto uv = prompt_bounds_[device][prompt];
     const float ratio = (uv.z - uv.x) / (uv.w - uv.y);
     const float width = size * std::min(ratio, 1.0f), height = size / std::max(ratio, 1.0f);
-    start.x += (size - width) / 2; start.y += (size - height) / 2;
+    start.x += (size - width) / 2;
+    start.y += (size - height) / 2;
     draw.AddImage(reinterpret_cast<ImTextureID>(texture.get()), start,
-                  ImVec2(start.x + width, start.y + height), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
+                  ImVec2(start.x + width, start.y + height), ImVec2(uv.x, uv.y),
+                  ImVec2(uv.z, uv.w));
   }
 
   void OnDraw(ImGuiIO& io) override {
+    if (exit_.update(io) || suspended_)
+      return;
     if (release_pending_ && !ImGui::IsKeyDown(ImGuiKey_Enter) &&
         !ImGui::IsKeyDown(ImGuiKey_Escape) && !ImGui::IsKeyDown(ImGuiKey_Backspace)) {
       input_.RemoveUIInputBlocker();
@@ -245,16 +259,17 @@ class settings_menu final : public rex::ui::ImGuiDialog {
     const bool requested = rex::cvar::Query<bool>("lollipop_pc_settings");
     if (visible_ && !requested && draft_ != saved_ && !preview_) {
       discard_ = true;
-      quit_confirmation_ = false;
       rex::cvar::SetFlagByName("lollipop_pc_settings", "true");
     } else {
       show(requested);
     }
-    if (!visible_) return;
+    if (!visible_)
+      return;
     if (!game_ready_seen_ && game_settings_ready()) {
       const auto current = read_pc_settings();
       for (auto& [name, value] : saved_) {
-        if (draft_.at(name) == value) draft_[name] = current.at(name);
+        if (draft_.at(name) == value)
+          draft_[name] = current.at(name);
         value = current.at(name);
       }
       game_ready_seen_ = true;
@@ -265,10 +280,14 @@ class settings_menu final : public rex::ui::ImGuiDialog {
     rex::input::X_INPUT_STATE state{};
     input_.GetStateForUI(0, &state);
     uint16_t buttons = state.gamepad.buttons;
-    if (state.gamepad.thumb_ly > 16000) buttons |= 1;
-    if (state.gamepad.thumb_ly < -16000) buttons |= 2;
-    if (state.gamepad.thumb_lx < -16000) buttons |= 4;
-    if (state.gamepad.thumb_lx > 16000) buttons |= 8;
+    if (state.gamepad.thumb_ly > 16000)
+      buttons |= 1;
+    if (state.gamepad.thumb_ly < -16000)
+      buttons |= 2;
+    if (state.gamepad.thumb_lx < -16000)
+      buttons |= 4;
+    if (state.gamepad.thumb_lx > 16000)
+      buttons |= 8;
     uint16_t pressed = buttons & ~previous_buttons_;
     const auto now = std::chrono::steady_clock::now();
     if ((buttons & 15) != (previous_buttons_ & 15)) {
@@ -278,36 +297,47 @@ class settings_menu final : public rex::ui::ImGuiDialog {
       repeat_at_ = now + std::chrono::milliseconds(100);
     }
     previous_buttons_ = buttons;
-    auto key = [](ImGuiKey k) { return ImGui::IsKeyPressed(k); };
+    auto key = [](ImGuiKey k) {
+      return ImGui::IsKeyPressed(k, k != ImGuiKey_Enter && k != ImGuiKey_Escape &&
+                                        k != ImGuiKey_Backspace);
+    };
     const bool back = (pressed & 0x2010) || key(ImGuiKey_Escape) || key(ImGuiKey_Backspace);
     const bool accept = (pressed & 0x1000) || key(ImGuiKey_Enter);
-    const bool modal_was_open = preview_ || discard_ || quit_confirmation_;
+    const bool modal_was_open = preview_ || discard_;
     const int horizontal = int(bool(pressed & 8) || key(ImGuiKey_RightArrow) || key(ImGuiKey_D)) -
                            int(bool(pressed & 4) || key(ImGuiKey_LeftArrow) || key(ImGuiKey_A));
     const int vertical = int(bool(pressed & 2) || key(ImGuiKey_DownArrow) || key(ImGuiKey_S)) -
                          int(bool(pressed & 1) || key(ImGuiKey_UpArrow) || key(ImGuiKey_W));
     if (!modal_was_open) {
       int turn = int(bool(pressed & 0x200)) - int(bool(pressed & 0x100));
-      if (key(ImGuiKey_Tab)) turn = io.KeyShift ? -1 : 1;
-      if (turn) { page_ = (page_ + turn + 5) % 5; selected_ = 0; status_.clear(); }
+      if (key(ImGuiKey_Tab))
+        turn = io.KeyShift ? -1 : 1;
+      if (turn) {
+        page_ = (page_ + turn + 5) % 5;
+        selected_ = 0;
+        status_.clear();
+      }
     }
 
     const float scale = std::min(io.DisplaySize.x / 1280.0f, io.DisplaySize.y / 720.0f);
-    const ImVec2 origin((io.DisplaySize.x - 1160 * scale) / 2, (io.DisplaySize.y - 650 * scale) / 2);
-    auto point = [&](float x, float y) { return ImVec2(origin.x + x * scale, origin.y + y * scale); };
+    const ImVec2 origin((io.DisplaySize.x - 1160 * scale) / 2,
+                        (io.DisplaySize.y - 650 * scale) / 2);
+    auto point = [&](float x, float y) {
+      return ImVec2(origin.x + x * scale, origin.y + y * scale);
+    };
     ImGui::SetNextWindowPos(origin);
     ImGui::SetNextWindowSize(ImVec2(1160 * scale, 650 * scale));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
-    ImGui::Begin("PC SETTINGS", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::Begin("PC SETTINGS", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav |
+                     ImGuiWindowFlags_NoScrollWithMouse);
     auto& draw = *ImGui::GetWindowDrawList();
     draw.AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(9, 7, 5, 190));
-    draw.AddImage(reinterpret_cast<ImTextureID>(panel_.get()), point(0, 0), point(1160, 650));
-
-    bool save = false, reset = false, close = back, quit = false;
-    auto button = [&](const char* id, const char* label, float x, float y, float w, float h, bool active) {
+    auto button = [&](const char* id, const char* label, float x, float y, float w, float h,
+                      bool active) {
       ImGui::SetCursorScreenPos(point(x, y));
       const bool clicked = ImGui::InvisibleButton(id, ImVec2(w * scale, h * scale));
       const bool hover = ImGui::IsItemHovered() && input_.IsKeyboardActive();
@@ -315,23 +345,30 @@ class settings_menu final : public rex::ui::ImGuiDialog {
       text(draw, point(x + 17, y + 5), 26 * scale, active || hover ? ink : paper, label);
       return clicked;
     };
+    draw.AddImage(reinterpret_cast<ImTextureID>(panel_.get()), point(0, 0), point(1160, 650));
+    bool save = false, reset = false, close = back, quit = false;
     // Modal controls overlap these rows; disabled items must not claim their mouse hits.
     ImGui::BeginDisabled(modal_was_open);
     const char* pages[] = {"DISPLAY", "GRAPHICS", "AUDIO", "CAMERA", "CONTROLS"};
     for (int p = 0; p < 5; ++p)
       if (button(pages[p], pages[p], 30.0f + p * 222, 139, 212, 37, page_ == p) &&
           !modal_was_open) {
-        page_ = p; selected_ = 0; status_.clear();
+        page_ = p;
+        selected_ = 0;
+        status_.clear();
       }
 
     std::vector<const pc_setting*> rows;
-    for (const auto& setting : pc_settings()) if (setting.page == page_) rows.push_back(&setting);
+    for (const auto& setting : pc_settings())
+      if (setting.page == page_)
+        rows.push_back(&setting);
     const int count = int(rows.size());
     if (!modal_was_open) {
       selected_ = (selected_ + vertical + count + 4) % (count + 4);
       if (selected_ >= count && horizontal)
         selected_ = count + (selected_ - count + horizontal + 4) % 4;
-      if (vertical) status_.clear();
+      if (vertical)
+        status_.clear();
     }
     const pc_setting* help = selected_ < count ? rows[selected_] : nullptr;
     for (int i = 0; i < count; ++i) {
@@ -340,31 +377,42 @@ class settings_menu final : public rex::ui::ImGuiDialog {
       ImGui::SetCursorScreenPos(point(30, y));
       const bool clicked = ImGui::InvisibleButton(setting.name, ImVec2(1100 * scale, 37 * scale));
       const bool hover = ImGui::IsItemHovered() && input_.IsKeyboardActive();
-      if (hover) help = &setting;
+      if (hover)
+        help = &setting;
       const bool active = selected_ == i;
-      if (active || hover) strip(draw, point(30, y), point(1130, y + 37), 0);
+      if (active || hover)
+        strip(draw, point(30, y), point(1130, y + 37), 0);
       const auto color = active || hover ? ink : paper;
       text(draw, point(48, y + 4), 28 * scale, color, setting.label);
       std::string value = draft_.at(setting.name);
-      const auto found = std::ranges::find_if(setting.choices, [&](const auto& c) { return value == c.value; });
-      if (found != setting.choices.end()) value = found->label;
+      const auto found =
+          std::ranges::find_if(setting.choices, [&](const auto& c) { return value == c.value; });
+      if (found != setting.choices.end())
+        value = found->label;
       if (setting.choices.empty()) {
         const float number = std::stof(value);
         char formatted[48];
-        if (setting.step >= 1) std::snprintf(formatted, sizeof(formatted), "%.0f %%", number * 10);
-        else if (setting.maximum <= 1) std::snprintf(formatted, sizeof(formatted), "%.0f %%", number * 100);
-        else std::snprintf(formatted, sizeof(formatted), "%.1f", number);
+        if (setting.step >= 1)
+          std::snprintf(formatted, sizeof(formatted), "%.0f %%", number * 10);
+        else if (setting.maximum <= 1)
+          std::snprintf(formatted, sizeof(formatted), "%.0f %%", number * 100);
+        else
+          std::snprintf(formatted, sizeof(formatted), "%.1f", number);
         value = formatted;
       }
       text(draw, point(602, y + 4), 28 * scale, color, ("<  " + value + "  >").c_str());
       if (!modal_was_open) {
-        if (clicked) { selected_ = i; adjust(setting, io.MousePos.x < point(840, 0).x ? -1 : 1); }
-        else if (active && (horizontal || accept)) adjust(setting, horizontal ? horizontal : 1);
+        if (clicked) {
+          selected_ = i;
+          adjust(setting, io.MousePos.x < point(840, 0).x ? -1 : 1);
+        } else if (active && (horizontal || accept))
+          adjust(setting, horizontal ? horizontal : 1);
       }
     }
     std::string caption = status_;
     if (caption.empty()) {
-      if (restart_needed()) caption = "Restart to apply graphics changes.";
+      if (restart_needed())
+        caption = "Restart to apply graphics changes.";
       else if (help) {
         caption = help->help;
         const auto* flag = rex::cvar::GetFlagInfo(help->name);
@@ -377,7 +425,8 @@ class settings_menu final : public rex::ui::ImGuiDialog {
       }
     }
     text(draw, point(43, 482), 24 * scale, ink, caption.c_str());
-    if (draft_ != saved_) text(draw, point(1010, 177), 20 * scale, paper, "UNSAVED");
+    if (draft_ != saved_)
+      text(draw, point(1010, 177), 20 * scale, paper, "UNSAVED");
     save = button("apply", "APPLY", 30, 540, 260, 40, selected_ == count);
     reset = button("defaults", "DEFAULTS", 310, 540, 260, 40, selected_ == count + 1);
     close |= button("back", "BACK", 590, 540, 260, 40, selected_ == count + 2);
@@ -386,70 +435,83 @@ class settings_menu final : public rex::ui::ImGuiDialog {
     icon(draw, 4, point(32, 601), 36 * scale);
     text(draw, point(82, 605), 26 * scale, ink, "Move");
     icon(draw, 2, point(312, 601), 36 * scale);
-    if (!input_.IsKeyboardActive()) icon(draw, 3, point(354, 601), 36 * scale);
+    if (!input_.IsKeyboardActive())
+      icon(draw, 3, point(354, 601), 36 * scale);
     text(draw, point(input_.IsKeyboardActive() ? 362 : 404, 605), 26 * scale, ink, "Pages");
     icon(draw, 0, point(592, 601), 36 * scale);
     text(draw, point(642, 605), 26 * scale, ink, "Select");
     icon(draw, 1, point(872, 601), 36 * scale);
     text(draw, point(922, 605), 26 * scale, ink, "Back");
     if (!modal_was_open) {
-      if (accept && selected_ == count) save = true;
-      if (accept && selected_ == count + 1) reset = true;
-      if (accept && selected_ == count + 2) close = true;
+      if (accept && selected_ == count)
+        save = true;
+      if (accept && selected_ == count + 1)
+        reset = true;
+      if (accept && selected_ == count + 2)
+        close = true;
       if (accept && selected_ == count + 3)
         quit = true;
       if (reset) {
         status_.clear();
-        for (const auto& setting : pc_settings()) if (setting.page == page_) draft_[setting.name] = setting.recommended;
-        if (page_ == 0) draft_["window_height"] = "1440";
+        for (const auto& setting : pc_settings())
+          if (setting.page == page_)
+            draft_[setting.name] = setting.recommended;
+        if (page_ == 0)
+          draft_["window_height"] = "1440";
       }
-      if (save) apply();
+      if (save)
+        apply();
       if (close) {
-        if (draft_ != saved_) discard_ = true;
-        else show(false);
+        if (draft_ != saved_)
+          discard_ = true;
+        else
+          show(false);
       }
-      if (quit)
-        quit_confirmation_ = true;
+      if (quit && exit_.request([this](bool failed) {
+            suspended_ = false;
+            previous_buttons_ = 0xFFFF;
+            input_.AddUIInputBlocker();
+            if (failed)
+              status_ = "Could not open the native quit confirmation.";
+          })) {
+        input_.RemoveUIInputBlocker();
+        suspended_ = true;
+      }
     }
-    if (preview_ || discard_ || quit_confirmation_) {
+    if (preview_ || discard_) {
       if (!modal_was_open)
-        modal_no_ = quit_confirmation_;
-      else if (horizontal || vertical) modal_no_ = (horizontal ? horizontal : vertical) > 0;
+        modal_no_ = false;
+      else if (horizontal || vertical)
+        modal_no_ = (horizontal ? horizontal : vertical) > 0;
       draw.AddRectFilled(point(10, 131), point(1150, 590), IM_COL32(12, 9, 7, 235));
       strip(draw, point(94, 204), point(1066, 325), 2);
-      const int remaining = int(std::ceil(std::chrono::duration<float>(deadline_ - std::chrono::steady_clock::now()).count()));
-      text(draw, point(120, preview_ || quit_confirmation_ ? 226 : 247), 30 * scale, ink,
-           preview_             ? "KEEP DISPLAY SETTINGS?"
-           : quit_confirmation_ ? "QUIT THE GAME?"
-                                : "DISCARD CHANGES?");
+      const int remaining = int(std::ceil(
+          std::chrono::duration<float>(deadline_ - std::chrono::steady_clock::now()).count()));
+      text(draw, point(120, preview_ ? 226 : 247), 30 * scale, ink,
+           preview_ ? "KEEP DISPLAY SETTINGS?" : "DISCARD CHANGES?");
       if (preview_) {
         const auto message = "Revert in " + std::to_string(std::max(0, remaining)) + "s.";
         text(draw, point(124, 271), 26 * scale, ink, message.c_str());
-      } else if (quit_confirmation_) {
-        text(draw, point(124, 271), 24 * scale, ink,
-             "Progress since the last checkpoint and unsaved settings will be lost.");
       }
-      const bool yes = button("yes",
-                              preview_             ? "KEEP"
-                              : quit_confirmation_ ? "QUIT GAME"
-                                                   : "DISCARD",
-                              120, 340, 430, 48, !modal_no_) ||
-                       (accept && modal_was_open && !modal_no_);
+      const bool yes =
+          button("yes", preview_ ? "KEEP" : "DISCARD", 120, 340, 430, 48, !modal_no_) ||
+          (accept && modal_was_open && !modal_no_);
       const bool no = button("no", preview_ ? "REVERT" : "CANCEL", 575, 340, 460, 48, modal_no_) ||
                       (modal_was_open && (back || (accept && modal_no_)));
       icon(draw, 0, point(modal_no_ ? 983 : 498, 346), 36 * scale);
-      if (!modal_no_) icon(draw, 1, point(983, 346), 36 * scale);
+      if (!modal_no_)
+        icon(draw, 1, point(983, 346), 36 * scale);
       if (preview_) {
-        if (no || remaining <= 0) revert();
-        else if (yes) commit();
-      } else if (quit_confirmation_) {
-        if (no)
-          quit_confirmation_ = false;
+        if (no || remaining <= 0)
+          revert();
         else if (yes)
-          quit_();
+          commit();
       } else {
-        if (yes) { discard_ = false; show(false); }
-        else if (no) discard_ = false;
+        if (yes) {
+          discard_ = false;
+          show(false);
+        } else if (no)
+          discard_ = false;
       }
     }
     ImGui::End();
@@ -460,29 +522,31 @@ class settings_menu final : public rex::ui::ImGuiDialog {
   rex::input::InputSystem& input_;
   std::filesystem::path config_;
   pc_values launched_, draft_, saved_;
-  std::function<void()> quit_;
+  exit_flow exit_;
   bool visible_ = false, preview_ = false, discard_ = false, release_pending_ = false;
   bool modal_no_ = false;
-  bool quit_confirmation_ = false;
+  bool suspended_ = false;
   bool game_ready_seen_ = false;
   int page_ = 0, selected_ = 0;
   uint16_t previous_buttons_ = 0;
   std::chrono::steady_clock::time_point deadline_{}, repeat_at_{};
   std::string status_;
   std::unique_ptr<rex::ui::ImmediateTexture> panel_, controls_;
-  std::array<std::array<std::unique_ptr<rex::ui::ImmediateTexture>, 6>, 2> prompts_;
-  std::array<std::array<ImVec4, 6>, 2> prompt_bounds_;
+  std::array<std::array<std::unique_ptr<rex::ui::ImmediateTexture>, 5>, 2> prompts_;
+  std::array<std::array<ImVec4, 5>, 2> prompt_bounds_;
 };
-}  // namespace
+} // namespace
 
 void configure_settings_fonts(ImFontAtlas* atlas) {
   std::array<wchar_t, MAX_PATH> windows{};
   const auto length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
-  if (!length || length >= windows.size()) return;
+  if (!length || length >= windows.size())
+    return;
   const auto menu = std::filesystem::path(windows.data()) / "Fonts" / "arialbd.ttf";
   constexpr float sizes[] = {32, 48, 64, 96};
   for (size_t i = 0; i < menu_fonts.size(); ++i) {
-    if (std::filesystem::exists(menu)) menu_fonts[i] = atlas->AddFontFromFileTTF(menu.string().c_str(), sizes[i]);
+    if (std::filesystem::exists(menu))
+      menu_fonts[i] = atlas->AddFontFromFileTTF(menu.string().c_str(), sizes[i]);
   }
 }
 
@@ -494,25 +558,4 @@ make_settings_menu(rex::ui::ImGuiDrawer& drawer, rex::ui::ImmediateDrawer& immed
                                          std::move(quit));
 }
 
-void set_settings_guest_memory(unsigned char* memory) { guest_memory.store(memory); }
-
-void settings_movie_loaded(uint32_t player, uint32_t path) {
-  const auto name = guest_string(path);
-  REXLOG_DEBUG("Native menu movie loaded: {}", name);
-  if (name == "UIScene_StartTitle.ASH_UI_TitleMenu") game_settings_loaded();
-  if (name != "UIScane_Option.ASH_UI_OptionMenu") return;
-  replace_game_options(player);
-  rex::cvar::SetFlagByName("lollipop_pc_settings", "true");
-}
-
-void settings_movie_unloaded(uint32_t player) {
-  cancel_game_options(player);
-}
-
-}  // namespace lollipop
-
-// UGFxFSCmdHandler_Kismet::execFSCommand: r6 is the decoded command FString.
-void lollipop_options_command(PPCRegister& command) {
-  const auto name = lollipop::guest_string(command.u32);
-  REXLOG_DEBUG("Menu command: {}", name);
-}
+} // namespace lollipop

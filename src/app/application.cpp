@@ -15,6 +15,7 @@
 #include <rex/system/gpu_plugin.h>
 #include <rex/system/interfaces/graphics.h>
 
+#include "game/game_menus.h"
 #include "game/shader_inventory.h"
 #include "game/timing_hooks.h"
 #include "input/keyboard_controls.h"
@@ -155,32 +156,19 @@ protected:
         return;
       }
     }
-    if (rex::cvar::Query<bool>("lollipop_pc_settings") &&
-        event.virtual_key() ==
-            rex::ui::ParseVirtualKey(rex::cvar::GetFlagByName("bind_settings"))) {
-      event.set_handled(true);
-      return;
-    }
     if (!event.prev_state())
       rex::ui::ProcessKeyEvent(event);
   }
 
-  void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {
-    if (rex::cvar::GetFlagSource("bind_settings") == rex::cvar::Source::kDefault)
-      rex::cvar::SetFlagByName("bind_settings", "F6");
-    rex::ui::RegisterBind("bind_pc_settings", "F4", "Toggle PC settings", [] {
-      rex::cvar::SetFlagByName("lollipop_pc_settings",
-                               rex::cvar::Query<bool>("lollipop_pc_settings") ? "false" : "true");
-    });
-  }
+  void OnCreateDialogs(rex::ui::ImGuiDrawer*) override { rex::ui::UnregisterBind("bind_settings"); }
 
   void OnLoadXexImage(std::string&) override {
-    install_keyboard_prompts(*runtime(), game_data_root(), cache_root());
+    install_game_ui_assets(*runtime(), game_data_root(), cache_root());
     install_live_prompt_updates(*runtime());
   }
 
   void OnPostSetup() override {
-    set_settings_guest_memory(runtime()->virtual_membase());
+    set_game_ui_memory(runtime()->virtual_membase());
     settings_menu_ =
         make_settings_menu(*imgui_drawer(), *immediate_drawer(), *runtime(), settings_path_,
                            game_data_root(), [this] { window()->RequestClose(); });
@@ -204,9 +192,8 @@ protected:
     rex::system::SetShaderPrecompileCallback({});
     loading_screen_.reset();
     stop_live_prompt_updates();
-    set_settings_guest_memory(nullptr);
+    set_game_ui_memory(nullptr);
     settings_menu_.reset();
-    rex::ui::UnregisterBind("bind_pc_settings");
     rex::system::SetTextureDataCallback({});
     if (test_worker_.joinable()) {
       test_worker_.request_stop();

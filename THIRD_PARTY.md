@@ -40,6 +40,9 @@ OpenAI image generation was used for:
 
 - The settings panel and button textures, using the original menu as a style
   reference. These are not extracted game textures.
+- The native Quit Game slot artwork in `assets/settings/quit-game.png`, matching
+  the original main-menu style. Its animation and navigation come from the
+  user's own disc assets at runtime.
 - The installer illustration and paper texture in `assets/installer/`, using the
   [original developer's gallery](https://www.grasshopper.co.jp/en/) and
   [official RePOP promotional artwork](https://repop.lollipopchainsaw.com/en/)

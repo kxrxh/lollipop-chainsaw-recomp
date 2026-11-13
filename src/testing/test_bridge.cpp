@@ -1,5 +1,6 @@
 #include "test_bridge.h"
 #include "game/game_settings.h"
+#include "game/native_quit_dialog.h"
 
 #include <array>
 #include <fstream>
@@ -148,13 +149,22 @@ std::string execute_test_command(test_controls& controls,
     if (!(words >> std::ws).eof()) return "error game_settings_state takes no arguments";
     return "ok " + game_settings_state();
   }
+  if (operation == "quit_state") {
+    if (!(words >> std::ws).eof()) return "error quit_state takes no arguments";
+    constexpr const char* names[] = {"idle", "requested", "opening", "active", "cancelled", "confirmed", "failed"};
+    return "ok " + std::string(names[static_cast<unsigned>(native_quit().status())]);
+  }
+  if (operation == "quit_selection") {
+    if (!(words >> std::ws).eof()) return "error quit_selection takes no arguments";
+    return "ok " + std::to_string(native_quit().selection());
+  }
   if (operation == "ui_key") {
     std::string key;
     int down = -1;
     words >> key >> down;
     const std::pair<const char*, ImGuiKey> keys[] = {
         {"enter", ImGuiKey_Enter}, {"escape", ImGuiKey_Escape},
-        {"backspace", ImGuiKey_Backspace}, {"tab", ImGuiKey_Tab},
+        {"backspace", ImGuiKey_Backspace}, {"space", ImGuiKey_Space}, {"tab", ImGuiKey_Tab},
         {"up", ImGuiKey_UpArrow}, {"down", ImGuiKey_DownArrow},
         {"left", ImGuiKey_LeftArrow}, {"right", ImGuiKey_RightArrow}};
     for (const auto& [name, code] : keys) {

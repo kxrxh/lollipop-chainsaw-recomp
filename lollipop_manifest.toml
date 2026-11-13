@@ -51,6 +51,8 @@ longjmp_address = 0x82BD8590
 0x82C27CA0 = {} # 0x8203EFD0
 0x82C0FFA8 = {} # 0x8203D0D8
 0x82A1A728 = {} # 0x8200105C
+# Embedded Scaleform bitmap decoding, observed when loading the native Quit Game slot.
+0x82B223D0 = {}
 
 # Computed function pointers: lis/addi pairs in executable code.
 0x82282770 = {} # 0x82283400 / 0x82283410; also observed on boot 3
@@ -79,11 +81,18 @@ address = 0x82582FE0
 name = "lollipop_settings_pause"
 registers = ["r3"]
 
-# Native Options close command, before Kismet receives it.
+# Native Options commands and the Quit Game marker, before Kismet routing.
 [[entrypoint.midasm_hook]]
 address = 0x8292CA54
 name = "lollipop_options_command"
 registers = ["r6"]
+
+# Consume the native Quit Game marker without executing the Options Kismet action.
+[[entrypoint.midasm_hook]]
+address = 0x8292CA50
+name = "lollipop_quit_command"
+registers = ["r6", "r7", "r3"]
+jump_address_on_true = 0x8292CA58
 
 # ASH_GameEngine::execIsOnline: skip the query only for ASH_SystemInit.XBLCheck_Start.
 # Its completed state is also reached after the player confirms offline startup.

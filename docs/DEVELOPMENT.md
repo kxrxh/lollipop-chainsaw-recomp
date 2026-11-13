@@ -9,10 +9,10 @@ Commands below run from the repository folder.
 | Location | Responsibility |
 | --- | --- |
 | `src/main.cpp`, `src/app/` | Entrypoint and application lifecycle |
-| `src/game/` | Native settings, startup and timing hooks, package decoding and shader inventory |
+| `src/game/` | Shared guest bridge, native menus and dialogs, settings, startup and timing hooks, package decoding and shader inventory |
 | `src/input/` | Keyboard bindings, prompt artwork and input-device switching |
 | `src/settings/` | PC settings, validation and persistence |
-| `src/ui/` | Settings and shader-loading interfaces |
+| `src/ui/` | Custom settings page, exit flow and shader-loading interfaces |
 | `src/testing/` | Local control bridge |
 | `installer/` | Standalone C# launcher, XAML layout and packaging script |
 | `scripts/` | Shared build helpers, benchmarks and control tools |
@@ -38,8 +38,8 @@ $tools = Get-BuildTools
 
 `Get-BuildTools` accepts `-LlvmDirectory` when LLVM is not on PATH. Tests include
 settings migration, input concurrency, timing, native hooks, shader-cache recovery,
-installer behavior and packaging from another working directory. Headers are
-compiled independently during the build.
+installer behavior, quit-dialog controller input under capture, and packaging
+from another working directory. Headers are compiled independently during the build.
 
 Installer packaging uses `./installer/build.ps1`. Its source kit includes the
 files needed for the game build and compiled tests. PowerShell script checks are
@@ -58,7 +58,7 @@ automation at the player's only save copy.
 
 With the [control bridge](#background-control-bridge) running on that isolated
 save, the quit-menu smoke check tests keyboard, controller and mouse navigation,
-Cancel as the default, gameplay input blocking and unchanged PC preferences.
+No as the default, held input handling and unchanged PC preferences.
 It closes the test game after confirming Quit Game:
 
 ```powershell
@@ -68,6 +68,8 @@ It closes the test game after confirming Quit Game:
 Replace `1234` with the test game's process ID. Finish shader preparation first.
 Repeat on fresh test processes with `-ConfirmWith keyboard` or
 `-ConfirmWith gamepad` to check each confirmation path.
+Use `-FromMainMenu` with the native Quit Game slot selected to test activation
+and cancellation back to that slot.
 
 ## Settings and runtime integration
 
@@ -80,10 +82,30 @@ Original game options are imported after native save loading. Changes use the
 game's own option functions, and Apply also calls its save routine. Native
 settings calls run on the engine tick thread, not a loading-movie worker.
 
+`game_bridge` owns scoped PPC context preservation, reflection, guest strings and
+Scaleform calls. `native_quit_dialog` owns the original system window and its
+state on the engine thread. `exit_flow` owns UI capture, release gating and return
+to the settings page. The settings page keeps its draft while exit is pending.
+`game_menus` routes the native movie hooks and engine-thread updates without
+changing the hooks' manifest symbols. Settings synchronization stays throttled
+to 250 ms; active quit dialogs advance each frame.
+
 The PC menu hides and closes the original Options movie so Back returns to its
 parent menu. Settings preserve an existing native pause. Confirmation dialogs
 keep gameplay paused, and held closing inputs must be released before gameplay
 resumes. Display changes have a 15-second Keep/Revert timer.
+
+The native main menu reuses its disabled Downloads button for Quit Game, with
+the original focus animation and navigation. A validated copy of `MENU_PL.xxx`
+is cached alongside the UI overrides; the disc files remain unchanged. The
+tagged Options command is consumed before native Kismet routing so cancelling
+quit returns directly to the selected slot.
+
+Quit confirmation uses the game's `ASH_GFxSystemWindow`, including its original
+Yes/No artwork, focus and close animations. It opens with No selected and displays
+only "Quit the game?". Keyboard, mouse and controller input is forwarded to that
+native movie while gameplay input stays blocked. Controller polling uses the UI
+input path so it remains available while ImGui captures input.
 
 Keyboard prompt packages are built from the disc assets and current bindings
 under `cache/keyboard-prompts/`. Rebinding needs a restart. Mixed input enables
@@ -144,8 +166,8 @@ limit exercises texture eviction and CPU memory-invalidation callbacks together:
 
 ```powershell
 ./run.ps1 -UserDirectory out/texture-test-user -CacheDirectory out/texture-test-cache `
-    --texture_cache_memory_limit_soft=64 --texture_cache_memory_limit_hard=64 `
-    --texture_cache_memory_limit_soft_lifetime=0 --perf_log_csv=out/texture-test-frames.csv
+    --texture_cache_memory_limit_soft=64 --texture_cache_memory_limit_hard=128 `
+    --texture_cache_memory_limit_soft_lifetime=1 --perf_log_csv=out/texture-test-frames.csv
 ```
 
 Load the prologue through the main menu, then repeat native Restart and
@@ -154,6 +176,21 @@ gameplay resumes, and there is no access violation or GPU device loss. Repeat
 with the default limits afterward. Texture destruction must hold the shared
 memory critical region while checking and removing watch handles; callbacks can
 clear and recycle those handles on a CPU thread.
+
+Mid-frame fence waits must also invalidate the command processor's cached texture
+bindings before eviction. A reloaded texture can have the same guest key and a
+different host descriptor. Exercise `ce TelephoneIntro` followed by `ce TeleTest`
+from an initialized, copied checkpoint 25 save to check the phone level's load and
+unload under cache pressure; this bypasses story triggers.
+
+With that save loaded normally, `tests/phone_transition_smoke.ps1` repeats three
+phone load/unload cycles, checks frame progress and eviction, and saves captures
+for visual inspection. Supply the test process ID and the bridge and log paths:
+
+```powershell
+./tests/phone_transition_smoke.ps1 -GameProcessId 1234 -Directory out/phone-control `
+    -FrameLog out/phone-frames.csv -GameLog out/phone-game.log
+```
 
 ## Background control bridge
 
@@ -191,6 +228,7 @@ Use `-Directory` if the bridge is in a different location.
 | `capture` | Save the game image to `capture.bmp`; SDK overlays are excluded |
 | `gpu_capture_start` / `gpu_capture_stop` | Capture when launched under RenderDoc |
 | `quit` | Close the test process |
+| `quit_state`, `quit_selection` | Inspect native quit dialog state and choice (1 Yes, 2 No) |
 
 Button masks are decimal Xbox bits; stick axes range from -32768 to 32767.
 The example presses A. Optional trigger values range from 0 to 255; omitting
@@ -205,6 +243,15 @@ the stadium map. Poll `game_console_state` until `complete` or `error` before
 queuing another command. Completion means the command returned; check that the
 expected scene actually loaded. Use copied saves for console travel and `--cl`
 guest launch arguments.
+
+Commands use the local player console when available, with the world console as
+a startup fallback. `game_console ce <event>` can invoke a level's console event.
+These events bypass normal story triggers; they are diagnostic checks, not proof
+of story progression.
+
+A routing smoke check on a copied prologue save is `game_console ce cp25`:
+Juliet should move to the alleyway, and Continue should restore checkpoint 25
+after quitting and restarting the app.
 
 ## Frame and engine measurements
 

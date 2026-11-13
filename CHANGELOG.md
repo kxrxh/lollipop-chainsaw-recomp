@@ -18,11 +18,13 @@
 - Fixed input polling, rendering synchronization and texture-copy bounds.
 - Fixed texture eviction racing with CPU callbacks and corrupting memory-watch
   handles.
+- Invalidated cached texture bindings when mid-frame GPU waits reclaim textures.
 - Fixed controller deadzones ignoring left/down drift and disabling themselves
   at 100%.
 - Held triggers stay blocked after leaving PC settings until released, preventing
   accidental Star Soul activation or blaster fire.
-- Added Quit Game to PC settings with a confirmation that defaults to Cancel.
+- Added Quit Game to the main menu and PC settings with native confirmation that
+  defaults to No, including controller support while input is captured.
 - Added Update / Repair without reimporting the ISO, with staged builds,
   interrupted-update recovery and preservation of saves and settings.
 - Added optional GPU draw and shader diagnostics for investigating reload crashes.

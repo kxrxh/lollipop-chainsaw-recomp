@@ -9,7 +9,8 @@ Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 # Explicit public inputs keep private discs, translated code and build products out of the installer.
 $files = @('LICENSE','THIRD_PARTY.md','CMakeLists.txt','lollipop_manifest.toml',
     'assets/lollipop.ico','assets/lollipop.rc','assets/settings_resources.h',
-    'assets/settings/controls.png','assets/settings/panel.png','assets/installer/hero.png','assets/installer/paper.png',
+    'assets/settings/controls.png','assets/settings/panel.png','assets/settings/quit-game.png',
+    'assets/installer/hero.png','assets/installer/paper.png',
     'patches/rexglue-fixes.patch','patches/rexglue-shader-precompile.patch','patches/LICENSE.rexglue','patches/LICENSE.libmspack','patches/SSX-RexGlue-LICENSE.txt',
     'assets/shaders/pipelines.txt','installer/launcher.xaml',
     'installer/setup.cs','installer/setup-install.cs','installer/setup-tools.cs','installer/setup-update.cs')
