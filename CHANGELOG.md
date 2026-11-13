@@ -5,7 +5,8 @@
 - Added a Windows installer with ISO import, verified downloads and resumable setup.
 - Added startup shader preparation, a launcher precompile action and a pipeline
   inventory collected across stage/boss maps and prologue combat.
-- Expanded shader preparation with Star Soul and later prologue encounter states.
+- Expanded shader preparation with Star Soul, the third rescue and the helicopter
+  sequence.
 - Fixed damaged shader-cache recovery and launches with shader storage disabled.
 - Retry brief file-sharing locks when publishing shader caches.
 - Reduced checkpoint loading overhead and cached keyboard artwork for reuse.

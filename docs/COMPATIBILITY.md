@@ -7,11 +7,13 @@ other disc versions, Vulkan, macOS and Linux remain unverified.
 
 Recorded gameplay checks used an Intel Core i7-10700K, 32 GB RAM and an NVIDIA
 GeForce RTX 3080, at 2560×1440 with the D3D12 ROV renderer. Boot, menus, prologue
-movement and combat have been checked, including the first two student rescues,
-bus-door QTE, crawler encounter, bus vault, bus rollover, gate QTE and the third
-student's escort wave. The third student died in the following 25-zombie encounter;
-its successful rescue and later progression remain unverified. Settings checks
-covered saving, discarding changes, display rollback and pausing.
+movement and combat have been checked, including all three student rescues,
+bus-door QTE, crawler encounter, bus vault, bus rollover and gate QTE. The third
+rescue completed on Easy through the 25-zombie encounter, van dodge and following
+eight-enemy wave. The helicopter crash sequence and phone-call entry also rendered.
+The next checkpoint remains unverified because the phone-call transition ended in
+a graphics crash. Settings checks covered saving, discarding changes, display
+rollback and pausing.
 
 A full app restart resumed the checkpoint after the second rescue. Live trigger
 checks covered blocking held input after settings closed, release, a fresh RT
@@ -28,9 +30,9 @@ controllers and multi-monitor setups need more testing.
 
 ## Known issues
 
-- D3D12 `DEVICE_HUNG` crashes have occurred during prologue reloads and gate
-  replays after Continue. A texture-watch race has been fixed; it is not yet
-  proven to account for every observed GPU hang.
+- D3D12 `DEVICE_HUNG` crashes have occurred during prologue reloads, gate replays
+  after Continue and the phone-call transition after the third rescue. A
+  texture-watch race has been fixed; GPU hangs remain under investigation.
 - Loading and cutscene transitions can stall.
 - Unrecorded shader combinations can cause pauses while they compile.
 - Heavy automated camera and streaming tests have also caused GPU hangs.

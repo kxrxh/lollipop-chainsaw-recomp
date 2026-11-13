@@ -29,6 +29,9 @@ Then open `out/installer/Lollipop Chainsaw Setup.exe`.
 3. Select Play Lollipop Chainsaw. For later launches, open
    `Play Lollipop Chainsaw.exe` in the install folder.
 
+For an easier first run, choose Difficulty, then Easy on the game's title menu
+before selecting Game Start.
+
 If setup is interrupted after importing the disc, open it again and choose the
 same folder, then select Update / Repair. The imported files are reused.
 Your saves are in the install folder's `user/` directory. Keep that directory
@@ -42,7 +45,8 @@ again. Your saves and settings are kept.
 
 The project is still in development. Menus and early gameplay have been tested,
 but a full playthrough has not been verified. Some loading and cutscene
-transitions can stall, and a rare graphics crash has been seen after Continue.
+transitions can stall. Graphics crashes have occurred during checkpoint reloads
+and a later prologue transition.
 
 See the [compatibility notes](docs/COMPATIBILITY.md) for details.
 
