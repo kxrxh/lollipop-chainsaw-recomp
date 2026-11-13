@@ -60,6 +60,7 @@ if(WIN32)
     enable_language(RC)
     target_sources(lollipop PRIVATE assets/lollipop.rc)
     set_property(SOURCE assets/lollipop.rc APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/launcher/assets/lollipop.ico"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/settings/panel.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/settings/controls.png")
     set_property(SOURCE assets/lollipop.rc APPEND PROPERTY OBJECT_DEPENDS
@@ -77,7 +78,10 @@ add_custom_command(TARGET lollipop POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E touch "$<TARGET_FILE_DIR:lollipop>/shader-precompile-v1.ready"
     VERBATIM)
 
-enable_testing()
+include(CTest)
+if(NOT BUILD_TESTING)
+    return()
+endif()
 
 add_executable(lollipop_shader_tool src/app/shader_tool.cpp src/game/shader_inventory.cpp
     src/game/package_lzx.cpp)
@@ -188,6 +192,7 @@ add_test(NAME lollipop_offline_startup COMMAND lollipop_startup_test)
 option(LOLLIPOP_SCRIPT_TESTS "Run development PowerShell script checks" ON)
 if(LOLLIPOP_SCRIPT_TESTS)
     find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+    get_filename_component(lollipop_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
     add_test(NAME lollipop_frame_analysis
         COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -File
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/perf_analysis_test.ps1")
@@ -196,37 +201,25 @@ if(LOLLIPOP_SCRIPT_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/prepare_game_test.ps1")
     add_test(NAME lollipop_project_paths
         COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -File
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/project_paths_test.ps1")
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/project_paths_test.ps1"
+            -RexGlueDirectory "${rexglue_DIR}"
+            -GeneratedDirectory "${LOLLIPOP_GENERATED_DIR}"
+            -LlvmDirectory "${lollipop_compiler_directory}")
 endif()
 
 if(WIN32)
-    set(setup_framework "$ENV{SystemRoot}/Microsoft.NET/Framework64/v4.0.30319")
-    set(setup_sources installer/setup.cs installer/setup-install.cs installer/setup-tools.cs
-        installer/setup-update.cs tests/setup_test.cs)
-    list(TRANSFORM setup_sources PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
-    set(setup_native_sources)
-    foreach(source IN LISTS setup_sources)
-        file(TO_NATIVE_PATH "${source}" native_source)
-        list(APPEND setup_native_sources "${native_source}")
-    endforeach()
+    find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+    file(GLOB_RECURSE setup_sources CONFIGURE_DEPENDS
+        launcher/*.cs launcher/*.xaml launcher/*.csproj launcher/*.props
+        launcher/*.json launcher/*.ps1 launcher/assets/*)
     set(setup_test "${CMAKE_CURRENT_BINARY_DIR}/lollipop_setup_test.exe")
     add_custom_command(OUTPUT "${setup_test}"
-        COMMAND "${setup_framework}/csc.exe" /nologo /optimize+ /target:exe /platform:x64
-            /main:lollipop.SetupTests "/out:${setup_test}"
-            /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll
-            /reference:System.Windows.Forms.dll /reference:System.Xaml.dll
-            "/reference:${setup_framework}/WPF/WindowsBase.dll"
-            "/reference:${setup_framework}/WPF/PresentationCore.dll"
-            "/reference:${setup_framework}/WPF/PresentationFramework.dll"
-            "/resource:${CMAKE_CURRENT_SOURCE_DIR}/installer/launcher.xaml,launcher.xaml"
-            "/resource:${CMAKE_CURRENT_SOURCE_DIR}/assets/lollipop.ico,lollipop.ico"
-            "/resource:${CMAKE_CURRENT_SOURCE_DIR}/assets/installer/hero.png,hero.png"
-            "/resource:${CMAKE_CURRENT_SOURCE_DIR}/assets/installer/paper.png,paper.png"
-            ${setup_native_sources}
-        DEPENDS ${setup_sources} installer/launcher.xaml assets/lollipop.ico
-            assets/installer/hero.png assets/installer/paper.png
+        COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -File
+            "${CMAKE_CURRENT_SOURCE_DIR}/launcher/build.ps1" -Tests -OutputFile "${setup_test}"
+        DEPENDS ${setup_sources} launcher/VERSION VERSION CHANGELOG.md
         VERBATIM)
     add_custom_target(lollipop_setup_check ALL DEPENDS "${setup_test}")
-    add_test(NAME lollipop_standalone_setup COMMAND "${setup_test}" "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_dependencies(lollipop_setup_check lollipop_settings_test)
+    add_test(NAME lollipop_standalone_setup COMMAND "${setup_test}" "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:lollipop_settings_test>")
     set_tests_properties(lollipop_standalone_setup PROPERTIES TIMEOUT 60)
 endif()

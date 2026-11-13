@@ -12,9 +12,11 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Threading;
 
-namespace lollipop {
+namespace lollipop;
 internal sealed class RecordedProgress : IProgress<InstallProgress> {
   internal readonly List<InstallProgress> Updates = new List<InstallProgress>();
   public void Report(InstallProgress value) { lock (Updates) Updates.Add(value); }
@@ -53,23 +55,38 @@ internal static class SetupTests {
         Console.Error.WriteLine("Fixture diagnostic " + i);
       return 7;
     }
+    if (args.Length > 0 && args[0] == "--git-progress") {
+      Console.Error.WriteLine("Resolving deltas: 100% (35/35), done.");
+      return 0;
+    }
+    if (args.Length > 0 && args[0] == "--configure") {
+      Console.WriteLine("-- Detecting CXX compiler ABI info");
+      Thread.Sleep(150);
+      Console.WriteLine("-- Configuring done");
+      return 0;
+    }
     if (args.Any(arg => arg.StartsWith("--game_data_root=")))
       return FixtureGame(args);
+    var app = new App();
+    app.InitializeComponent();
+    app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
     var sandbox =
         Path.Combine(Path.GetTempPath(), "lollipop-setup-" + Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(sandbox);
     try {
-      Setup.SetTaskbarIdentity();
+      App.SetTaskbarIdentity();
       IntPtr appId;
       Marshal.ThrowExceptionForHR(GetCurrentProcessExplicitAppUserModelID(out appId));
       try {
-        Check(Marshal.PtrToStringUni(appId) == "LollipopChainsaw.Recomp.Setup",
-              "Installer lost its taskbar identity");
-      } finally { Marshal.FreeCoTaskMem(appId); }
+        Check(Marshal.PtrToStringUni(appId) == "LollipopChainsaw.Recomp.Launcher",
+              "Launcher lost its taskbar identity");
+      } finally {
+        Marshal.FreeCoTaskMem(appId);
+      }
       var progress = new RecordedProgress();
       var log = new List<string>();
       var tools = new Tools(progress, delegate(string line) { lock (log) log.Add(line); });
-      var executable = Assembly.GetExecutingAssembly().Location;
+      var executable = Environment.ProcessPath!;
       var special = new[] { "",
                             "plain",
                             "player's [disc] & $data %PATH%",
@@ -94,6 +111,16 @@ internal static class SetupTests {
             "Full native diagnostics were lost");
       Check(progress.Updates.Any(update => update.Activity == "Compiling" && update.Percent == 25),
             "Compiler progress was lost");
+      tools.Run(executable, sandbox, new[] { "--git-progress" }, true);
+      var afterGit = progress.Updates.Count;
+      tools.Run(executable, sandbox, new[] { "--configure" }, true,
+                activity: "Configuring game tools");
+      var configuring = progress.Updates.Skip(afterGit).ToArray();
+      Check(configuring.Length >= 3 && configuring[0].Percent == -1 &&
+                configuring.All(update => update.Activity == "Configuring game tools" &&
+                                          update.Percent == -1) &&
+                configuring.Any(update => update.Status == "-- Detecting CXX compiler ABI info"),
+            "A completed Git percentage survived into compiler configuration or hid its output");
       var writes = 0;
       var failingLog = new Tools(progress, delegate {
         if (++writes > 1)
@@ -111,8 +138,11 @@ internal static class SetupTests {
       FolderTest(sandbox);
       UpdateTest(sandbox);
       DownloadTest(tools, progress, sandbox);
+      ReleaseTest(args[0]);
+      MarkdownTests.Run();
+      GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
       LauncherTest(sandbox, executable);
-      Console.WriteLine("Standalone installer checks passed.");
+      Console.WriteLine("Standalone launcher checks passed.");
       return 0;
     } catch (Exception error) {
       Console.Error.WriteLine(error);
@@ -200,11 +230,12 @@ internal static class SetupTests {
     Check(id == GameUpdate.SdkId(kit, "commit-a") && id != GameUpdate.SdkId(kit, "commit-b"),
           "SDK cache did not include the pinned commit");
     File.AppendAllText(Path.Combine(kit, "patches/rexglue-fixes.patch"), " changed");
-    Check(id != GameUpdate.SdkId(kit, "commit-a"), "New SDK patches reused an old patched checkout");
+    Check(id != GameUpdate.SdkId(kit, "commit-a"),
+          "New SDK patches reused an old patched checkout");
     var destination = Path.Combine(sandbox, "update player's game");
     Installer.Initialize(destination);
     foreach (var directory in new[] { "game/AshGame", "game/Engine", "user", "cache",
-                                       "out/build/win-amd64-release" })
+                                      "out/build/win-amd64-release" })
       Directory.CreateDirectory(Path.Combine(destination, directory));
     File.WriteAllText(Path.Combine(destination, "game/default.xex"), "disc");
     File.WriteAllText(Path.Combine(destination, "user/save"), "save");
@@ -219,17 +250,18 @@ internal static class SetupTests {
               !GameUpdate.CanUpdate(Path.Combine(sandbox, "existing game")),
           "Update ownership check accepted an unrelated folder");
     using (File.Open(Path.Combine(active, "rexruntime.dll"), FileMode.Open, FileAccess.Read,
-                     FileShare.None))
-      Fails(delegate { GameUpdate.CheckClosed(destination, "setup.exe"); },
-            "A running or locked game was accepted for update");
+                     FileShare.None)) Fails(delegate {
+      GameUpdate.CheckClosed(destination, "setup.exe");
+    }, "A running or locked game was accepted for update");
     using (File.Open(Path.Combine(active, "UPPER.DLL"), FileMode.Open, FileAccess.Read,
-                     FileShare.None))
-      Fails(delegate { GameUpdate.CheckClosed(destination, "setup.exe"); },
-            "A locked runtime with an uppercase extension was ignored");
+                     FileShare.None)) Fails(delegate {
+      GameUpdate.CheckClosed(destination, "setup.exe");
+    }, "A locked runtime with an uppercase extension was ignored");
     var stage = GameUpdate.Stage(destination);
     Directory.CreateDirectory(stage);
     File.WriteAllText(Path.Combine(stage, "lollipop.exe"), "new game");
-    Fails(delegate { GameUpdate.Publish(destination, true); }, "Incomplete update replaced the old game");
+    Fails(delegate { GameUpdate.Publish(destination, true); },
+          "Incomplete update replaced the old game");
     Check(File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "old game",
           "Failed update changed the playable build");
     File.WriteAllText(Path.Combine(stage, "rexruntime.dll"), "new runtime");
@@ -241,8 +273,9 @@ internal static class SetupTests {
     GameUpdate.Publish(destination, true);
     Check(Installer.Ready(destination) && !Directory.Exists(stage) &&
               File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "new game" &&
+              Releases.InstalledVersion(destination) == Releases.GameVersion &&
               File.ReadAllText(Path.Combine(active, "lollipop.toml")) == "custom key bindings",
-          "Published update lost the game or advanced key bindings");
+          "Published update lost the game, version or advanced key bindings");
     var transaction = Guid.NewGuid().ToString("N");
     var previous = Path.Combine(state, transaction);
     File.WriteAllText(Path.Combine(state, "publish.pending"), transaction + "\nready");
@@ -260,14 +293,16 @@ internal static class SetupTests {
     Check(Installer.Ready(destination) && !Directory.Exists(previous) &&
               File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "new game",
           "Recovery after publication replaced the tested game");
-    foreach (var invalid in new[] { "../escape", "", transaction + "\n", transaction + "\nother" }) {
+    foreach (var invalid in new[] { "../escape", "", transaction + "\n",
+                                    transaction + "\nother" }) {
       File.WriteAllText(Path.Combine(state, "publish.pending"), invalid);
       Fails(delegate { GameUpdate.Recover(destination); }, "Unsafe recovery path was accepted");
     }
     File.Delete(Path.Combine(state, "publish.pending"));
     Check(File.ReadAllText(Path.Combine(destination, "game/default.xex")) == "disc" &&
               File.ReadAllText(Path.Combine(destination, "user/save")) == "save" &&
-              File.ReadAllText(Path.Combine(destination, "user/pc-settings.toml")) == "preferences" &&
+              File.ReadAllText(Path.Combine(destination, "user/pc-settings.toml")) ==
+                  "preferences" &&
               File.ReadAllText(Path.Combine(destination, "cache/player-cache")) == "cache",
           "Updating changed disc files, saves, preferences or player caches");
     Directory.CreateDirectory(stage);
@@ -295,7 +330,8 @@ internal static class SetupTests {
       File.WriteAllText(Path.Combine(freshState, "setup.pending"), "Installing");
       GameUpdate.Publish(fresh, false);
       Check(!File.Exists(Path.Combine(freshState, "setup.pending")) &&
-                File.ReadAllText(Path.Combine(fresh, "out/build/win-amd64-release/lollipop.exe")) == version,
+                File.ReadAllText(Path.Combine(fresh, "out/build/win-amd64-release/lollipop.exe")) ==
+                    version,
             "A tested first installation or repair was not published as ready");
     }
   }
@@ -314,7 +350,7 @@ internal static class SetupTests {
     var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
     var url = "http://127.0.0.1:" + ((IPEndPoint)listener.LocalEndpoint).Port;
-    Exception serverError = null;
+    Exception? serverError = null;
     var server = new Thread(delegate() {
       bool dropped = false;
       try {
@@ -322,8 +358,10 @@ internal static class SetupTests {
           using (var client = listener.AcceptTcpClient()) using (var stream = client.GetStream()) {
             stream.ReadTimeout = 5000;
             var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true);
-            var request = reader.ReadLine();
-            string line, headers = "";
+            var request =
+                reader.ReadLine() ?? throw new IOException("Missing HTTP fixture request");
+            string ? line;
+            string headers = "";
             while (!String.IsNullOrEmpty(line = reader.ReadLine()))
               headers += line + "\n";
             reader.Dispose();
@@ -407,6 +445,103 @@ internal static class SetupTests {
       throw serverError;
   }
 
+  private static void ReleaseTest(string root) {
+    Check(Releases.GameVersion == File.ReadAllText(Path.Combine(root, "VERSION")).Trim() &&
+              Releases.LauncherVersion ==
+                  File.ReadAllText(Path.Combine(root, "launcher/VERSION")).Trim(),
+          "Launcher and bundled recomp versions did not use their independent version files");
+    Check(Releases.IsNewer("v0.10.0", "0.9.9") && Releases.IsNewer("v0.1.0", "0.1.0-dev") &&
+              !Releases.IsNewer("v0.1.0", "0.1.0") && !Releases.IsNewer("v0.1.0", "0.2.0-dev") &&
+              !Releases.IsNewer("v1.0.0", "1.0.0+build"),
+          "Stable release comparison lost numeric order or development precedence");
+    var release = Releases.Parse("{\"tag_name\":\"v0.2.0\",\"body\":\"Fixes\\nAnd more\"}");
+    Check(release.Tag == "v0.2.0" && release.Body == "Fixes\nAnd more",
+          "Release notes were not decoded");
+    foreach (var invalid in new[] { "null", "{broken", "{}",
+                                    "{\"tag_name\":\"v0.2.0\",\"draft\":true}",
+                                    "{\"tag_name\":\"v0.2.0\",\"prerelease\":true}",
+                                    "{\"tag_name\":\"../../unexpected\"}",
+                                    "{\"tag_name\":\"v0.2.0-beta\"}" })
+      Fails(delegate { Releases.Parse(invalid); }, "Invalid release was accepted: " + invalid);
+  }
+
+  private static void GraphicsTest(string sandbox, string? gameSettingsTest) {
+    var destination = Path.Combine(sandbox, "graphics player's [1] game");
+    Installer.Initialize(destination);
+    foreach (var directory in new[] { "game/AshGame", "game/Engine",
+                                      "out/build/win-amd64-release" })
+      Directory.CreateDirectory(Path.Combine(destination, directory));
+    File.WriteAllText(Path.Combine(destination, "game/default.xex"), "fixture");
+    var game = Path.Combine(destination, "out/build/win-amd64-release/lollipop.exe");
+    File.WriteAllText(game, "fixture");
+    var settings = GameSettings.Load(destination);
+    var path = GameSettings.PathFor(destination);
+    Check(!File.Exists(path) && settings.Values["window_size"] == "2560x1440" &&
+              settings.Values["swap_post_effect"] == "none",
+          "Reading settings wrote a profile or changed startup defaults");
+    var selected = new Dictionary<string, string>(settings.Values);
+    settings.Save(destination, Environment.ProcessPath!, selected);
+    Check(File.ReadAllText(path).Contains("window_height = \"1440\"") &&
+              !File.ReadAllText(path).Contains("lollipop_music_volume"),
+          "New profile wrote native save defaults");
+    var original = "# Keep my settings\r\nwindow_width = \"1920\"\r\nwindow_height = \"1200\"\r\n" +
+                   "resolution_scale = \"4\"\r\nlollipop_music_volume = \"6\"\r\nmnk_sensitivity " +
+                   "= \"22.5\"\r\n" + "lollipop_60fps = \"false\"\r\n# Last comment";
+    File.WriteAllText(path, original);
+    settings = GameSettings.Load(destination);
+    Check(settings.Values["window_size"] == "1920x1200" &&
+              settings.Values["resolution_scale"] == "4" && settings.Values["lollipop_fps"] == "30",
+          "Custom dimensions or legacy FPS were lost");
+    selected = new Dictionary<string, string>(settings.Values);
+    selected["window_size"] = "1920x1080";
+    selected["fullscreen"] = "false";
+    selected["vsync"] = "false";
+    selected["present_letterbox"] = "false";
+    selected["resolution_scale"] = "3";
+    selected["swap_post_effect"] = "fxaa";
+    selected["anisotropic_override"] = "4";
+    selected["lollipop_fps"] = "90";
+    selected["present_dither"] = "true";
+    settings.Save(destination, Environment.ProcessPath!, selected);
+    var saved = File.ReadAllText(path);
+    Check(saved.Contains("lollipop_music_volume = \"6\"\r\nmnk_sensitivity = \"22.5\"\r\n") &&
+              saved.Contains("# Last comment\r\n") && !saved.Contains("lollipop_60fps"),
+          "Graphics save changed audio, controls, comments or failed FPS migration");
+    if (gameSettingsTest != null)
+      new Tools(new RecordedProgress(), Console.Error.WriteLine)
+          .Run(gameSettingsTest, sandbox, new[] { path, "--launcher-profile" }, true);
+    foreach (var invalid in new[] { "vsync = \"maybe\"", "window_width = \"-1\"",
+                                    "resolution_scale = \"9\"", "lollipop_fps = \"45\"",
+                                    "audio_mute = \"true\"\naudio_mute = \"false\"",
+                                    "lollipop_60fps = \"true\"\nlollipop_fps = \"60\"", "[display]",
+                                    "unknown = \"value\"" })
+      Fails(delegate { new GameSettings(invalid); },
+            "Malformed game profile was accepted: " + invalid);
+    settings = GameSettings.Load(destination);
+    var invalidSelected = new Dictionary<string, string>(selected);
+    invalidSelected["window_size"] = "1920x-1";
+    Fails(delegate { settings.Save(destination, Environment.ProcessPath!, invalidSelected); },
+          "Invalid display size was saved");
+    Check(File.ReadAllText(path) == saved, "Invalid save changed the profile");
+    using (File.Open(Path.Combine(destination, "out/launcher/launcher.lock"), FileMode.OpenOrCreate,
+                     FileAccess.ReadWrite, FileShare.None)) Fails(delegate {
+      settings.Save(destination, Environment.ProcessPath!, selected);
+    }, "Settings ignored an active installation lock");
+    using (File.Open(game, FileMode.Open, FileAccess.Read, FileShare.None)) Fails(delegate {
+      settings.Save(destination, Environment.ProcessPath!, selected);
+    }, "Settings accepted a running game");
+    using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read)) Fails(delegate {
+      settings.Save(destination, Environment.ProcessPath!, selected);
+    }, "Settings ignored a profile write failure");
+    Check(File.ReadAllText(path) == saved &&
+              !Directory.GetFiles(Path.GetDirectoryName(path)!, "pc-settings.toml.*.tmp").Any(),
+          "Failed write changed the profile or left a partial file");
+    File.AppendAllText(path, "# External edit\n");
+    Fails(delegate { settings.Save(destination, Environment.ProcessPath!, selected); },
+          "Stale settings overwrote an external edit");
+    Check(File.ReadAllText(path).EndsWith("# External edit\n"), "External edit was lost");
+  }
+
   private static void LauncherTest(string sandbox, string executable) {
     SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
     var destination = Path.Combine(sandbox, "play folder's [1] & data");
@@ -424,11 +559,42 @@ internal static class SetupTests {
     try {
       Check(resuming.Destination == destination && resuming.Screen == "Update",
             "Installed launcher forgot its folder after an interrupted update");
-    } finally { resuming.Window.Close(); }
+    } finally {
+      resuming.Window.Close();
+    }
     var launcher = new Launcher(sandbox, executable);
     try {
-      Check(!launcher.Find<Button>("Primary").IsEnabled, "Installer accepted missing inputs");
-      foreach (var name in new[] { "Cover", "Paper" }) {
+      Check(launcher.CurrentPage == "Home" && launcher.Find<Button>("Primary").IsEnabled,
+            "New launcher did not open the game overview");
+      launcher.Find<Button>("Primary").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(launcher.CurrentPage == "Manage" && !launcher.Find<Button>("Primary").IsEnabled,
+            "Install action accepted missing inputs");
+      launcher.SetPage("Settings");
+      Check(!launcher.Find<StackPanel>("SettingsFields").IsEnabled &&
+                !launcher.Find<Button>("SaveSettings").IsEnabled,
+            "Settings can be saved without a selected game");
+      var brand = (System.Windows.Media.Imaging.BitmapSource)launcher
+                      .Find<System.Windows.Controls.Image>("BrandIcon")
+                      .Source;
+      Check(brand.PixelWidth >= 256 && brand.PixelHeight >= 256,
+            "Launcher enlarged a small icon frame instead of using the full-resolution logo");
+      var title = (System.Windows.Media.Imaging.BitmapSource)launcher
+                      .Find<System.Windows.Controls.Image>("GameTitle")
+                      .Source;
+      Check(title.PixelWidth >= 512 && title.PixelHeight >= 256,
+            "Launcher title logo is missing or too small");
+      var titlePixels = new System.Windows.Media.Imaging.FormatConvertedBitmap(
+          title, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+      var titleCorner = new byte[4];
+      foreach (var corner in new[] {
+                 new Int32Rect(0, 0, 1, 1), new Int32Rect(title.PixelWidth - 1, 0, 1, 1),
+                 new Int32Rect(0, title.PixelHeight - 1, 1, 1),
+                 new Int32Rect(title.PixelWidth - 1, title.PixelHeight - 1, 1, 1)
+               }) {
+        titlePixels.CopyPixels(corner, titleCorner, 4, 0);
+        Check(titleCorner[3] == 0, "Title logo has an opaque rectangular background");
+      }
+      foreach (var name in new[] { "Cover" }) {
         var art = (System.Windows.Media.Imaging.BitmapSource)launcher
                       .Find<System.Windows.Media.ImageBrush>(name)
                       .ImageSource;
@@ -440,8 +606,99 @@ internal static class SetupTests {
             "Interrupted setup required the ISO again instead of offering repair");
       File.Delete(pending);
       launcher.Home();
+      launcher.SetPage("Settings");
+      Check(launcher.Find<StackPanel>("SettingsFields").IsEnabled &&
+                launcher.Find<ScrollViewer>("PageScroll").Visibility == Visibility.Collapsed &&
+                launcher.Find<Button>("SaveSettings").IsDefault &&
+                !launcher.Find<Button>("Primary").IsDefault,
+            "Installed game did not expose its settings page");
+      var frameRate = launcher.Settings.Controls["lollipop_fps"];
+      frameRate.SelectedItem =
+          frameRate.Items.Cast<ComboBoxItem>().First(item => (string)item.Tag == "120");
+      Check(launcher.Settings.Dirty && launcher.Find<Button>("SaveSettings").IsEnabled,
+            "Changing a setting did not enable Save");
+      launcher.SetPage("Home");
+      launcher.SetPage("Settings");
+      Check((string)((ComboBoxItem)frameRate.SelectedItem).Tag == "120",
+            "Navigation discarded the settings draft");
+      launcher.Find<Button>("SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(!launcher.Settings.Dirty &&
+                GameSettings.Load(destination).Values["lollipop_fps"] == "120",
+            "Launcher did not save the selected frame rate");
+      launcher.Find<Button>("RecommendedSettings")
+          .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(launcher.Settings.Dirty && (string)((ComboBoxItem)frameRate.SelectedItem).Tag == "60",
+            "Recommended settings did not populate a draft");
+      launcher.Find<Button>("ReloadSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(!launcher.Settings.Dirty && (string)((ComboBoxItem)frameRate.SelectedItem).Tag == "120",
+            "Reload did not restore the saved choices");
       Check(launcher.Screen == "Ready" && !launcher.Find<Button>("Precompile").IsEnabled,
             "Old build cannot play or improperly permits shader preparation");
+      Check(launcher.Find<TextBlock>("Location").Text == "" &&
+                launcher.Find<TextBlock>("FolderName").Text == destination,
+            "Game folder path leaked into the footer or disappeared from Manage game");
+      Check(launcher.Find<TextBlock>("InstalledBuildVersion").Text ==
+                "Installed recomp version: Unknown (older installation)",
+            "Old installation was assigned the launcher's version");
+      File.WriteAllText(Path.Combine(destination, "out/build/win-amd64-release/recomp-version.txt"),
+                        "0.0.9");
+      launcher.Home();
+      Check(launcher.Find<TextBlock>("RecompVersion").Text == Releases.GameVersion &&
+                launcher.Find<TextBlock>("LauncherVersion").Text ==
+                    "Launcher version: " + Releases.LauncherVersion &&
+                launcher.Find<TextBlock>("InstalledBuildVersion").Text ==
+                    "Installed recomp version: 0.0.9",
+            "Installed game and launcher versions were conflated");
+      launcher.Source = "fixture.iso";
+      launcher.Find<Button>("UpdatesNav").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(launcher.CurrentPage == "Updates" && launcher.Destination == destination &&
+                launcher.Source == "fixture.iso" &&
+                launcher.Find<FrameworkElement>("Inputs").Visibility == Visibility.Collapsed,
+            "Navigation lost the selected installation or exposed ISO import for a ready game");
+      launcher.ShowRelease(null);
+      Check(launcher.Find<TextBlock>("UpdateStatus").Text == "No public releases yet.",
+            "Missing releases were advertised as up to date");
+      launcher.ShowRelease(Releases.Parse("{\"tag_name\":\"v99.0.0\",\"body\":\"Update notes\"}"));
+      Check(launcher.Find<TextBlock>("UpdateStatus").Text.Contains("v99.0.0 is available") &&
+                new TextRange(launcher.Find<RichTextBox>("ReleaseNotes").Document.ContentStart,
+                              launcher.Find<RichTextBox>("ReleaseNotes").Document.ContentEnd)
+                        .Text.Trim() == "Update notes",
+            "Available release did not show its version and notes");
+      launcher.SetPage("Manage");
+      var helpOverlay = launcher.Find<Border>("HelpOverlay");
+      launcher.Find<Button>("Help").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(helpOverlay.Visibility == Visibility.Visible &&
+                !launcher.Find<Grid>("LauncherContent").IsEnabled &&
+                !launcher.Find<Button>("Primary").IsEnabled &&
+                !launcher.Find<Button>("Primary").IsDefault &&
+                FocusManager.GetFocusedElement(launcher.Find<Border>("HelpDialog")) ==
+                    launcher.Find<Button>("HelpDone") &&
+                KeyboardNavigation.GetTabNavigation(launcher.Find<Border>("HelpDialog")) ==
+                    KeyboardNavigationMode.Cycle,
+            "Help did not contain focus and disable underlying launcher actions");
+      var helpSurface = (FrameworkElement)launcher.Window.Content;
+      foreach (var size in new[] { new Size(1200, 780), new Size(800, 512) }) {
+        helpSurface.Measure(size);
+        helpSurface.Arrange(new Rect(size));
+        helpSurface.UpdateLayout();
+        foreach (var name in new[] { "HelpDialog", "HelpClose", "HelpDone", "HelpScroll" }) {
+          var control = launcher.Find<FrameworkElement>(name);
+          var point = control.TranslatePoint(new Point(0, 0), helpSurface);
+          Check(point.X >= 0 && point.Y >= 0 && point.X + control.ActualWidth <= size.Width + 1 &&
+                    point.Y + control.ActualHeight <= size.Height + 1 && control.ActualHeight > 0,
+                "Help modal clipped: " + name);
+        }
+      }
+      launcher.Find<Button>("HelpClose").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(helpOverlay.Visibility == Visibility.Collapsed &&
+                launcher.Find<Button>("Primary").IsEnabled && launcher.CurrentPage == "Manage" &&
+                launcher.Source == "fixture.iso" && launcher.Destination == destination,
+            "Closing help changed the selected installation or disabled Play");
+      launcher.SetHelp(true);
+      launcher.Find<Button>("HelpDone").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+      Check(helpOverlay.Visibility == Visibility.Collapsed &&
+                launcher.Find<Button>("Primary").IsDefault,
+            "Help confirmation did not restore the launcher default action");
       var marker =
           Path.Combine(destination, "out/build/win-amd64-release/shader-precompile-v1.ready");
       File.WriteAllText(marker, "");
@@ -455,29 +712,90 @@ internal static class SetupTests {
       Check(launcher.Find<ProgressBar>("Progress").IsIndeterminate,
             "Unknown progress invented a percentage");
       var surface = (FrameworkElement)launcher.Window.Content;
-      foreach (var size in new[] { new Size(1080, 680), new Size(860, 580) }) {
-        foreach (var state in new[] { "Install", "Busy", "Ready", "Update", "Failure" }) {
-          launcher.Show(state, "DiscTab", "Install your game",
-                        "Choose your Xbox 360 ISO and an install folder.", "Install game",
-                        "Choose another folder", null);
-          surface.Measure(size);
-          surface.Arrange(new Rect(size));
-          surface.UpdateLayout();
-          foreach (var name in new[] { "Primary", "Secondary", "Precompile", "Update", "Help" }) {
-            var control = launcher.Find<Button>(name);
-            if (control.Visibility != Visibility.Visible)
-              continue;
-            var point = control.TranslatePoint(new Point(0, 0), surface);
-            Check(point.X >= 0 && point.Y >= 0 && point.X + control.ActualWidth <= size.Width + 1 &&
-                      point.Y + control.ActualHeight <= size.Height + 1,
-                  "Launcher action clipped: " + state + " " + name);
+      foreach (var size in new[] { new Size(1200, 740), new Size(900, 600), new Size(800, 512) }) {
+        foreach (var page in new[] { "Home", "Manage", "Settings", "Updates" }) {
+          launcher.CurrentPage = page;
+          foreach (var state in new[] { "Install", "Busy", "Ready", "Update", "Failure" }) {
+            launcher.Show(state, "Install your game",
+                          "Choose your Xbox 360 ISO and an install folder.", "Install game",
+                          "Choose another folder", null);
+            if (state == "Busy") {
+              launcher.SetHelp(true);
+              launcher.SetHelp(false);
+              Check(!launcher.Find<Button>("HomeNav").IsEnabled &&
+                        !launcher.Find<Button>("Primary").IsEnabled &&
+                        !launcher.Find<Button>("SaveSettings").IsEnabled,
+                    "Closing help re-enabled actions during an operation");
+            }
+            surface.Measure(size);
+            surface.Arrange(new Rect(size));
+            surface.UpdateLayout();
+            foreach (var name in new[] { "Primary", "Secondary", "HomeNav", "ManageNav",
+                                         "SettingsNav", "UpdatesNav", "Help", "Minimize",
+                                         "Maximize", "CloseWindow" }) {
+              var control = launcher.Find<Button>(name);
+              if (control.Visibility != Visibility.Visible)
+                continue;
+              var point = control.TranslatePoint(new Point(0, 0), surface);
+              Check(point.X >= 0 && point.Y >= 0 &&
+                        point.X + control.ActualWidth <= size.Width + 1 &&
+                        point.Y + control.ActualHeight <= size.Height + 1,
+                    "Launcher action clipped: " + page + " " + state + " " + name);
+            }
+            if (page == "Settings") {
+              if (state == "Ready")
+                Check(launcher.Find<ScrollViewer>("SettingsScroll").ActualHeight >= 70,
+                      "Small settings page cannot show a complete field");
+              foreach (var name in new[] { "SaveSettings", "ReloadSettings",
+                                           "RecommendedSettings" }) {
+                var control = launcher.Find<Button>(name);
+                var point = control.TranslatePoint(new Point(0, 0), surface);
+                Check(point.X >= 0 && point.Y >= 0 &&
+                          point.X + control.ActualWidth <= size.Width + 1 &&
+                          point.Y + control.ActualHeight <= size.Height + 1,
+                      "Settings action clipped: " + name);
+              }
+            }
           }
         }
       }
+      launcher.Home();
+      Check(launcher.Window.AllowsTransparency &&
+                ((System.Windows.Media.SolidColorBrush)launcher.Window.Background).Color.A == 0,
+            "Opaque native window leaves square pixels around the rounded frame");
+      var cornerImage = new System.Windows.Media.Imaging.RenderTargetBitmap(
+          800, 512, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+      cornerImage.Render(surface);
+      var cornerPixel = new byte[4];
+      foreach (var corner in new[] { new Int32Rect(0, 0, 1, 1), new Int32Rect(799, 0, 1, 1),
+                                     new Int32Rect(0, 511, 1, 1), new Int32Rect(799, 511, 1, 1) }) {
+        cornerImage.CopyPixels(corner, cornerPixel, 4, 0);
+        Check(cornerPixel[3] == 0, "Launcher painted outside a rounded corner");
+      }
+      launcher.Window.WindowState = WindowState.Maximized;
+      surface.UpdateLayout();
+      Check(launcher.Find<Border>("WindowFrame").CornerRadius == new CornerRadius(0),
+            "Maximized frame retained rounded screen corners");
+      launcher.Window.WindowState = WindowState.Normal;
+      var pageScroll = launcher.Find<ScrollViewer>("PageScroll");
+      var scrollbar = (System.Windows.Controls.Primitives.ScrollBar)pageScroll.Template.FindName(
+          "PART_VerticalScrollBar", pageScroll);
+      Check(scrollbar.Style == launcher.Window.FindResource(
+                                   typeof(System.Windows.Controls.Primitives.ScrollBar)) &&
+                scrollbar.Width == 8,
+            "Page scrollbar fell back to the default Windows theme");
+      var notes = launcher.Find<RichTextBox>("ReleaseNotes");
+      var notesScroll = (ScrollViewer)notes.Template.FindName("PART_ContentHost", notes);
+      var notesBar = (System.Windows.Controls.Primitives.ScrollBar)notesScroll.Template.FindName(
+          "PART_VerticalScrollBar", notesScroll);
+      Check(notesBar.Style == scrollbar.Style && notesBar.Width == 8,
+            "Release notes scrollbar fell back to a wide or unthemed scrollbar");
       launcher.Start(true, true);
       Pump(launcher);
       Check(launcher.Screen == "Ready" && !File.Exists(Path.Combine(destination, "user/played")),
-            "Shader preparation started gameplay");
+            "Shader preparation did not return to Ready: " + launcher.Screen + " / " +
+                launcher.Find<TextBlock>("Description").Text + " / " +
+                launcher.Find<TextBox>("LogText").Text);
       File.WriteAllText(Path.Combine(destination, "game/fail-shaders"), "");
       launcher.Start(true, true);
       Pump(launcher);
@@ -486,9 +804,19 @@ internal static class SetupTests {
               launcher.Find<TextBox>("LogText").Text.Contains("Shader preparation did not finish"),
           "Shader failure did not expose the full log");
       launcher.Home();
+      frameRate.SelectedItem =
+          frameRate.Items.Cast<ComboBoxItem>().First(item => (string)item.Tag == "90");
+      using (File.Open(Path.Combine(destination, "out/launcher/launcher.lock"),
+                       FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        launcher.Start(true, false);
+        Check(!launcher.Busy && launcher.CurrentPage == "Settings" && launcher.Settings.Dirty &&
+                  !File.Exists(Path.Combine(destination, "user/played")),
+              "Play continued after an unsaved settings failure");
+      }
       launcher.Start(true, false);
       Pump(launcher);
-      Check(launcher.Screen == "Ready" &&
+      Check(launcher.Screen == "Ready" && !launcher.Settings.Dirty &&
+                GameSettings.Load(destination).Values["lollipop_fps"] == "90" &&
                 File.ReadAllText(Path.Combine(destination, "user/played")) ==
                     Path.Combine(destination, "cache"),
             "Play did not use installation paths");
@@ -521,10 +849,19 @@ internal static class SetupTests {
       launcher.Window.Opacity = 0;
       launcher.Window.Show();
       launcher.Window.UpdateLayout();
+      launcher.SetHelp(true);
+      var escape = new KeyEventArgs(
+          Keyboard.PrimaryDevice, PresentationSource.FromVisual(launcher.Window),
+          Environment.TickCount, Key.Escape) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+      launcher.Window.RaiseEvent(escape);
+      Check(escape.Handled && helpOverlay.Visibility == Visibility.Collapsed &&
+                launcher.Window.IsVisible,
+            "Escape did not dismiss help inside the launcher");
       Check(launcher.Window.ActualWidth <= workArea.Width &&
                 launcher.Window.ActualHeight <= workArea.Height,
             "Window minimum size overrides the display work area");
-      foreach (var name in new[] { "Primary", "Secondary", "Precompile", "Update", "Help" }) {
+      foreach (var name in new[] { "Primary", "Secondary", "HomeNav", "ManageNav", "SettingsNav",
+                                   "UpdatesNav", "Help", "Minimize", "Maximize", "CloseWindow" }) {
         var control = launcher.Find<Button>(name);
         var point = control.TranslatePoint(new Point(0, 0), surface);
         Check(control.Visibility == Visibility.Visible && point.X >= 0 && point.Y >= 0 &&
@@ -548,5 +885,4 @@ internal static class SetupTests {
     }
     Check(!launcher.Busy, "Launcher did not finish the requested action");
   }
-}
 }

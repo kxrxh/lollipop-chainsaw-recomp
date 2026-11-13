@@ -2,11 +2,11 @@ using System;
 using System.IO;
 using System.Text.RegularExpressions;
 
-namespace lollipop {
+namespace lollipop;
 internal static class GameUpdate {
   internal const string Identity = "Lollipop Chainsaw Recomp v1";
 
-  internal static bool CanUpdate(string destination) {
+  internal static bool CanUpdate(string? destination) {
     if (String.IsNullOrEmpty(destination))
       return false;
     try {
@@ -77,7 +77,7 @@ internal static class GameUpdate {
       Directory.Move(previous, active);
     if (Directory.Exists(previous) && !File.Exists(Path.Combine(active, "lollipop.exe")))
       throw new IOException(
-          "The previous game build could not be recovered. Choose Update / Repair again.");
+          "The previous game build could not be recovered. Choose Repair game again.");
     var published = !restored && !Directory.Exists(Stage(destination)) &&
                     (Directory.Exists(previous) || previousState == "new");
     if (File.Exists(Path.Combine(active, "lollipop.exe")) &&
@@ -98,10 +98,11 @@ internal static class GameUpdate {
         !File.Exists(Path.Combine(stage, "rexruntime.dll")) ||
         !File.Exists(Path.Combine(stage, "rexgpu-xenos.dll")))
       throw new IOException("The updated game is incomplete. The previous build was kept.");
+    File.WriteAllText(Path.Combine(stage, "recomp-version.txt"), Releases.GameVersion);
     var state = Path.Combine(destination, "out/launcher");
     var active = Path.Combine(destination, "out/build/win-amd64-release");
     Directory.CreateDirectory(state);
-    Directory.CreateDirectory(Path.GetDirectoryName(active));
+    Directory.CreateDirectory(Path.GetDirectoryName(active)!);
     // Advanced key bindings are stored beside the executable; PC settings and saves stay in user/.
     if (Directory.Exists(active)) {
       foreach (var config in Directory.GetFiles(active, "*.toml")) {
@@ -128,5 +129,4 @@ internal static class GameUpdate {
     }
     Recover(destination);
   }
-}
 }

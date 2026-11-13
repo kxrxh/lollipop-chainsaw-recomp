@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Removed manual smoke scripts, the scripted gameplay benchmark and unused launcher assets.
+- Render changelogs and release notes as Markdown with headings, lists, code and links.
+- Modernized the WPF launcher into an SDK-style .NET 10 solution with compiled XAML,
+  separate application and test projects, and assets under `launcher/assets/`.
+- Reworked the installer into a launcher with full-window comic artwork, floating
+  navigation, game management, version display and GitHub release checking.
+- Added an in-app help modal and separate launcher and recomp version tracking.
+- Added launcher display and graphics settings using the existing game profile,
+  with preservation of audio, controls and custom resolutions.
+- Show the active build phase and CMake output instead of leaving a completed
+  download percentage on screen during configuration.
+- Player installations build only the game and its runtime dependencies, without
+  compiling developer tests or shipping their sources.
 - Added a Windows installer with ISO import, verified downloads and resumable setup.
 - Added startup shader preparation, a launcher precompile action and a pipeline
   inventory collected across stage/boss maps and prologue combat.
@@ -28,7 +41,7 @@
 - Added Update / Repair without reimporting the ISO, with staged builds,
   interrupted-update recovery and preservation of saves and settings.
 - Added optional GPU draw and shader diagnostics for investigating reload crashes.
-- Moved installer source into [installer/](installer/), removed redundant script
+- Moved installer source into [launcher/](launcher/), removed redundant script
   wrappers and simplified the README and guides.
 
 See [compatibility and known issues](docs/COMPATIBILITY.md) for current limitations.

@@ -1,0 +1,238 @@
+<Window x:Class="lollipop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:system="clr-namespace:System;assembly=mscorlib"
+        Title="Lollipop Chainsaw Recomp — Launcher" Width="1200" Height="780" MinWidth="900" MinHeight="640"
+        WindowStartupLocation="CenterScreen" WindowStyle="None" AllowsTransparency="True" Background="Transparent" Foreground="#F5F3F7" FontFamily="Segoe UI"
+        FontSize="14" TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="76" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0"/>
+  </shell:WindowChrome.WindowChrome>
+
+  <Border Name="WindowFrame" BorderBrush="#46404F" BorderThickness="1">
+    <Border.Style>
+      <Style TargetType="Border">
+        <Setter Property="CornerRadius" Value="24"/>
+        <Style.Triggers>
+          <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized"><Setter Property="CornerRadius" Value="0"/></DataTrigger>
+        </Style.Triggers>
+      </Style>
+    </Border.Style>
+    <Border.Background>
+      <ImageBrush x:Name="Cover" Stretch="UniformToFill" Viewbox="0,0.27,1,0.7" AlignmentX="Center" AlignmentY="Top"/>
+    </Border.Background>
+    <Grid>
+      <Border CornerRadius="{Binding CornerRadius, ElementName=WindowFrame}">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Color="#FB101117" Offset="0"/><GradientStop Color="#DF14131C" Offset="0.25"/>
+            <GradientStop Color="#60191322" Offset="0.58"/><GradientStop Color="#70171321" Offset="1"/>
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+      <Border CornerRadius="{Binding CornerRadius, ElementName=WindowFrame}">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#80100E16" Offset="0"/><GradientStop Color="#00100E16" Offset="0.25"/>
+            <GradientStop Color="#00100E16" Offset="0.58"/><GradientStop Color="#F5090C10" Offset="1"/>
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+      <Grid Name="LauncherContent">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid Margin="18,22,14,22">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <Image Name="BrandIcon" Width="44" Height="44" HorizontalAlignment="Center"
+                 SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
+          <Border Grid.Row="1" Background="#ED090C10" CornerRadius="32" Padding="7,12" VerticalAlignment="Top" Margin="0,66,0,0">
+            <StackPanel>
+              <Button Name="HomeNav" Style="{StaticResource Nav}" Content="&#xE80F;" ToolTip="Overview" AutomationProperties.Name="Overview"/>
+              <Button Name="ManageNav" Style="{StaticResource Nav}" Content="&#xE8B7;" ToolTip="Manage game" AutomationProperties.Name="Manage game"/>
+              <Button Name="SettingsNav" Style="{StaticResource Nav}" Content="&#xE713;" ToolTip="Game settings" AutomationProperties.Name="Game settings"/>
+              <Button Name="UpdatesNav" Style="{StaticResource Nav}" Content="&#xE895;" ToolTip="Updates" AutomationProperties.Name="Updates"/>
+            </StackPanel>
+          </Border>
+          <Button Name="Help" Grid.Row="2" Style="{StaticResource Nav}" Content="&#xE897;" Background="#D9090C10" ToolTip="Help &amp; support" AutomationProperties.Name="Help and support"/>
+        </Grid>
+        <Grid Grid.Column="1">
+          <Grid.RowDefinitions><RowDefinition Height="84"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <Grid Margin="28,18,22,14">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="LOLLIPOP / " Foreground="#D0C8D3" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+              <TextBlock Name="PageHeading" Text="Overview" FontSize="12" VerticalAlignment="Center"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="#E6090C10" CornerRadius="22" Padding="18,10" VerticalAlignment="Center" Margin="10,0,18,0">
+              <StackPanel Orientation="Horizontal">
+                <Ellipse Name="StatusDot" Fill="#FF85BA" Width="6" Height="6" Margin="0,0,9,0"/>
+                <TextBlock Name="GameStatus" FontSize="12" Text="Not installed"/>
+              </StackPanel>
+            </Border>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button Name="Minimize" Content="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="12" Padding="10" Background="#CC090C10" BorderThickness="0" ToolTip="Minimize" AutomationProperties.Name="Minimize"/>
+              <Button Name="Maximize" Content="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="12" Padding="10" Background="#CC090C10" BorderThickness="0" Margin="4,0" ToolTip="Maximize or restore" AutomationProperties.Name="Maximize or restore"/>
+              <Button Name="CloseWindow" Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12" Padding="10" Background="#CC090C10" BorderThickness="0" ToolTip="Close" AutomationProperties.Name="Close"/>
+            </StackPanel>
+          </Grid>
+          <ScrollViewer Name="PageScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False" Padding="28,16,28,18">
+            <StackPanel>
+              <Grid Name="HomePage" MinHeight="350">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="250"/></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,10,16,0" VerticalAlignment="Center">
+                  <Image Name="GameTitle" MaxWidth="360" Stretch="Uniform" HorizontalAlignment="Left"
+                         SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"
+                         AutomationProperties.Name="Lollipop Chainsaw Recomp"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,10,0,0" VerticalAlignment="Center">
+                  <Button Name="ManageShortcut" Background="#DC181720" BorderBrush="#40534A5A" Padding="20,18" Margin="0,0,0,12" AutomationProperties.Name="Manage game">
+                    <StackPanel><TextBlock Text="Manage game  &#x2197;" FontWeight="SemiBold"/><TextBlock Text="Install, repair &amp; prepare shaders" Foreground="#C1B7C7" FontSize="12" Margin="0,7,0,0" TextWrapping="Wrap"/></StackPanel>
+                  </Button>
+                  <Button Name="SettingsShortcut" Background="#DC181720" BorderBrush="#40534A5A" Padding="20,18" Margin="0,0,0,12" AutomationProperties.Name="Game settings">
+                    <StackPanel><TextBlock Text="Game settings  &#x2197;" FontWeight="SemiBold"/><TextBlock Text="Display &amp; graphics" Foreground="#C1B7C7" FontSize="12" Margin="0,7,0,0"/></StackPanel>
+                  </Button>
+                  <Button Name="UpdatesShortcut" Background="#DC181720" BorderBrush="#40534A5A" Padding="20,18" AutomationProperties.Name="Release notes and updates">
+                    <StackPanel><TextBlock Text="What's new  &#x2197;" FontWeight="SemiBold"/><TextBlock Text="Release notes &amp; updates" Foreground="#C1B7C7" FontSize="12" Margin="0,7,0,0" TextWrapping="Wrap"/></StackPanel>
+                  </Button>
+                </StackPanel>
+              </Grid>
+              <Border Name="ManagePage" Style="{StaticResource Card}" Visibility="Collapsed" Background="#ED12141C" Padding="26">
+                <StackPanel>
+                  <TextBlock Text="Manage game" FontSize="27" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                  <TextBlock Text="Install your copy or look after your game files." Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,24"/>
+                  <TextBlock Text="INSTALL LOCATION" Style="{StaticResource Label}"/>
+                  <Button Name="ChooseFolder" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Choose install folder">
+                    <DockPanel><TextBlock DockPanel.Dock="Right" Text="Browse" Foreground="#FF91C3" Margin="12,0,0,0"/><TextBlock Name="FolderName" TextTrimming="CharacterEllipsis"/></DockPanel>
+                  </Button>
+                  <StackPanel Name="Inputs" Margin="0,22,0,0">
+                    <TextBlock Text="XBOX 360 DISC IMAGE" Style="{StaticResource Label}"/>
+                    <Button Name="ChooseIso" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Choose Xbox 360 disc image">
+                      <DockPanel><TextBlock DockPanel.Dock="Right" Text="Browse" Foreground="#FF91C3" Margin="12,0,0,0"/><TextBlock Name="IsoName" TextTrimming="CharacterEllipsis"/></DockPanel>
+                    </Button>
+                    <TextBlock Text="Use your original Xbox 360 ISO. Game files are not included. First-time installation needs internet and may take a while." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,14,0,0"/>
+                  </StackPanel>
+                  <UniformGrid Columns="2" Margin="0,16,0,0">
+                    <Button Name="OpenInstall" Content="Open game folder" Margin="0,0,6,0" HorizontalContentAlignment="Center"/>
+                    <Button Name="OpenSaves" Content="Open saves folder" Margin="6,0,0,0" HorizontalContentAlignment="Center"/>
+                  </UniformGrid>
+                  <StackPanel Name="GameActions" Margin="0,22,0,0">
+                    <Button Name="Precompile" Margin="0,0,0,12" Padding="22,16" AutomationProperties.Name="Prepare shaders">
+                      <StackPanel><TextBlock Text="Prepare shaders" FontWeight="SemiBold"/><TextBlock Text="Reduce shader compilation pauses while playing." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel>
+                    </Button>
+                    <Button Name="Update" Padding="22,16" AutomationProperties.Name="Apply launcher build or repair">
+                      <StackPanel><TextBlock Text="Apply launcher build / Repair" FontWeight="SemiBold"/><TextBlock Name="RepairDescription" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel>
+                    </Button>
+                  </StackPanel>
+                  <TextBlock Text="Configure display and graphics in Game settings. Audio and controls are in the game's Options menu." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,20,0,0"/>
+                </StackPanel>
+              </Border>
+              <Border Name="UpdatesPage" Style="{StaticResource Card}" Visibility="Collapsed" Background="#ED12141C" Padding="26">
+                <StackPanel>
+                  <TextBlock Text="Recomp updates" FontSize="27" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                  <TextBlock Name="LauncherVersion" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
+                  <TextBlock Name="BundledVersion" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0"/>
+                  <TextBlock Name="InstalledBuildVersion" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,24"/>
+                  <TextBlock Name="UpdateStatus" Text="Check for the latest stable release on GitHub." FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                  <TextBlock Name="UpdateDetail" Text="Download a new launcher, open it, then choose your existing game folder and apply its build from Manage game." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,16"/>
+                  <WrapPanel>
+                    <Button Name="CheckUpdates" Content="Check for updates" Margin="0,0,12,0"/>
+                    <Button Name="ViewRelease" Content="All releases" Background="Transparent"/>
+                  </WrapPanel>
+                  <TextBlock Name="NotesHeading" Text="What's new in this build" FontSize="18" FontWeight="SemiBold" Margin="0,26,0,12"/>
+                  <RichTextBox Name="ReleaseNotes" IsReadOnly="True" IsDocumentEnabled="True" BorderThickness="0"
+                           Background="#601B1A22" Foreground="#C9C5D1" Padding="16" FontSize="13" MinHeight="180" MaxHeight="360"
+                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Release notes"/>
+                </StackPanel>
+              </Border>
+              <Expander Name="ErrorLog" Header="Launcher log" Visibility="Collapsed" Margin="0,20,0,0" Foreground="#F5F3F7" Background="#ED12141C" Padding="16">
+                <TextBox Name="LogText" IsReadOnly="True" AcceptsReturn="True" FontFamily="Consolas" FontSize="11"
+                         Background="#1B1A22" Foreground="#E9DFE7" BorderThickness="0" Padding="14" Margin="0,10,0,0"
+                         MinHeight="140" MaxHeight="240" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         AutomationProperties.Name="Full launcher log"/>
+              </Expander>
+            </StackPanel>
+          </ScrollViewer>
+          <Border Name="SettingsPage" Grid.Row="1" Visibility="Collapsed" Style="{StaticResource Card}" Background="#ED12141C" Margin="28,16,28,18" Padding="26">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <StackPanel Margin="0,0,0,18">
+                <TextBlock Text="Display &amp; graphics" FontSize="27" FontWeight="SemiBold"/>
+                <TextBlock Name="SettingsStatus" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0"/>
+              </StackPanel>
+              <ScrollViewer Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False" Padding="0,0,12,0">
+                <StackPanel Name="SettingsFields"/>
+              </ScrollViewer>
+              <WrapPanel Grid.Row="2" Margin="0,18,0,0">
+                <Button Name="SaveSettings" Content="Save settings" Background="#FFF9FD" Foreground="#141018" BorderBrush="#FFF9FD" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                <Button Name="ReloadSettings" Content="Reload" Margin="0,0,10,0"/>
+                <Button Name="RecommendedSettings" Content="Recommended" Background="Transparent"/>
+              </WrapPanel>
+            </Grid>
+          </Border>
+          <Border Grid.Row="2" Margin="28,0,28,24" Padding="0,14,0,0" BorderBrush="#405B4B5B" BorderThickness="0,1,0,0">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="230"/></Grid.ColumnDefinitions>
+              <StackPanel Margin="0,0,28,0">
+                <TextBlock Name="Heading" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Name="Description" FontSize="12" LineHeight="18" Foreground="#D0C7D2" TextWrapping="Wrap" Margin="0,5,0,0"/>
+                <TextBlock Name="Location" FontSize="11" Foreground="#BEB4C3" TextTrimming="CharacterEllipsis" Margin="0,6,0,0"/>
+                <ProgressBar Name="Progress" Height="5" Margin="0,10,0,0" IsIndeterminate="True" Foreground="#F98EBE" Background="#5939313F" BorderThickness="0" Visibility="Collapsed"/>
+                <TextBlock Name="StepStatus" FontSize="11" Foreground="#F1ACCF" Margin="0,6,0,0" Visibility="Collapsed"/>
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                  <Button Name="Primary" IsDefault="True" Background="#FFF9FD" Foreground="#141018" BorderBrush="#FFF9FD" Padding="32,12"
+                          FontSize="16" FontWeight="Bold" MinWidth="160" MinHeight="48" HorizontalContentAlignment="Center"/>
+                  <Button Name="Secondary" Content="Locate game" Margin="16,0,0,0" Padding="12,8" FontSize="12" BorderThickness="0"
+                          Background="Transparent" Foreground="#E0D6E3" VerticalAlignment="Center"/>
+                </StackPanel>
+              </StackPanel>
+              <Border Grid.Column="1" Background="#DE090C10" CornerRadius="24" Padding="20,16" VerticalAlignment="Bottom">
+                <StackPanel>
+                  <TextBlock Text="RECOMP VERSION" Style="{StaticResource Label}"/>
+                  <TextBlock Name="RecompVersion" FontSize="16" FontWeight="SemiBold"/>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
+      <Border Name="HelpOverlay" Visibility="Collapsed" Background="#BE07090F"
+              CornerRadius="{Binding CornerRadius, ElementName=WindowFrame}" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+        <Border Name="HelpDialog" Style="{StaticResource Card}" Background="#FA1B1924" BorderBrush="#645B4C63"
+                MaxWidth="660" MaxHeight="640" Margin="28" Padding="28" VerticalAlignment="Center"
+                KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle"
+                KeyboardNavigation.DirectionalNavigation="Contained" FocusManager.IsFocusScope="True">
+          <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid Margin="0,0,0,18">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="LAUNCHER GUIDE" Style="{StaticResource Label}" Foreground="#FF91C3"/>
+                <TextBlock Text="Help &amp; support" FontSize="25" FontWeight="SemiBold"/>
+              </StackPanel>
+              <Button Name="HelpClose" Grid.Column="1" Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                      Padding="12" Background="#302A38" BorderThickness="0" VerticalAlignment="Top"
+                      ToolTip="Close help (Esc)" AutomationProperties.Name="Close help"/>
+            </Grid>
+            <ScrollViewer Name="HelpScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          Padding="0,0,12,0" AutomationProperties.Name="Launcher help topics">
+              <StackPanel>
+                <TextBlock Text="Install your game" Style="{StaticResource HelpHeading}" Margin="0,0,0,8"/>
+                <TextBlock Style="{StaticResource HelpBody}" Text="Open Manage game, choose your Xbox 360 ISO and a new game folder, then select Install game. Use the original disc with media ID 31BE13D9, version 0.0.0.2. First-time installation needs internet and may ask for Windows approval."/>
+                <TextBlock Text="Already installed?" Style="{StaticResource HelpHeading}"/>
+                <TextBlock Style="{StaticResource HelpBody}" Text="Select Locate game and choose your existing game folder. For later launches, open Play Lollipop Chainsaw.exe in that folder."/>
+                <TextBlock Text="Updates &amp; repair" Style="{StaticResource HelpHeading}"/>
+                <TextBlock Style="{StaticResource HelpBody}" Text="Open Updates to see launcher, bundled recomp and installed game versions, and check for a stable recomp release. Download its launcher, select your existing game folder, then use Apply launcher build / Repair in Manage game. An imported disc does not need the ISO again. This also resumes interrupted installation."/>
+                <TextBlock Text="Saves &amp; settings" Style="{StaticResource HelpHeading}"/>
+                <TextBlock Style="{StaticResource HelpBody}" Text="Saves and PC settings live in the user folder. Keep it when moving your game. Open Game settings to configure display and graphics before playing. Save settings or press Play to apply your changes on the next launch. Audio and controls are also available in the game's Options menu."/>
+              </StackPanel>
+            </ScrollViewer>
+            <Grid Grid.Row="2" Margin="0,22,0,0">
+              <TextBlock Text="Esc to close" Foreground="{StaticResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+              <Button Name="HelpDone" Content="Got it" IsDefault="True" Background="#FFF9FD" Foreground="#141018" BorderBrush="#FFF9FD"
+                      FontWeight="SemiBold" Padding="28,12" HorizontalAlignment="Right" AutomationProperties.Name="Close help"/>
+            </Grid>
+          </Grid>
+        </Border>
+      </Border>
+    </Grid>
+  </Border>
+</Window>

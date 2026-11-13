@@ -13,7 +13,11 @@ for controls and known issues. Run commands from the repository folder.
 | `src/settings/` | PC settings and persistence |
 | `src/ui/` | Settings page, exit flow and shader loading |
 | `src/testing/` | Local control bridge |
-| `installer/` | C# launcher, XAML and packaging |
+| `launcher/App.xaml`, `launcher/Views/`, `launcher/Styles/` | WPF startup, compiled XAML and shared theme |
+| `launcher/Presentation/` | Window interaction, graphics settings controls and Markdown rendering |
+| `launcher/Services/`, `launcher/Infrastructure/`, `launcher/Models/` | Installation, releases, persistence, build tools and data |
+| `launcher/assets/` | Launcher artwork, shared app icon and dependency notices |
+| `launcher/scripts/`, `launcher/tests/` | Source-kit packaging, pinned SDK bootstrap and launcher checks |
 | `scripts/`, `tests/` | Development tools and checks |
 
 Follow [AGENTS.md](../AGENTS.md). Regenerate `out/generated/` after manifest
@@ -32,23 +36,39 @@ $tools = Get-BuildTools
 ```
 
 Pass `-LlvmDirectory` to `Get-BuildTools` if LLVM is not on PATH. Headers compile
-independently. Installer builds include compiled tests and disable script checks
-with `LOLLIPOP_SCRIPT_TESTS=OFF`.
+independently. Development builds enable `BUILD_TESTING` by default and build the
+full test suite, header checks and shader tool. Player installations configure
+`BUILD_TESTING=OFF`, build only `lollipop`, and skip CTest. Launcher payloads omit
+test sources.
 
-Update / Repair builds in `out/build/game-compile/`, stages runtime files in
-`out/build/game-staging/`, and publishes only after CTest passes. Recovery data
+Apply launcher build / Repair builds in `out/build/game-compile/`, stages runtime files in
+`out/build/game-staging/`, and publishes after the build and required runtime-file checks pass. Recovery data
 in `out/launcher/` protects interrupted directory swaps.
+The installed version marker travels with the staged build, so rollback restores
+the matching version. Older installations without a marker show an unknown version
+until rebuilt. The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`; update checks
+compare stable release tags with its bundled version and leave installed files alone.
+
+`launcher/Services/GameSettings.cs` edits the same `user/pc-settings.toml` profile read by
+the game. It preserves unrelated settings and comments, migrates the legacy FPS
+key, rejects malformed profiles, detects external changes and publishes writes
+atomically under the installation lock. Settings cannot be saved while the game
+is running. The launcher test feeds a saved profile to the C++ settings loader to
+check compatibility and native setting import behavior.
+
+The SDK-style launcher targets .NET 10 WPF, with the SDK pinned by
+`launcher/global.json` and NuGet versions recorded in each project's lockfile.
+`launcher/build.ps1 -Tests -OutputFile out/launcher/launcher-tests.exe` publishes
+the standalone check executable; pass the checkout path and optional native
+`lollipop_settings_test.exe` path when running it. CMake builds and runs this
+project as part of the normal development checks.
+
+Release notes use Markdig and native WPF document elements. Web links open in the
+browser; HTML stays inert and image alt text is shown without fetching remote images.
+The game source kit contains native runtime sources and required resources only.
 
 Use an isolated save directory for game checks. Copy existing saves there when
-progress is needed. With the [bridge](#background-control-bridge) running:
-
-```powershell
-./tests/settings_menu_smoke.ps1 -GameProcessId 1234 -Directory out/test-control
-```
-
-This checks quit confirmation and closes the test game. Repeat on fresh processes
-with `-ConfirmWith keyboard` or `-ConfirmWith gamepad`. For the main-menu path,
-select Quit Game first and add `-FromMainMenu`. Finish shader preparation first.
+progress is needed.
 
 ## Settings and runtime integration
 
@@ -100,32 +120,6 @@ while recording pipelines. Verify its results with normal rendering afterward.
 The portable inventory excludes the engine-generated loading copy pipeline.
 Stream `Swan_Event_PL` into an initialized final-stage world; direct map boot
 is unsupported.
-
-## Texture reload stress check
-
-Use a copied save and reduced cache limits:
-
-```powershell
-./run.ps1 -UserDirectory out/texture-test-user -CacheDirectory out/texture-test-cache `
-    --texture_cache_memory_limit_soft=64 --texture_cache_memory_limit_hard=128 `
-    --texture_cache_memory_limit_soft_lifetime=1 --perf_log_csv=out/texture-test-frames.csv
-```
-
-Repeat prologue Restart and death/Continue. Confirm rising
-`texture_cache_evictions`, resumed gameplay, and no access violation or GPU loss.
-Repeat with default limits. Texture destruction must hold the shared-memory
-critical region while removing watch handles. Mid-frame GPU waits must invalidate
-cached texture bindings before eviction.
-
-For phone load/unload checks, load a copied checkpoint 25 save normally and run:
-
-```powershell
-./tests/phone_transition_smoke.ps1 -GameProcessId 1234 -Directory out/phone-control `
-    -FrameLog out/phone-frames.csv -GameLog out/phone-game.log
-```
-
-Inspect its captures. The script invokes `ce TelephoneIntro` and `ce TeleTest`;
-these bypass story triggers and do not verify normal progression.
 
 ## Background control bridge
 
@@ -184,16 +178,6 @@ Frame logs measure guest swap intervals, not monitor presentation or GPU duratio
 Group tick records by engine object. `measure-frames.ps1` supports `-LastFrames`,
 `-AfterFrame`, and timed windows with `-StartHostUs` / `-EndHostUs` in Windows
 Stopwatch microseconds. Only complete intervals count.
-
-With the bridge running in live gameplay:
-
-```powershell
-./scripts/benchmark-gameplay.ps1 -Path out/lab-frames.csv -OutputDirectory out/benchmark-new
-```
-
-Use a new output directory. The benchmark records 60 seconds of idle, camera,
-movement and attacks. Inspect captures for menus, cutscenes or death screens;
-keep the save, scene and settings consistent between runs.
 
 Verify native pause before leaving combat unattended: Start may open a skip
 prompt or be ignored during a finisher. Close the game before replaying a GPU

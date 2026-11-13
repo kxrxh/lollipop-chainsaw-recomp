@@ -7,14 +7,14 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace lollipop {
+namespace lollipop;
 internal sealed class Installer {
   private const string GameHash =
       "a687f47d537b011600146c665e59f5d2b4d4243284799d84fee7da45cdd2df26";
   private const string SdkCommit = "bd833a2ab69d305f99ddf57418fc38ffec8af93d";
   private readonly string kit, destination, executable;
   private readonly IProgress<InstallProgress> progress;
-  private Tools tools;
+  private Tools tools = null!;
   private int step;
   private string Game {
     get { return Path.Combine(destination, "game"); }
@@ -34,7 +34,7 @@ internal sealed class Installer {
     this.progress = progress;
   }
 
-  internal static bool Ready(string folder) {
+  internal static bool Ready(string? folder) {
     return !String.IsNullOrEmpty(folder) &&
            File.Exists(Path.Combine(folder, "out/build/win-amd64-release/lollipop.exe")) &&
            File.Exists(Path.Combine(folder, "game/default.xex")) &&
@@ -53,7 +53,7 @@ internal sealed class Installer {
         throw new IOException("This folder already contains game or setup files. Choose a new " +
                               "folder for this installation.");
     }
-    Directory.CreateDirectory(Path.GetDirectoryName(marker));
+    Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
     File.WriteAllText(marker, GameUpdate.Identity);
   }
 
@@ -75,11 +75,12 @@ internal sealed class Installer {
         new InstallProgress { Activity = title, Status = description, Step = step, Total = total });
   }
 
-  internal void Run(string source, bool play, bool shaders, bool update = false) {
+  internal void Run(string? source, bool play, bool shaders, bool update = false) {
     var hadPlayableBuild = Ready(destination);
     if (update) {
       if (play || shaders || !GameUpdate.CanUpdate(destination))
-        throw new IOException("Choose an installation created by this setup to update or repair it.");
+        throw new IOException(
+            "Choose an installation created by this setup to update or repair it.");
     } else if (!play) {
       if (!File.Exists(source) ||
           !String.Equals(Path.GetExtension(source), ".iso", StringComparison.OrdinalIgnoreCase))
@@ -139,12 +140,13 @@ internal sealed class Installer {
         var cmake = Path.Combine(cmakeBin, "cmake.exe");
         var ninja =
             Path.Combine(vs, "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe");
-        foreach (var tool in new[] { cmake, Path.Combine(cmakeBin, "ctest.exe"), ninja })
+        foreach (var tool in new[] { cmake, ninja })
           if (!File.Exists(tool))
             throw new IOException("Missing Visual Studio CMake/Ninja tool: " + tool);
         BuildSdk(git, cmake, ninja, clangxx);
-        Step("Building your game", "Compiling your Windows game and running its final checks.", 6);
-        BuildGame(cmake, ninja, clangxx, Path.Combine(cmakeBin, "ctest.exe"));
+        Step("Building your game", "Compiling your Windows game and preparing its runtime files.",
+             6);
+        BuildGame(cmake, ninja, clangxx);
         if (!File.Exists(Path.Combine(GameUpdate.Stage(destination), "lollipop.exe")))
           throw new IOException("The build did not produce a playable game.");
         var launcher = Path.Combine(destination, "Play Lollipop Chainsaw.exe");
@@ -164,11 +166,13 @@ internal sealed class Installer {
     }
   }
 
-  private void Import(string source) {
+  private void Import(string? source) {
     if (Directory.Exists(Game)) {
       ValidateGame(Game);
       return;
     }
+    if (String.IsNullOrWhiteSpace(source))
+      throw new IOException("Choose an Xbox 360 ISO file to import.");
     var extractor = tools.Get(Tools.Disc, Packages);
     var stage = Path.Combine(destination, "import-" + Guid.NewGuid().ToString("N"));
     // Keep failed imports for diagnosis; never replace an existing game directory.
@@ -185,7 +189,7 @@ internal sealed class Installer {
                  -1);
     using (var process = Process.Start(new ProcessStartInfo(program, options) {
       UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden
-    })) {
+    }) ?? throw new IOException("Windows could not start the component installer.")) {
       process.WaitForExit();
       if (process.ExitCode == 3010 || process.ExitCode == 1641)
         throw new IOException("Windows needs a restart. Restart your PC and select the same ISO " +
@@ -199,9 +203,9 @@ internal sealed class Installer {
   private void InstallRuntime() {
     using (var runtime = Registry.LocalMachine.OpenSubKey(
                @"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64")) {
-      Version version;
+      Version ? version;
       if (runtime != null && Convert.ToInt32(runtime.GetValue("Installed", 0)) != 0 &&
-          Version.TryParse(Convert.ToString(runtime.GetValue("Version", "")).TrimStart('v'),
+          Version.TryParse(Convert.ToString(runtime.GetValue("Version", ""))?.TrimStart('v'),
                            out version) &&
           version >= new Version(14, 44, 35211, 0)) {
         tools.Report("Windows runtime", "Already installed", 100);
@@ -211,7 +215,7 @@ internal sealed class Installer {
     InstallPackage(Tools.Runtime, "/install /quiet /norestart");
   }
 
-  private string FindWindowsTools() {
+  private string? FindWindowsTools() {
     var finder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
                               "Microsoft Visual Studio/Installer/vswhere.exe");
     if (!File.Exists(finder))
@@ -222,7 +226,7 @@ internal sealed class Installer {
                            "installationPath");
     using (var roots = Registry.LocalMachine.OpenSubKey(
                @"SOFTWARE\Microsoft\Windows Kits\Installed Roots")) {
-      var kits = roots == null ? "" : Convert.ToString(roots.GetValue("KitsRoot10", ""));
+      var kits = Convert.ToString(roots?.GetValue("KitsRoot10", "")) ?? "";
       var lib = Path.Combine(kits, "Lib");
       if (String.IsNullOrWhiteSpace(vs) ||
           !File.Exists(
@@ -271,7 +275,7 @@ internal sealed class Installer {
       if (separator > 0)
         tools.EnvironmentVariables[line.Substring(0, separator)] = line.Substring(separator + 1);
     }
-    string path;
+    string ? path;
     if (!tools.EnvironmentVariables.TryGetValue("PATH", out path))
       throw new IOException("Failed to initialize the Visual C++ environment.");
     tools.EnvironmentVariables["PATH"] =
@@ -328,14 +332,15 @@ internal sealed class Installer {
     tools.Run(
         cmake, destination,
         new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
-                "-DCMAKE_C_COMPILER=" + Path.Combine(Path.GetDirectoryName(clangxx), "clang.exe"),
+                "-DCMAKE_C_COMPILER=" + Path.Combine(Path.GetDirectoryName(clangxx)!, "clang.exe"),
                 "-DCMAKE_CXX_COMPILER=" + clangxx,
                 "-DCMAKE_INSTALL_PREFIX=" + Path.Combine(destination, "out/sdk"),
                 "-DCMAKE_BUILD_TYPE=Release", "-DREXGLUE_ENABLE_TRACY=OFF",
                 "-DREXGLUE_USE_VULKAN=OFF", "-DREXGLUE_BUILD_TESTS=OFF" },
-        true);
+        true, activity: "Configuring game tools");
     tools.Run(cmake, destination,
-              new[] { "--build", build, "--target", "install", "--parallel", "6" }, true);
+              new[] { "--build", build, "--target", "install", "--parallel", "6" }, true,
+              activity: "Building game tools");
   }
 
   internal static string Manifest(string template, string game, string generated) {
@@ -350,7 +355,7 @@ internal sealed class Installer {
     return template;
   }
 
-  private void BuildGame(string cmake, string ninja, string clangxx, string ctest) {
+  private void BuildGame(string cmake, string ninja, string clangxx) {
     ValidateGame(Game);
     var build = Path.Combine(destination, "out/build/game-compile");
     Directory.CreateDirectory(build);
@@ -362,7 +367,7 @@ internal sealed class Installer {
         Manifest(File.ReadAllText(Path.Combine(kit, "lollipop_manifest.toml")), Game, generated),
         new UTF8Encoding(false));
     tools.Run(Path.Combine(sdk, "bin/rexglue.exe"), destination, new[] { "codegen", manifest },
-              true);
+              true, activity: "Translating game code");
     var configure = new List<string>();
     var cache = Path.Combine(build, "CMakeCache.txt");
     if (File.Exists(cache)) {
@@ -378,12 +383,13 @@ internal sealed class Installer {
                 "-DCMAKE_CXX_COMPILER=" + clangxx, "-DCMAKE_PREFIX_PATH=" + sdk,
                 "-Drexglue_DIR=" + Path.Combine(sdk, "lib/cmake/rexglue"),
                 "-DLOLLIPOP_GAME_DIR=" + Game, "-DLOLLIPOP_GENERATED_DIR=" + generated,
-                "-DLOLLIPOP_MANIFEST=" + manifest, "-DLOLLIPOP_SCRIPT_TESTS=OFF",
+                "-DLOLLIPOP_MANIFEST=" + manifest, "-DBUILD_TESTING=OFF",
                 "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=" + GameUpdate.Stage(destination),
                 "-DCMAKE_BUILD_TYPE=Release" });
-    tools.Run(cmake, destination, configure, true);
-    tools.Run(cmake, destination, new[] { "--build", build, "--parallel", "6" }, true);
-    tools.Run(ctest, destination, new[] { "--test-dir", build, "--output-on-failure" }, true);
+    tools.Run(cmake, destination, configure, true, activity: "Configuring the game");
+    tools.Run(cmake, destination,
+              new[] { "--build", build, "--target", "lollipop", "--parallel", "6" }, true,
+              activity: "Building the game");
   }
 
   private void Play(bool shaders) {
@@ -394,7 +400,7 @@ internal sealed class Installer {
                            "--cache_root=" + cache, "--d3d12_pipeline_creation_threads=4",
                            "--render_target_path_d3d12=rov" };
     var report = Path.Combine(cache, "shader-precompile-progress.txt");
-    Action poll = null;
+    Action? poll = null;
     if (shaders) {
       if (!File.Exists(Path.Combine(Build, "shader-precompile-v1.ready")))
         throw new IOException("Update or rebuild this installation before preparing shaders.");
@@ -407,7 +413,10 @@ internal sealed class Installer {
       poll = delegate {
         string status;
         try {
-          status = File.ReadAllText(report);
+          using (var reader = new StreamReader(File.Open(report, FileMode.Open, FileAccess.Read,
+                                                         FileShare.ReadWrite | FileShare.Delete))) {
+            status = reader.ReadToEnd();
+          }
         } catch (IOException) {
           return;
         }
@@ -428,5 +437,4 @@ internal sealed class Installer {
       throw new IOException(
           "Shader preparation did not finish. Check cache/shader-precompile.log before retrying.");
   }
-}
 }

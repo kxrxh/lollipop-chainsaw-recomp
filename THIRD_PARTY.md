@@ -18,6 +18,8 @@ redistributions must retain the copyright notice, license terms and disclaimer.
 | [extract-xiso](https://github.com/XboxDev/extract-xiso) | Disc extraction | [Upstream license](https://github.com/XboxDev/extract-xiso/blob/master/LICENSE.TXT) |
 | [MinGit](https://github.com/git-for-windows/git) | Portable Git for setup | Notices included in the upstream archive |
 | [PowerShell](https://github.com/PowerShell/PowerShell) | Build, packaging and development scripts | [Upstream license](https://github.com/PowerShell/PowerShell/blob/master/LICENSE.txt) |
+| [.NET 10 / WPF](https://github.com/dotnet/wpf) | Self-contained launcher runtime | [MIT license](launcher/assets/LICENSE.NET), [runtime notices](launcher/assets/NOTICES.NET) |
+| [Markdig 1.6.0](https://github.com/xoofx/markdig) | Launcher Markdown parsing | [BSD-2-Clause notice](launcher/assets/LICENSE.Markdig) |
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/) and Visual C++ Redistributable | Windows compiler libraries, SDK and runtime | Microsoft installer license terms |
 
 Tools and SDK dependencies retain their own licenses. Preserve their notices
@@ -36,6 +38,9 @@ characters and trademarks are not covered by the project license.
 The README banner is adapted from the supplied RePOP promotional artwork, with the
 subtitle changed to RECOMP. The application icon follows the supplied game
 logo's art style.
+The launcher's title logo in `launcher/assets/title-logo.png` is adapted from the supplied
+RECOMP banner logo. OpenAI image editing was used to isolate and upscale it with
+a transparent background.
 
 OpenAI image generation was used for:
 
@@ -44,12 +49,12 @@ OpenAI image generation was used for:
 - The native Quit Game slot artwork in `assets/settings/quit-game.png`, matching
   the original main-menu style. Its animation and navigation come from the
   user's own disc assets at runtime.
-- The installer illustration and paper texture in `assets/installer/`, using the
+- The launcher illustration in `launcher/assets/hero.png`, using the
   [original developer's gallery](https://www.grasshopper.co.jp/en/) and
   [official RePOP promotional artwork](https://repop.lollipopchainsaw.com/en/)
   as references. The character illustration is unofficial fan artwork.
 
-The banner, application icon and installer character illustration are excluded
+The banner, application icon, launcher title logo and installer character illustration are excluded
 from the project code license.
 
 Disc images, extracted game data, the original executable and generated

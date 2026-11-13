@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>lollipop</RootNamespace>
+    <AssemblyName>Lollipop.Launcher</AssemblyName>
+    <Product>Lollipop Chainsaw Recomp Launcher</Product>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
+    <ApplicationIcon>assets/lollipop.ico</ApplicationIcon>
+    <GameKitPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../out/launcher/kit.zip'))</GameKitPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs"/>
+    <InternalsVisibleTo Include="Lollipop.Launcher.Tests"/>
+    <PackageReference Include="Markdig" Version="1.6.0"/>
+    <EmbeddedResource Include="assets/*.png" LogicalName="%(Filename)%(Extension)"/>
+    <EmbeddedResource Include="VERSION" LogicalName="LAUNCHER_VERSION"/>
+    <EmbeddedResource Include="../VERSION" LogicalName="VERSION"/>
+    <EmbeddedResource Include="../CHANGELOG.md" LogicalName="CHANGELOG.md"/>
+    <EmbeddedResource Include="$(GameKitPath)" LogicalName="kit.zip"/>
+  </ItemGroup>
+  <Target Name="PrepareGameKit" BeforeTargets="PrepareForBuild">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)scripts/Pack-Game.ps1&quot; -OutputFile &quot;$(GameKitPath)&quot;"/>
+  </Target>
+</Project>

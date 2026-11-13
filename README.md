@@ -16,31 +16,56 @@ Select Quit Game on the main menu to exit, then confirm.
 You need 64-bit Windows, an internet connection for setup, and an ISO of the
 [supported Xbox 360 disc](docs/BUILDING.md#supported-game).
 
-From the repository folder, run this in PowerShell to build the installer:
+From the repository folder, run this in PowerShell to build the launcher:
 
 ```powershell
-./installer/build.ps1
+./launcher/build.ps1
 ```
 
-Then open `out/installer/Lollipop Chainsaw Setup.exe`.
+Then open `out/launcher/Lollipop Chainsaw Launcher.exe`.
 
-1. Choose your ISO and an install folder.
-2. Select Install game. Setup downloads the tools it needs and builds the game
+1. Select Set up game, then choose your ISO and an install folder in Manage game.
+2. Select Install game. The launcher downloads the tools it needs and builds the game
    on your PC. The first installation can take a while.
-3. Select Play Lollipop Chainsaw. For later launches, open
+3. Select Play. For later launches, open
    `Play Lollipop Chainsaw.exe` in the install folder.
 
 For an easier first run, choose Difficulty, then Easy on the game's title menu
 before selecting Game Start.
 
-If setup is interrupted after importing the disc, open it again and choose the
-same folder, then select Update / Repair. The imported files are reused.
+If installation is interrupted after importing the disc, reopen the launcher,
+select Locate game and choose the same folder, then select Repair game.
+The imported files are reused.
 Your saves are in the install folder's `user/` directory. Keep that directory
 when moving or reinstalling the game.
 
-To apply a newer version, close the game, open the new setup, choose your
-existing install folder and select Update / Repair. You do not need the ISO
-again. Your saves and settings are kept.
+The bundled recomp version is visible in the corner. Updates tracks launcher, bundled recomp and installed game
+versions separately. Manage game provides shader preparation and shortcuts to
+the game and saves folders. Game settings are in the game's Options menu.
+The launcher's Game settings page configures display mode, window resolution,
+VSync, aspect ratio, render resolution, anti-aliasing, texture filtering,
+frame rate and dithering. Changes are saved with Save settings or before Play
+and apply on the next launch. Audio and control preferences are preserved.
+Help & support opens an in-app guide; close it with Got it, the close button or Escape.
+
+Open Updates to read build notes and check for a stable GitHub release.
+To apply a newer version, close the game, download and open its launcher, select
+Locate game and choose your existing install folder. In Manage game, select
+Apply launcher build / Repair. You do not need the ISO again. Your saves and
+settings are kept. Update checks need internet; launching an installed game does not.
+
+## Launcher
+
+![Launcher overview with the game ready to play](docs/screenshots/launcher-home.png)
+
+<details>
+<summary>Graphics settings and updates</summary>
+
+![Launcher display and graphics settings](docs/screenshots/launcher-settings.png)
+
+![Launcher versions and Markdown release notes](docs/screenshots/launcher-updates.png)
+
+</details>
 
 ## Known issues
 
@@ -54,7 +79,7 @@ See the [compatibility notes](docs/COMPATIBILITY.md) for details.
 ## Development
 
 The [build guide](docs/BUILDING.md) covers requirements and manual builds.
-Installer source is in [installer/](installer/). The
+Launcher source is in [launcher/](launcher/). The
 [development guide](docs/DEVELOPMENT.md) covers the game code and testing tools.
 Recent changes are in the [changelog](CHANGELOG.md).
 

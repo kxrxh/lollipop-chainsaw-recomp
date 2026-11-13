@@ -5,55 +5,44 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace lollipop {
-internal sealed class InstallProgress {
-  internal string Activity, Status;
-  internal int Percent = -1, Step, Total;
-}
-
-internal sealed class Package {
-  internal readonly string Name, Url, Hash, File;
-  internal Package(string name, string url, string hash, string file) {
-    Name = name;
-    Url = url;
-    Hash = hash;
-    File = file;
-  }
-}
+namespace lollipop;
 
 internal sealed class Tools {
   internal static readonly Package Runtime = new Package(
       "Runtime",
       "https://download.visualstudio.microsoft.com/download/pr/" +
-      "78d061c5-9ef3-42ab-98ed-3309d1095dc4/" +
-      "9C02C9ED120F671B900E6B9471D890E3B2414117A7E53F4AE2E855466FA2B7C9/VC_redist.x64.exe",
+          "78d061c5-9ef3-42ab-98ed-3309d1095dc4/" +
+          "9C02C9ED120F671B900E6B9471D890E3B2414117A7E53F4AE2E855466FA2B7C9/VC_redist.x64.exe",
       "9c02c9ed120f671b900e6b9471d890e3b2414117a7e53f4ae2e855466fa2b7c9", "VC_redist.x64.exe");
   internal static readonly Package Disc =
       new Package("Disc",
                   "https://github.com/XboxDev/extract-xiso/releases/download/build-202609111233/" +
-                  "extract-xiso-Win64_Release.zip",
+                      "extract-xiso-Win64_Release.zip",
                   "fc891dfa72f08e3838a2f8b7ec34a8e4d61678da1cc8fee879677f00bf114ce3",
                   "artifacts/extract-xiso.exe");
   internal static readonly Package Git = new Package(
       "Git",
       "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/" +
-      "MinGit-2.56.1-64-bit.zip",
+          "MinGit-2.56.1-64-bit.zip",
       "4a92850b6e917da4fd010669b614b55dccf5b0ec333a534cc4be4700dfefdafd", "cmd/git.exe");
   internal static readonly Package LLVM =
       new Package("LLVM",
                   "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/" +
-                  "clang%2Bllvm-20.1.8-x86_64-pc-windows-msvc.tar.xz",
+                      "clang%2Bllvm-20.1.8-x86_64-pc-windows-msvc.tar.xz",
                   "f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f",
                   "clang+llvm-20.1.8-x86_64-pc-windows-msvc/bin/clang++.exe");
   internal static readonly Package Windows = new Package(
       "Windows",
       "https://download.visualstudio.microsoft.com/download/pr/" +
-      "95995f57-8355-4ff5-8d90-a7e1669fb3b3/" +
-      "310c13b8238876afb4e823a91112230ee2d2c5a45c431d4062af7aadedff9c4c/vs_BuildTools.exe",
+          "95995f57-8355-4ff5-8d90-a7e1669fb3b3/" +
+          "310c13b8238876afb4e823a91112230ee2d2c5a45c431d4062af7aadedff9c4c/vs_BuildTools.exe",
       "310c13b8238876afb4e823a91112230ee2d2c5a45c431d4062af7aadedff9c4c", "vs_BuildTools.exe");
 
   private readonly IProgress<InstallProgress> progress;
@@ -106,20 +95,21 @@ internal sealed class Tools {
       if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
         Directory.CreateDirectory(target);
       else {
-        Directory.CreateDirectory(Path.GetDirectoryName(target));
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         entry.ExtractToFile(target);
       }
     }
   }
 
   internal int Run(string program, string directory, IEnumerable<string> arguments, bool required,
-                   Action<string> output = null, Action poll = null) {
+                   Action<string>? output = null, Action? poll = null, string? activity = null) {
     return RunStart(new ProcessStartInfo(program, String.Join(" ", arguments.Select(Quote))),
-                    directory, required, output, poll);
+                    directory, required, output, poll, activity);
   }
 
   internal int RunStart(ProcessStartInfo start, string directory, bool required,
-                        Action<string> output = null, Action poll = null) {
+                        Action<string>? output = null, Action? poll = null,
+                        string? activity = null) {
     start.WorkingDirectory = directory;
     start.UseShellExecute = false;
     start.CreateNoWindow = true;
@@ -130,7 +120,7 @@ internal sealed class Tools {
     log(start.FileName + " " + start.Arguments);
     using (var process = new Process { StartInfo = start }) {
       var outputLock = new object();
-      Exception outputError = null;
+      Exception? outputError = null;
       DataReceivedEventHandler receive = delegate(object sender, DataReceivedEventArgs args) {
         if (args.Data == null)
           return;
@@ -151,6 +141,8 @@ internal sealed class Tools {
             else if (git.Success)
               Report(git.Groups[1].Value, args.Data,
                      Math.Min(100, Int32.Parse(git.Groups[2].Value)));
+            else if (activity != null && !String.IsNullOrWhiteSpace(args.Data))
+              Report(activity, args.Data, -1);
           } catch (Exception error) {
             outputError = error;
           }
@@ -159,6 +151,8 @@ internal sealed class Tools {
       process.OutputDataReceived += receive;
       process.ErrorDataReceived += receive;
       process.Start();
+      Report(activity ?? "Running " + Path.GetFileNameWithoutExtension(start.FileName),
+             "Waiting for tool output...", -1);
       process.BeginOutputReadLine();
       process.BeginErrorReadLine();
       if (poll != null)
@@ -189,7 +183,7 @@ internal sealed class Tools {
                : name == "LLVM" && Regex.IsMatch(version, @"clang version 20\.1\.8\b");
   }
 
-  private string Installed(Package package, string directory) {
+  private string? Installed(Package package, string directory) {
     if (package != Git && package != LLVM)
       return null;
     var name = package == Git ? "git.exe" : "clang++.exe";
@@ -203,7 +197,7 @@ internal sealed class Tools {
       var candidate = Path.Combine(folder.Trim('"'), name);
       if (!File.Exists(candidate) ||
           (package == LLVM &&
-           !File.Exists(Path.Combine(Path.GetDirectoryName(candidate), "clang.exe"))))
+           !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "clang.exe"))))
         continue;
       try {
         if (Compatible(package.Name, Capture(candidate, directory, "--version")))
@@ -217,65 +211,63 @@ internal sealed class Tools {
 
   internal void Download(string url, string file, string name) {
     var offset = File.Exists(file) ? new FileInfo(file).Length : 0;
-    var request = (HttpWebRequest)WebRequest.Create(url);
-    request.Timeout = 25000;
-    request.ReadWriteTimeout = 30000;
-    request.UserAgent = "LollipopChainsawRecomp-Setup";
+    using var client =
+        new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(
+                                                    25) }) { Timeout = Timeout.InfiniteTimeSpan };
+    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+    request.Headers.UserAgent.ParseAdd("LollipopChainsawRecomp-Launcher");
     if (offset > 0)
-      request.AddRange(offset);
-    HttpWebResponse response;
-    try {
-      response = (HttpWebResponse)request.GetResponse();
-    } catch (WebException error) {
-      using (var failed = error.Response as HttpWebResponse) {
-        if (offset <= 0 || failed == null ||
-            failed.StatusCode != HttpStatusCode.RequestedRangeNotSatisfiable)
-          throw;
-      }
+      request.Headers.Range = new RangeHeaderValue(offset, null);
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    using var response =
+        client.Send(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+    if (offset > 0 && response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable) {
       File.Delete(file);
       Download(url, file, name);
       return;
     }
-    using (response) {
-      if (response.StatusCode == HttpStatusCode.PartialContent) {
-        if (!Regex.IsMatch(response.Headers["Content-Range"] ?? "",
-                           @"^bytes " + offset + @"-\d+/\d+$"))
-          throw new IOException("The download server returned an invalid resume range.");
-      } else if (response.StatusCode == HttpStatusCode.OK)
-        offset = 0;
-      else
-        throw new IOException("Unexpected download response: " + response.StatusCode);
-      var total = response.ContentLength < 0 ? -1 : offset + response.ContentLength;
-      var received = offset;
-      var watch = Stopwatch.StartNew();
-      long lastReport = -500;
-      using (var input = response.GetResponseStream()) using (
-          var output = new FileStream(file, offset > 0 ? FileMode.Append : FileMode.Create,
-                                      FileAccess.Write)) {
-        var buffer = new byte[65536];
-        int count;
-        while ((count = input.Read(buffer, 0, buffer.Length)) > 0) {
-          output.Write(buffer, 0, count);
-          received += count;
-          if (watch.ElapsedMilliseconds - lastReport < 200 && received != total)
-            continue;
-          lastReport = watch.ElapsedMilliseconds;
-          var status = (received / 1048576.0).ToString("N1") + " MiB";
-          if (total > 0)
-            status += " / " + (total / 1048576.0).ToString("N1") + " MiB";
-          status += "  |  " +
-                    ((received - offset) / Math.Max(watch.Elapsed.TotalSeconds, 0.1) / 1048576)
-                        .ToString("N1") +
-                    " MiB/s";
-          Report("Downloading " + name, status,
-                 total > 0 ? (int)Math.Min(100, 100.0 * received / total) : -1);
-        }
-      }
-      if (total >= 0 && received != total)
-        throw new IOException("Download interrupted. Retry to resume " + name + ".");
+    if (response.StatusCode == HttpStatusCode.PartialContent) {
+      var range = response.Content.Headers.ContentRange;
+      if (range?.Unit != "bytes" || range.From != offset || range.Length is null)
+        throw new IOException("The download server returned an invalid resume range.");
+    } else if (response.StatusCode == HttpStatusCode.OK) {
+      offset = 0;
+    } else {
+      response.EnsureSuccessStatusCode();
+      throw new IOException("Unexpected download response: " + response.StatusCode);
     }
+    var total = response.Content.Headers.ContentLength is long length ? offset + length : -1;
+    var received = offset;
+    var watch = Stopwatch.StartNew();
+    long lastReport = -500;
+    using var input = response.Content.ReadAsStream();
+    using var output =
+        new FileStream(file, offset > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write);
+    var buffer = new byte[65536];
+    while (true) {
+      deadline.CancelAfter(TimeSpan.FromSeconds(30));
+      var count =
+          input.ReadAsync(buffer.AsMemory(), deadline.Token).AsTask().GetAwaiter().GetResult();
+      if (count == 0)
+        break;
+      output.Write(buffer, 0, count);
+      received += count;
+      if (watch.ElapsedMilliseconds - lastReport < 200 && received != total)
+        continue;
+      lastReport = watch.ElapsedMilliseconds;
+      var status = (received / 1048576.0).ToString("N1") + " MiB";
+      if (total > 0)
+        status += " / " + (total / 1048576.0).ToString("N1") + " MiB";
+      status += "  |  " +
+                ((received - offset) / Math.Max(watch.Elapsed.TotalSeconds, 0.1) / 1048576)
+                    .ToString("N1") +
+                " MiB/s";
+      Report("Downloading " + name, status,
+             total > 0 ? (int)Math.Min(100, 100.0 * received / total) : -1);
+    }
+    if (total >= 0 && received != total)
+      throw new IOException("Download interrupted. Retry to resume " + name + ".");
   }
-
   internal string Get(Package package, string cache) {
     Directory.CreateDirectory(cache);
     var folder = Path.Combine(cache, package.Name + "-" + package.Hash.Substring(0, 12));
@@ -318,5 +310,4 @@ internal sealed class Tools {
       DeleteStage(stage, cache);
     }
   }
-}
 }

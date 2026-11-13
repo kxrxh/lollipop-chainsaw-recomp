@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Lollipop.Launcher.Tests</AssemblyName>
+    <StartupObject>lollipop.SetupTests</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lollipop.Launcher.csproj"/>
+  </ItemGroup>
+</Project>

@@ -1,10 +1,16 @@
 #requires -Version 7.2
+param(
+    [string]$RexGlueDirectory = (Join-Path $PSScriptRoot '../out/sdk/lib/cmake/rexglue'),
+    [string]$GeneratedDirectory = (Join-Path $PSScriptRoot '../out/generated'),
+    [string]$LlvmDirectory
+)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . "$root/scripts/build-tools.ps1"
 
 $scripts = @(Get-ChildItem -LiteralPath $root -Filter '*.ps1' -File)
-$scripts += Get-ChildItem -LiteralPath "$root/scripts", "$root/installer", "$root/tests" -Filter '*.ps1' -File
+$scripts += Get-ChildItem -LiteralPath "$root/scripts", "$root/launcher", "$root/tests" -Filter '*.ps1' -File
+$scripts += Get-ChildItem -LiteralPath "$root/launcher/scripts" -Filter '*.ps1' -File
 foreach ($script in $scripts) {
     $tokens = $null
     $errors = $null
@@ -39,22 +45,42 @@ try {
     }
     Push-Location $temporary
     try {
-        $installer = Join-Path $temporary 'installer output/Lollipop Chainsaw Setup.exe'
-        & "$root/installer/build.ps1" -OutputFile $installer | Out-Null
+        $installer = Join-Path $temporary 'launcher output/Lollipop Chainsaw Launcher.exe'
+        & "$root/launcher/build.ps1" -OutputFile $installer | Out-Null
     } finally { Pop-Location }
-    Add-Type -AssemblyName System.IO.Compression
-    $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($installer))
-    $payload = $assembly.GetManifestResourceStream('kit.zip')
-    $archive = [IO.Compression.ZipArchive]::new($payload, [IO.Compression.ZipArchiveMode]::Read)
+    if (-not (Test-Path -LiteralPath $installer)) { throw 'Standalone launcher was not published.' }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead("$root/out/launcher/kit.zip")
     try {
-        foreach ($name in 'installer/setup.cs','installer/setup-install.cs','installer/setup-tools.cs','installer/setup-update.cs',
-                          'installer/launcher.xaml','tests/setup_test.cs') {
-            if (-not $archive.GetEntry($name)) { throw "Installer payload is missing $name" }
+        foreach ($name in 'CMakeLists.txt','launcher/assets/lollipop.ico','src/main.cpp','VERSION','THIRD_PARTY.md',
+                          'launcher/assets/LICENSE.Markdig','launcher/assets/LICENSE.NET') {
+            if (-not $archive.GetEntry($name)) { throw "Game source kit is missing $name" }
         }
-        if ($archive.Entries.FullName -match '^(game|user|cache|out|generated)/|\.ps1$|default\.xex$') {
-            throw 'Installer payload contains private data or development scripts'
+        if ($archive.Entries.FullName -match '^(game|user|cache|out|generated|tests|launcher/tests)/|\.ps1$|\.cs$|\.xaml$|default\.xex$') {
+            throw 'Launcher payload contains private data, tests or development scripts'
         }
-    } finally { $archive.Dispose(); $payload.Dispose() }
+        $playerSource = Join-Path $temporary 'player source kit'
+        foreach ($entry in $archive.Entries) {
+            $target = Join-Path $playerSource $entry.FullName
+            [IO.Directory]::CreateDirectory((Split-Path $target -Parent)) | Out-Null
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target)
+        }
+    } finally { $archive.Dispose() }
+    $tools = Get-BuildTools -LlvmDirectory $LlvmDirectory
+    $playerBuild = Join-Path $temporary 'player build'
+    & $tools.CMake -S $playerSource -B $playerBuild -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
+        "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-Drexglue_DIR=$RexGlueDirectory" `
+        "-DLOLLIPOP_GENERATED_DIR=$GeneratedDirectory" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+    if ($LASTEXITCODE -ne 0) { throw 'Player source kit could not be configured without test files.' }
+    $targets = (& $tools.Ninja -C $playerBuild -t targets all) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $targets -notmatch '(?m)^lollipop\.exe:') { throw 'Player build is missing the game target.' }
+    if ($targets -match '(?m)^lollipop_(?:[a-z_]*test|header_check|setup_check|shader_tool)(?:\.exe)?:') {
+        throw 'Player build includes development targets.'
+    }
+    $commands = (& $tools.Ninja -C $playerBuild -t commands lollipop) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $commands -match 'tests[/\\][a-z_]+_test\.(cpp|cs)|header-check|setup_test\.cs') {
+        throw 'Player compilation plan includes developer tests.'
+    }
 } finally {
     $resolved = [IO.Path]::GetFullPath($temporary)
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar

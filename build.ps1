@@ -33,7 +33,7 @@ if ([IO.File]::Exists($cache)) {
 & $tools.CMake @configureArgs -S $PSScriptRoot -B $build -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
     "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-DCMAKE_PREFIX_PATH=$sdk" `
     "-Drexglue_DIR=$sdk/lib/cmake/rexglue" "-DLOLLIPOP_GAME_DIR=$game" `
-    "-DLOLLIPOP_GENERATED_DIR=$generated" "-DLOLLIPOP_MANIFEST=$manifest" -DCMAKE_BUILD_TYPE=Release
+    "-DLOLLIPOP_GENERATED_DIR=$generated" "-DLOLLIPOP_MANIFEST=$manifest" -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
 if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
 & $tools.CMake --build $build --parallel 6
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed.' }

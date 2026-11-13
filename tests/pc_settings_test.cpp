@@ -34,6 +34,23 @@ int main(int argc, char** argv) try {
   values["window_height"] = "1440";
   check(validate_pc_settings(values), "Recommended profile validates");
   const std::filesystem::path path = argv[1];
+  if (argc == 3 && std::string_view(argv[2]) == "--launcher-profile") {
+    configure_pc_settings(path);
+    const pc_values expected{
+        {"window_width", "1920"},     {"window_height", "1080"},      {"fullscreen", "false"},
+        {"vsync", "false"},           {"present_letterbox", "false"}, {"resolution_scale", "3"},
+        {"swap_post_effect", "fxaa"}, {"anisotropic_override", "4"},  {"lollipop_fps", "90"},
+        {"present_dither", "true"},   {"lollipop_music_volume", "6"}};
+    for (const auto& [name, value] : expected)
+      check(rex::cvar::GetFlagByName(name) == value,
+            ("Launcher setting not applied: " + name + " = " + rex::cvar::GetFlagByName(name))
+                .c_str());
+    check(std::stof(rex::cvar::GetFlagByName("mnk_sensitivity")) == 22.5f,
+          "Launcher preserves mouse sensitivity");
+    check(rex::cvar::GetFlagSource("lollipop_subtitles") == rex::cvar::Source::kDefault,
+          "Launcher leaves missing native settings eligible for import");
+    return 0;
+  }
   if (argc == 3 && (std::string_view(argv[2]) == "--shader-default" ||
                     std::string_view(argv[2]) == "--shader-cli")) {
     const bool explicit_async = std::string_view(argv[2]) == "--shader-cli";

@@ -3,15 +3,25 @@
 Run commands from the repository folder on Windows x64. For installation and
 play instructions, see the [README](../README.md).
 
-## Build the installer
+## Build the launcher
 
 ```powershell
-./installer/build.ps1
+./launcher/build.ps1
 ```
 
-Output: `out/installer/Lollipop Chainsaw Setup.exe`. Packaging uses the .NET
-Framework compiler included with Windows; the manual toolchain is not needed.
-Source: [installer/](../installer/).
+Output: `out/launcher/Lollipop Chainsaw Launcher.exe`. The script fetches the pinned
+.NET 10 SDK into `out/tools/` and restores the locked NuGet packages into `out/nuget/`.
+It publishes a self-contained Windows x64 executable; players do not need to install
+.NET. The C++ toolchain is not needed to build the launcher.
+
+Open [Lollipop.Launcher.slnx](../launcher/Lollipop.Launcher.slnx) in an IDE for the
+WPF application and its test project. Build and publish output stays under `out/launcher/`.
+
+`VERSION` sets the bundled recomp version; `launcher/VERSION` independently sets
+the launcher version. Updates shows both alongside the installed game version.
+Development builds use a `-dev` suffix. Stable recomp release tags use `vMAJOR.MINOR.PATCH`; update checking
+uses the public GitHub latest-release API. Release downloads open in the browser.
+The launcher never replaces itself while running.
 
 ## Supported game
 
@@ -104,6 +114,7 @@ Paths are relative to the checkout or chosen install folder.
 | `out/build/` | SDK, game and test builds |
 | `out/build/win-amd64-release/lollipop.exe` | Playable game |
 | `out/launcher/latest.log` | Setup and launcher log |
+| `out/build/win-amd64-release/recomp-version.txt` | Installed recomp version, published with the game |
 | `out/build/win-amd64-release/logs/` | Game logs; override with `--log_file` |
 | `cache/shader-precompile.log` | Prepare shaders log |
 
@@ -114,7 +125,8 @@ The installed launcher caches its source kit under
 
 | Problem | Action |
 | --- | --- |
-| Interrupted setup or Windows restart | Reopen setup and choose the same destination. Use Update / Repair if the disc is already imported; otherwise supply the same ISO. Check `out/launcher/latest.log`. |
+| Interrupted setup or Windows restart | Reopen the launcher, select Locate game and choose the same destination. Use Repair game if the disc is already imported; otherwise supply the same ISO in Manage game. Check `out/launcher/latest.log`. |
+| Preparing game tools appears idle | Compiler and dependency configuration can run without a percentage. Check the current activity or `out/launcher/latest.log`; a completed Git percentage only describes that download. |
 | Install folder rejected | Choose an empty folder for a new install. Close the game and other launcher windows; check write access. |
 | Unsupported or incomplete disc | Compare the executable hash above. Re-extract if it differs or `AshGame/` or `Engine/` is missing. |
 | Missing compiler or tools | Check the requirements above. Supply `-LlvmDirectory` if needed. |
@@ -132,15 +144,18 @@ If PowerShell blocks scripts, use a process-local execution-policy override:
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./installer/build.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./launcher/build.ps1
 ```
 
 ## Updating or removing an installation
 
-Close the game and launcher. Open the newer setup, choose the existing install
-folder and select Update / Repair. An imported disc does not need the ISO again.
-The update preserves saves, settings and bindings. It builds and tests a staged
-copy before replacing playable files; rerun Update / Repair after an interruption.
+Close the game and launcher. Open the newer launcher, select Locate game and
+choose the existing install folder. In Manage game, select Apply launcher build / Repair.
+An imported disc does not need the ISO again.
+The update preserves saves, settings and bindings. It builds the game in a staged
+folder and checks required runtime files before replacing playable files.
+Player installations skip developer tests and tools; manual development builds
+run the full test suite. Rerun Repair game after an interruption.
 
 Back up `user/` before moving or removing the installation. Build output and
 caches can be recreated. For game issues, see [troubleshooting](COMPATIBILITY.md).

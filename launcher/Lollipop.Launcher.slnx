@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Lollipop.Launcher.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Lollipop.Launcher.Tests.csproj" />
+  </Folder>
+</Solution>
