@@ -28,11 +28,25 @@ Setup installs `Lollipop Chainsaw Launcher.exe` in the game folder. Keep
 **Create desktop shortcut** in Manage game afterward. The shortcut opens the
 launcher; select Play there to start the game.
 
-The launcher remembers the last selected game folder across restarts and downloaded
-launcher updates. Its preference is stored in
-`%LOCALAPPDATA%/Lollipop Chainsaw Recomp/launcher/game-location.txt`.
+The launcher remembers the last selected game folder across restarts and updates
+kept in the same folder. Its preference is stored beside the launcher in
+`launcher-data/game-location.txt`. Older preferences are read once from LocalAppData.
 A launcher installed inside a game folder uses that installation. If a saved folder
 is unavailable, use Locate game to select it again.
+
+### Portable player setup
+
+Setup reuses compatible installed tools without modifying them. Missing tools are
+downloaded from pinned official packages into the game folder's `out/tools/`:
+Git, LLVM 20.1.8, CMake, Ninja, Microsoft C++ headers/libraries and Windows SDK.
+No Build Tools, SDK or VC++ Redistributable installer is run; administrator rights
+and global PATH changes are not needed. Runtime DLLs are copied beside the game
+and SDK executables. Microsoft tools retain their linked license terms in setup.
+
+Keep the launcher in a writable folder. Its source kit and remembered location stay
+under `launcher-data/` beside its EXE. The self-contained .NET runtime may use the
+Windows temporary directory while running. Game files, saves and settings remain
+inside the selected game folder.
 
 ## Supported game
 
@@ -129,18 +143,18 @@ Paths are relative to the checkout or chosen install folder.
 | `out/build/win-amd64-release/logs/` | Game logs; override with `--log_file` |
 | `cache/shader-precompile.log` | Prepare shaders log |
 
-The installed launcher caches its source kit under
-`%LOCALAPPDATA%/Lollipop Chainsaw Recomp/installer/`.
+The launcher caches its source kit under `launcher-data/source/` beside its EXE.
 
 ## Setup and build problems
 
 | Problem | Action |
 | --- | --- |
-| Interrupted setup or Windows restart | Reopen the launcher, select Locate game and choose the same destination. Use Repair game if the disc is already imported; otherwise supply the same ISO in Manage game. Check `out/launcher/latest.log`. |
+| Interrupted setup | Reopen the launcher and use the remembered destination. Use Repair game if the disc is already imported; otherwise supply the same ISO in Manage game. Check `out/launcher/latest.log`. |
 | Preparing game tools appears idle | Compiler and dependency configuration can run without a percentage. Check the current activity or `out/launcher/latest.log`; a completed Git percentage only describes that download. |
 | Install folder rejected | Choose an empty folder for a new install. Close the game and other launcher windows; check write access. |
 | Unsupported or incomplete disc | Compare the executable hash above. Re-extract if it differs or `AshGame/` or `Engine/` is missing. |
-| Missing compiler or tools | Check the requirements above. Supply `-LlvmDirectory` if needed. |
+| Tool download failed in the launcher | Check internet access and free space, then retry. Verified packages are reused. No system installation is needed. |
+| Missing compiler in a manual build | Check the manual build requirements above. Supply `-LlvmDirectory` if needed. |
 | SDK patch conflict | Use new SDK source and build directories; see below. |
 | Paths refer to an old checkout | Rerun `build.ps1`. Use a new build directory for an SDK built at the old location. |
 

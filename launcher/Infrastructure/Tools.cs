@@ -15,12 +15,6 @@ using System.Text.RegularExpressions;
 namespace lollipop;
 
 internal sealed class Tools {
-  internal static readonly Package Runtime = new Package(
-      "Runtime",
-      "https://download.visualstudio.microsoft.com/download/pr/" +
-          "78d061c5-9ef3-42ab-98ed-3309d1095dc4/" +
-          "9C02C9ED120F671B900E6B9471D890E3B2414117A7E53F4AE2E855466FA2B7C9/VC_redist.x64.exe",
-      "9c02c9ed120f671b900e6b9471d890e3b2414117a7e53f4ae2e855466fa2b7c9", "VC_redist.x64.exe");
   internal static readonly Package Disc =
       new Package("Disc",
                   "https://github.com/XboxDev/extract-xiso/releases/download/build-202609111233/" +
@@ -38,12 +32,6 @@ internal sealed class Tools {
                       "clang%2Bllvm-20.1.8-x86_64-pc-windows-msvc.tar.xz",
                   "f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f",
                   "clang+llvm-20.1.8-x86_64-pc-windows-msvc/bin/clang++.exe");
-  internal static readonly Package Windows = new Package(
-      "Windows",
-      "https://download.visualstudio.microsoft.com/download/pr/" +
-          "95995f57-8355-4ff5-8d90-a7e1669fb3b3/" +
-          "310c13b8238876afb4e823a91112230ee2d2c5a45c431d4062af7aadedff9c4c/vs_BuildTools.exe",
-      "310c13b8238876afb4e823a91112230ee2d2c5a45c431d4062af7aadedff9c4c", "vs_BuildTools.exe");
 
   private readonly IProgress<InstallProgress> progress;
   private readonly Action<string> log;
@@ -178,26 +166,47 @@ internal sealed class Tools {
 
   internal static bool Compatible(string name, string version) {
     var match = Regex.Match(version, @"^git version (\d+\.\d+\.\d+)");
-    return name == "Git"
-               ? match.Success && new Version(match.Groups[1].Value) >= new Version(2, 36, 0)
-               : name == "LLVM" && Regex.IsMatch(version, @"clang version 20\.1\.8\b");
+    if (name == "Git")
+      return match.Success && new Version(match.Groups[1].Value) >= new Version(2, 36, 0);
+    if (name == "LLVM")
+      return Regex.IsMatch(version, @"clang version 20\.1\.8\b");
+    match = Regex.Match(version,
+                        name == "CMake" ? @"^cmake version (\d+\.\d+\.\d+)" : @"^(\d+\.\d+\.\d+)");
+    return match.Success &&
+           (name == "CMake"
+                ? new Version(match.Groups[1].Value) >= new Version(3, 25, 0) &&
+                      new Version(match.Groups[1].Value) < new Version(4, 0)
+                : name == "Ninja" && new Version(match.Groups[1].Value) >= new Version(1, 11, 0) &&
+                      new Version(match.Groups[1].Value) < new Version(2, 0));
   }
 
   private string? Installed(Package package, string directory) {
-    if (package != Git && package != LLVM)
+    var name = package.Name switch { "Git" => "git.exe", "LLVM" => "clang++.exe",
+                                     "CMake" => "cmake.exe", "Ninja" => "ninja.exe",
+                                     _ => null };
+    if (name is null)
       return null;
-    var name = package == Git ? "git.exe" : "clang++.exe";
-    var folders = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';').ToList();
+    var path = EnvironmentVariables.TryGetValue("PATH", out var configured)
+                   ? configured
+                   : Environment.GetEnvironmentVariable("PATH");
+    var folders = (path ?? "").Split(';').ToList();
     if (package == LLVM)
       folders.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                                "LLVM/bin"));
+    if (package.Name == "CMake")
+      folders.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                               "CMake/bin"));
     foreach (var folder in folders) {
       if (String.IsNullOrWhiteSpace(folder))
         continue;
       var candidate = Path.Combine(folder.Trim('"'), name);
       if (!File.Exists(candidate) ||
           (package == LLVM &&
-           !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "clang.exe"))))
+           (!File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "clang.exe")) ||
+            !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "lld-link.exe")) ||
+            !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "llvm-ar.exe")) ||
+            !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!,
+                                      "../lib/clang/20/include/stddef.h")))))
         continue;
       try {
         if (Compatible(package.Name, Capture(candidate, directory, "--version")))
@@ -268,7 +277,7 @@ internal sealed class Tools {
     if (total >= 0 && received != total)
       throw new IOException("Download interrupted. Retry to resume " + name + ".");
   }
-  internal string Get(Package package, string cache) {
+  internal string Get(Package package, string cache, bool useInstalled = true) {
     Directory.CreateDirectory(cache);
     var folder = Path.Combine(cache, package.Name + "-" + package.Hash.Substring(0, 12));
     var program = Path.Combine(folder, package.File);
@@ -276,7 +285,7 @@ internal sealed class Tools {
       Report(package.Name, "Using cached tools", 100);
       return program;
     }
-    var installed = Installed(package, cache);
+    var installed = useInstalled ? Installed(package, cache) : null;
     if (installed != null) {
       log("Using installed " + package.Name + ": " + installed);
       return installed;
@@ -296,14 +305,25 @@ internal sealed class Tools {
       Report("Unpacking " + package.Name, "Extracting verified download", -1);
       if (package.Url.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         File.Copy(download, Path.Combine(stage, package.File));
-      else if (package.Url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) {
+      else if (new[] { ".zip", ".vsix", ".nupkg" }.Any(
+                   extension =>
+                       package.Url.EndsWith(extension, StringComparison.OrdinalIgnoreCase))) {
         using (var archive = ZipFile.OpenRead(download)) Extract(archive, stage);
       } else
         Run(Path.Combine(Environment.SystemDirectory, "tar.exe"), stage,
             new[] { "-xf", download, "-C", stage }, true);
       if (!File.Exists(Path.Combine(stage, package.File)))
         throw new InvalidDataException("The " + package.Name + " download is incomplete.");
-      Directory.Move(stage, folder);
+      for (var attempt = 0;; ++attempt) {
+        try {
+          Directory.Move(stage, folder);
+          break;
+        } catch (IOException error)
+            when (attempt < 5 && (error.HResult & 0xffff) is 5 or 32 or 33) {
+          // Virus scanners can briefly lock files immediately after extraction.
+          Thread.Sleep(100 << attempt);
+        }
+      }
       File.Delete(download);
       return program;
     } finally {

@@ -134,6 +134,11 @@ internal static class SetupTests {
       Check(Tools.Compatible("LLVM", "clang version 20.1.8") &&
                 !Tools.Compatible("LLVM", "clang version 21.1.0"),
             "LLVM pin was lost");
+      Check(Tools.Compatible("CMake", "cmake version 3.31.8") &&
+                !Tools.Compatible("CMake", "cmake version 3.24.0") &&
+                !Tools.Compatible("CMake", "cmake version 4.0.0") &&
+                Tools.Compatible("Ninja", "1.12.1") && !Tools.Compatible("Ninja", "1.10.0"),
+            "Incompatible installed CMake or Ninja tools were accepted");
       ManifestTest(args[0], sandbox);
       FolderTest(sandbox);
       UpdateTest(sandbox);
@@ -143,6 +148,7 @@ internal static class SetupTests {
       GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
       LauncherInstallationTests.Run(sandbox);
       GameLocationTests.Run(sandbox);
+      BuildToolchainTests.Run(sandbox);
       LauncherTest(sandbox, executable);
       Console.WriteLine("Standalone launcher checks passed.");
       return 0;
@@ -433,6 +439,11 @@ internal static class SetupTests {
                            payload.Take(4096).ToArray());
         Check(File.ReadAllBytes(tools.Get(package, cache)).SequenceEqual(bytes),
               "Resume fallback failed: " + name);
+      }
+      foreach (var extension in new[] { "vsix", "nupkg" }) {
+        var package = new Package(extension, url + "/package." + extension, hash, "program.exe");
+        Check(File.ReadAllBytes(tools.Get(package, cache)).SequenceEqual(bytes),
+              "A portable Microsoft package was not verified and extracted: " + extension);
       }
       var count = requests.Count;
       Check(tools.Get(resume, cache) == program && count == requests.Count, "Cache was not reused");

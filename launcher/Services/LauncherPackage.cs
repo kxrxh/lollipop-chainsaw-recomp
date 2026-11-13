@@ -13,11 +13,9 @@ internal static class LauncherPackage {
            throw new InvalidDataException("Missing launcher resource: " + name);
   }
 
-  internal static string ExtractKit() {
+  internal static string ExtractKit(string? directory = null) {
     using var payload = Resource("kit.zip");
-    var cache =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                     "Lollipop Chainsaw Recomp", "installer");
+    var cache = directory ?? Path.Combine(GameLocation.DataDirectory, "source");
     var kit = Path.Combine(cache, Tools.Hash(payload)[..16]);
     if (Directory.Exists(kit))
       return kit;

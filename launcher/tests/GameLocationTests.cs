@@ -25,8 +25,22 @@ internal static class GameLocationTests {
     var other = Path.Combine(sandbox, "another installation");
     Check(GameLocation.Load(file) == null, "A missing preference file prevented startup");
     Directory.CreateDirectory(selected);
+    Check(Path.GetDirectoryName(GameLocation.DataDirectory)?.TrimEnd('\\', '/') ==
+              AppContext.BaseDirectory.TrimEnd('\\', '/'),
+          "Portable launcher state is stored outside the launcher folder");
+    var legacy = Path.Combine(sandbox, "legacy-location.txt");
+    File.WriteAllText(legacy, selected);
+    Check(GameLocation.Load(file, legacy) == selected && !File.Exists(file),
+          "The previous game location could not be imported without modifying old preferences");
     Check(GameLocation.Save(file, selected) && GameLocation.Load(file) == selected,
           "The selected installation folder was not remembered before setup");
+    File.WriteAllText(legacy, sandbox);
+    Check(GameLocation.Load(file, legacy) == selected && File.ReadAllText(legacy) == sandbox,
+          "An old preference replaced the portable selection or was modified during migration");
+    var package = LauncherPackage.ExtractKit(Path.Combine(sandbox, "portable-source-cache"));
+    Check(File.Exists(Path.Combine(package, "CMakeLists.txt")) &&
+              LauncherPackage.ExtractKit(Path.Combine(sandbox, "portable-source-cache")) == package,
+          "The portable source cache was not extracted or reused");
     foreach (var invalid in new[] { "", "relative path", selected + "\n", "\0",
                                     Path.Combine(sandbox, "missing game") }) {
       File.WriteAllText(file, invalid);

@@ -39,7 +39,7 @@ foreach ($patchName in 'rexglue-fixes.patch','rexglue-shader-precompile.patch') 
 & $tools.CMake -S $source -B $BuildDirectory -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
     "-DCMAKE_C_COMPILER=$($tools.Clang)" "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" `
     "-DCMAKE_INSTALL_PREFIX=$([IO.Path]::GetFullPath($InstallDirectory))" -DCMAKE_BUILD_TYPE=Release `
-    -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_USE_VULKAN=OFF -DREXGLUE_BUILD_TESTS=OFF
+    -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_USE_VULKAN=OFF -DREXGLUE_BUILD_TESTS=OFF -DSDL_TEST_LIBRARY=OFF
 if ($LASTEXITCODE -ne 0) { throw 'SDK configuration failed.' }
 & $tools.CMake --build $BuildDirectory --target install --parallel 6
 if ($LASTEXITCODE -ne 0) { throw 'SDK build failed.' }

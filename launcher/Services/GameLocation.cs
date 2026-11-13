@@ -6,11 +6,16 @@ namespace lollipop;
 
 internal static class GameLocation {
   private const int MaximumSize = 128 * 1024;
-  internal static readonly string DefaultFile =
+  internal static readonly string LegacyFile =
       Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                    "Lollipop Chainsaw Recomp", "launcher", "game-location.txt");
+  internal static readonly string DataDirectory =
+      Path.Combine(AppContext.BaseDirectory, "launcher-data");
+  internal static readonly string DefaultFile = Path.Combine(DataDirectory, "game-location.txt");
 
-  internal static string? Load(string file) {
+  internal static string? Load(string file, string? legacyFile = null) {
+    if (!File.Exists(file) && legacyFile != null)
+      return Load(legacyFile);
     try {
       if (new FileInfo(file).Length > MaximumSize)
         return null;

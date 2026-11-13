@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Setup reuses compatible installed tools and downloads missing build tools privately,
+  without installing Visual Studio Build Tools, Windows SDK or VC++ Redistributable.
+- Keep C++ runtime DLLs with the game and launcher state beside the launcher, with
+  import of the previously remembered game folder.
+
 ## 0.1.0 — 2026-11-13
 
 - Remember the selected game folder across launcher restarts and updates.

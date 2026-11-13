@@ -66,6 +66,12 @@ internal sealed class Launcher {
       }
     };
     Find<Button>("ChooseFolder").Click += delegate { ChooseDestination(); };
+    Find<System.Windows.Documents.Hyperlink>("CppTerms").Click += delegate {
+      OpenPath("https://visualstudio.microsoft.com/license-terms/vs2022-ga-diagnosticbuildtools/");
+    };
+    Find<System.Windows.Documents.Hyperlink>("SdkTerms").Click += delegate {
+      OpenPath("https://aka.ms/WinSDKLicenseURL");
+    };
     Find<Button>("Primary").Click += delegate {
       if (Screen == "Failure")
         Home();
@@ -117,7 +123,8 @@ internal sealed class Launcher {
     var ownFolder = Path.GetDirectoryName(executable);
     Destination = Installer.Ready(ownFolder) || GameUpdate.CanUpdate(ownFolder)
                       ? ownFolder
-                      : GameLocation.Load(this.locationFile);
+                      : GameLocation.Load(this.locationFile,
+                                          locationFile == null ? GameLocation.LegacyFile : null);
     Home();
   }
 

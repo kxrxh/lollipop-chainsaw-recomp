@@ -30,6 +30,7 @@
 /import-*/
 /user/
 /cache/
+launcher-data/
 /dist/
 /CMakeUserPresets.json
 *.user

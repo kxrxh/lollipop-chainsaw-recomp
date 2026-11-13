@@ -20,7 +20,9 @@ redistributions must retain the copyright notice, license terms and disclaimer.
 | [PowerShell](https://github.com/PowerShell/PowerShell) | Build, packaging and development scripts | [Upstream license](https://github.com/PowerShell/PowerShell/blob/master/LICENSE.txt) |
 | [.NET 10 / WPF](https://github.com/dotnet/wpf) | Self-contained launcher runtime | [MIT license](launcher/assets/LICENSE.NET), [runtime notices](launcher/assets/NOTICES.NET) |
 | [Markdig 1.6.0](https://github.com/xoofx/markdig) | Launcher Markdown parsing | [BSD-2-Clause notice](launcher/assets/LICENSE.Markdig) |
-| [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/) and Visual C++ Redistributable | Windows compiler libraries, SDK and runtime | Microsoft installer license terms |
+| [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/downloads/) | C++ headers and x64 libraries, reused from an installed toolset or downloaded from official VSIX packages | [Microsoft terms](https://visualstudio.microsoft.com/license-terms/vs2022-ga-diagnosticbuildtools/) |
+| [Windows SDK](https://www.nuget.org/packages/Microsoft.Windows.SDK.CPP/10.0.26100.7705) | Native headers, resource tools and x64 libraries, reused locally or downloaded as SDK NuGet packages | [SDK terms](https://aka.ms/WinSDKLicenseURL) |
+| [Visual C++ Runtime](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files) | App-local runtime DLLs, copied from a compatible installed runtime or downloaded from the official Microsoft runtime VSIX | Microsoft redistribution terms |
 
 Tools and SDK dependencies retain their own licenses. Preserve their notices
 when distributing them; the project license does not replace or restrict them.
