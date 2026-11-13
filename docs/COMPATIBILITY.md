@@ -1,55 +1,29 @@
 # Compatibility and troubleshooting
 
-Windows x64 with Direct3D 12 is the tested platform. Full story progression,
-other disc versions, Vulkan, macOS and Linux remain unverified.
-
-## Tested configuration
-
-Recorded gameplay checks used an Intel Core i7-10700K, 32 GB RAM and an NVIDIA
-GeForce RTX 3080, at 2560×1440 with the D3D12 ROV renderer. Boot, menus, prologue
-movement and combat have been checked, including all three student rescues,
-bus-door QTE, crawler encounter, bus vault, bus rollover and gate QTE. The third
-rescue completed on Easy through the 25-zombie encounter, van dodge and following
-eight-enemy wave. The helicopter crash sequence and phone-call entry also rendered.
-The next checkpoint remains unverified because the phone-call transition ended in
-a graphics crash. Settings checks covered saving, discarding changes, display
-rollback and pausing.
-
-A full app restart resumed the checkpoint after the second rescue. Live trigger
-checks covered blocking held input after settings closed, release, a fresh RT
-press and Star Soul combat through the eight-zombie encounter.
-Its fresh-cache Star Soul and triple Sparkle Hunt check recorded no pipeline
-misses over 960 measured frames.
-
-Texture reload checks passed three restarts with a 64 MB cache, plus
-death/Continue and an opening-gate replay with the default cache limits.
-
-Keyboard/controller prompt switching was checked in menus and the prologue's
-gate interaction. Automated controller tests use injected input; physical
-controllers and multi-monitor setups need more testing.
+Tested on Windows x64 with Direct3D 12 ROV, an i7-10700K, 32 GB RAM and an
+RTX 3080 at 2560×1440. Checks cover boot, menus, settings and prologue combat
+through the third rescue and helicopter crash. A full playthrough is unverified.
 
 ## Known issues
 
-- D3D12 `DEVICE_HUNG` crashes have occurred during prologue reloads, gate replays
-  after Continue and the phone-call transition after the third rescue. A
-  texture-watch race and stale texture-binding state after eviction have been
-  fixed. Three diagnostic phone load/unload cycles passed under cache pressure,
-  plus one with default limits. Normal story traversal through that transition
-  remains unverified.
+- D3D12 GPU hangs have occurred during reloads, Continue and the phone-call
+  transition after the third rescue. Texture eviction fixes passed diagnostic
+  checks; normal story traversal through that transition remains unverified.
 - Loading and cutscene transitions can stall.
-- Unrecorded shader combinations can cause pauses while they compile.
-- Heavy automated camera and streaming tests have also caused GPU hangs.
+- Shader combinations missing from the inventory can pause while compiling.
+- Physical controllers, multiple monitors, other disc versions and Vulkan need
+  more testing. Automated controller checks use injected input.
+- macOS and Linux are unverified.
 
 ## Frame rate and display
 
-The default frame limit is 60 FPS. Graphics settings also offer 30, 90 and
-120 FPS; changing the limit requires a restart. The 90 and 120 FPS modes have
-had menu timing checks, but full-game physics, quick-time events and cutscenes
-at those rates remain unverified. Prerecorded movies may stay at 30 FPS.
+The default is 60 FPS. Options also offers 30, 90 and 120 FPS; changing the limit
+requires a restart. Physics, quick-time events and cutscenes at 90/120 FPS are
+unverified. Prerecorded movies may stay at 30 FPS.
 
-VSync, monitor refresh and GPU load affect the displayed frame rate. Borderless
-fullscreen uses the desktop resolution. Window resolution changes apply in
-windowed mode; Render resolution controls the game's internal resolution.
+Borderless fullscreen uses the desktop resolution. Window resolution applies
+in windowed mode; Render resolution sets internal resolution. VSync, monitor
+refresh and GPU load affect the displayed frame rate.
 
 ## Controls
 
@@ -74,107 +48,84 @@ windowed mode; Render resolution controls the game's internal resolution.
 | Confirm menus / skip | Enter or middle mouse |
 | Cancel menus | Backspace or Space |
 
-Options opens PC settings through the game's menus. There is no settings hotkey.
-During cutscenes, Esc opens the skip dialog and Enter confirms it.
-To exit, select Quit Game on the main menu and confirm. Quit Game is also
-available in Options. Cancel returns to the menu you opened it from; progress
-since the last checkpoint is not saved when quitting.
+Options opens PC settings. Quit Game is available there and on the main menu;
+confirmation defaults to No. Cancelling returns to the previous menu. Quitting
+loses progress since the last checkpoint.
 
-If a controller moves or turns the camera by itself, increase Movement deadzone
-or Camera deadzone in the Controls page. Start with a small value and stop when
-the drift disappears. A value of 100% disables that stick.
+For controller drift, raise Movement deadzone or Camera deadzone in Controls
+until the drift stops. A value of 100% disables that stick.
 
 ## Shader preparation
 
-Startup prepares the recorded shaders before gameplay. The first scan reads
-shader programs from your disc files; later launches reuse the local library.
-Damaged local caches are rebuilt automatically.
-
-The launcher also has a Prepare shaders action. From a manual build:
+Startup prepares recorded shaders from the disc and reuses the local cache on
+later launches. Damaged caches are rebuilt automatically. To prepare separately,
+use the launcher's Prepare shaders action or:
 
 ```powershell
 ./run.ps1 -PrecompileShaders
 ```
 
-Precompilation requires D3D12 ROV and `store_shaders=true`. Ordinary launches
-with `--store_shaders=false` skip preparation.
+Preparation requires D3D12 ROV and `store_shaders=true`. Ordinary launches with
+`--store_shaders=false` skip it.
 
 ### Shader coverage
 
-The inventory was collected across all seven stages, boss maps and
-opening/ending/result scenes. Checks included fresh-cache preparation and normal
-rendering at the playable and boss map entries. A complete story playthrough,
-every outfit, boss phase and combat-effect combination remain unverified.
-
-The engine-generated loading copy shader is compiled locally on its first use.
-Later launches can prepare it from that local cache. Instructions for recording
-new combinations are in [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
+The inventory covers all seven stages, boss maps and opening/ending/result
+scenes. Coverage is incomplete for outfits, boss phases and effect combinations.
+The engine-generated loading copy shader compiles on first use and can be
+prepared from the local cache afterward. See
+[pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
 
 ## Gameplay problems
 
 ### Shader preparation fails
 
-For the launcher's Prepare shaders action or the command above, check
-`cache/shader-precompile.log`. Ordinary launch logs are listed in the
-[build guide](BUILDING.md#files-and-logs).
-
-Check for renderer or shader-storage overrides in advanced settings. To compare
-with a fresh cache, choose an unused directory and run:
+Check `cache/shader-precompile.log` for the Prepare shaders action. Ordinary
+launch logs are listed in [files and logs](BUILDING.md#files-and-logs).
+To check with a fresh cache and explicit renderer settings:
 
 ```powershell
 ./run.ps1 -CacheDirectory out/cache-check -PrecompileShaders --render_target_path_d3d12=rov --store_shaders=true
 ```
 
-This keeps the existing cache and saves in place.
+Choose an unused cache directory to preserve the existing one.
 
 ### Graphics crash or slow scenes
 
-Try the 60 FPS limit and a lower Render resolution, then reproduce the same scene.
-For a renderer comparison in a manual build:
-
-```powershell
-./run.ps1 --render_target_path_d3d12=rtv --readback_memexport=true
-```
-
-RTV is a diagnostic alternative and may be slower. When reporting a problem,
-include the game log, GPU, graphics settings and the steps that led to it.
-
-For a repeatable D3D12 crash, an updated build can record GPU progress and any
-available shader labels near the failure:
+Try 60 FPS and a lower Render resolution. Report the game log, GPU, settings
+and reproduction steps. For D3D12 crash diagnostics:
 
 ```powershell
 ./run.ps1 --d3d12_debug=true --gpu_debug_markers=true
 ```
 
-These diagnostics can slow rendering. The log may report that the optional
-Direct3D debug layer is unavailable; DRED breadcrumb recording can still work.
-Shader labels depend on runtime support; the log reports missing contexts.
+Diagnostics can slow rendering. The optional Direct3D debug layer may be absent;
+DRED GPU progress records can still work. To compare the RTV renderer:
+
+```powershell
+./run.ps1 --render_target_path_d3d12=rtv --readback_memexport=true
+```
+
+RTV may be slower.
 
 ### Keyboard and controller prompts do not update
 
-Restart after changing key bindings. For mixed input, memory-export readback
-must be enabled and delayed readback disabled:
+Restart after rebinding keys. Mixed input needs memory-export readback enabled
+and delayed readback disabled:
 
 ```powershell
 ./run.ps1 --readback_memexport=true --readback_memexport_fast=false
 ```
 
-To use controllers with the original Xbox artwork:
-
-```powershell
-./run.ps1 --no-mnk_mode
-```
-
-Mouse sensitivity is available in Options.
+Use `./run.ps1 --no-mnk_mode` for controllers with the original Xbox artwork.
+Mouse sensitivity is in Options.
 
 ### PC settings are unusable or do not persist
 
-Check that the install folder is writable. Command-line and environment settings
-can override saved preferences.
+Check folder write access and command-line or environment overrides. To reset
+PC preferences, close the game and rename `user/pc-settings.toml` to a backup
+filename. The next launch restores defaults and imports native options.
+Keep the rest of `user/` to preserve game saves.
 
-To reset PC preferences, close the game and rename `user/pc-settings.toml` to a
-backup filename. The next launch uses default PC settings and imports native
-options from the save. Keep the rest of `user/` to preserve native game saves.
-
-For setup, disc import and compiler errors, see the
-[build troubleshooting steps](BUILDING.md#setup-and-build-problems).
+For install and compiler errors, see
+[build troubleshooting](BUILDING.md#setup-and-build-problems).

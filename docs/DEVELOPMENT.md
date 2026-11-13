@@ -1,34 +1,29 @@
 # Development and testing
 
-Use the [build guide](BUILDING.md) for toolchain setup and the
-[compatibility guide](COMPATIBILITY.md) for controls and known game issues.
-Commands below run from the repository folder.
+See [BUILDING.md](BUILDING.md) for setup and [COMPATIBILITY.md](COMPATIBILITY.md)
+for controls and known issues. Run commands from the repository folder.
 
 ## Source layout
 
 | Location | Responsibility |
 | --- | --- |
-| `src/main.cpp`, `src/app/` | Entrypoint and application lifecycle |
-| `src/game/` | Shared guest bridge, native menus and dialogs, settings, startup and timing hooks, package decoding and shader inventory |
-| `src/input/` | Keyboard bindings, prompt artwork and input-device switching |
-| `src/settings/` | PC settings, validation and persistence |
-| `src/ui/` | Custom settings page, exit flow and shader-loading interfaces |
+| `src/main.cpp`, `src/app/` | Entrypoint and lifecycle |
+| `src/game/` | Guest bridge, native menus, hooks, package decoding and shaders |
+| `src/input/` | Bindings, prompt artwork and device switching |
+| `src/settings/` | PC settings and persistence |
+| `src/ui/` | Settings page, exit flow and shader loading |
 | `src/testing/` | Local control bridge |
-| `installer/` | Standalone C# launcher, XAML layout and packaging script |
-| `scripts/` | Shared build helpers, benchmarks and control tools |
-| `tests/` | C++, C# and script checks |
+| `installer/` | C# launcher, XAML and packaging |
+| `scripts/`, `tests/` | Development tools and checks |
 
-Generated translations belong in `out/generated/`. Regenerate them after manifest
-changes. Guest hook symbols and signatures must match `lollipop_manifest.toml`.
-See [AGENTS.md](../AGENTS.md) for coding and thread-ownership rules.
-
-Keep disc files, saves, generated code, raw shader caches, captures and logs out
-of Git. Retain upstream notices when changing the SDK patches.
+Follow [AGENTS.md](../AGENTS.md). Regenerate `out/generated/` after manifest
+changes; hook symbols and signatures must match `lollipop_manifest.toml`.
+Keep disc files, saves, generated code, caches, captures and logs out of Git.
+Retain upstream notices when editing SDK patches.
 
 ## Build and tests
 
-`./build.ps1` regenerates code, builds and runs CTest. For tests alone in an
-existing build, initialize the toolchain and run:
+`./build.ps1` regenerates code, builds and runs CTest. To test an existing build:
 
 ```powershell
 . ./scripts/build-tools.ps1
@@ -36,133 +31,79 @@ $tools = Get-BuildTools
 & $tools.CTest --test-dir out/build/win-amd64-release --output-on-failure
 ```
 
-`Get-BuildTools` accepts `-LlvmDirectory` when LLVM is not on PATH. Tests include
-settings migration, input concurrency, timing, native hooks, shader-cache recovery,
-installer behavior, quit-dialog controller input under capture, and packaging
-from another working directory. Headers are compiled independently during the build.
+Pass `-LlvmDirectory` to `Get-BuildTools` if LLVM is not on PATH. Headers compile
+independently. Installer builds include compiled tests and disable script checks
+with `LOLLIPOP_SCRIPT_TESTS=OFF`.
 
-Installer packaging uses `./installer/build.ps1`. Its source kit includes the
-files needed for the game build and compiled tests. PowerShell script checks are
-disabled during installation with `LOLLIPOP_SCRIPT_TESTS=OFF`.
+Update / Repair builds in `out/build/game-compile/`, stages runtime files in
+`out/build/game-staging/`, and publishes only after CTest passes. Recovery data
+in `out/launcher/` protects interrupted directory swaps.
 
-Setup's Update / Repair builds in `out/build/game-compile/` and sends runtime
-outputs to `out/build/game-staging/`. Only a successful build and CTest run can
-publish that directory to `out/build/win-amd64-release/`. A small recovery record
-in `out/launcher/` protects the directory swap. Installer tests cover incomplete
-outputs, interrupted publication, locked files, metadata validation and save,
-settings and key-binding preservation.
-
-Use a separate save directory for game checks. For tests that need existing
-progress, copy the saves to a new directory before launching; do not point
-automation at the player's only save copy.
-
-With the [control bridge](#background-control-bridge) running on that isolated
-save, the quit-menu smoke check tests keyboard, controller and mouse navigation,
-No as the default, held input handling and unchanged PC preferences.
-It closes the test game after confirming Quit Game:
+Use an isolated save directory for game checks. Copy existing saves there when
+progress is needed. With the [bridge](#background-control-bridge) running:
 
 ```powershell
 ./tests/settings_menu_smoke.ps1 -GameProcessId 1234 -Directory out/test-control
 ```
 
-Replace `1234` with the test game's process ID. Finish shader preparation first.
-Repeat on fresh test processes with `-ConfirmWith keyboard` or
-`-ConfirmWith gamepad` to check each confirmation path.
-Use `-FromMainMenu` with the native Quit Game slot selected to test activation
-and cancellation back to that slot.
+This checks quit confirmation and closes the test game. Repeat on fresh processes
+with `-ConfirmWith keyboard` or `-ConfirmWith gamepad`. For the main-menu path,
+select Quit Game first and add `-FromMainMenu`. Finish shader preparation first.
 
 ## Settings and runtime integration
 
-`src/settings/pc_settings.cpp` defines the PC profile. Preferences are written
-atomically to `user/pc-settings.toml`; invalid or duplicate-key profiles are
-ignored as a whole. Explicit command-line and environment values take priority.
-The old `lollipop_60fps` preference migrates to `lollipop_fps`.
-
-Original game options are imported after native save loading. Changes use the
-game's own option functions, and Apply also calls its save routine. Native
-settings calls run on the engine tick thread, not a loading-movie worker.
-
-`game_bridge` owns scoped PPC context preservation, reflection, guest strings and
-Scaleform calls. `native_quit_dialog` owns the original system window and its
-state on the engine thread. `exit_flow` owns UI capture, release gating and return
-to the settings page. The settings page keeps its draft while exit is pending.
-`game_menus` routes the native movie hooks and engine-thread updates without
-changing the hooks' manifest symbols. Settings synchronization stays throttled
-to 250 ms; active quit dialogs advance each frame.
-
-The PC menu hides and closes the original Options movie so Back returns to its
-parent menu. Settings preserve an existing native pause. Confirmation dialogs
-keep gameplay paused, and held closing inputs must be released before gameplay
-resumes. Display changes have a 15-second Keep/Revert timer.
-
-The native main menu reuses its disabled Downloads button for Quit Game, with
-the original focus animation and navigation. A validated copy of `MENU_PL.xxx`
-is cached alongside the UI overrides; the disc files remain unchanged. The
-tagged Options command is consumed before native Kismet routing so cancelling
-quit returns directly to the selected slot.
-
-Quit confirmation uses the game's `ASH_GFxSystemWindow`, including its original
-Yes/No artwork, focus and close animations. It opens with No selected and displays
-only "Quit the game?". Keyboard, mouse and controller input is forwarded to that
-native movie while gameplay input stays blocked. Controller polling uses the UI
-input path so it remains available while ImGui captures input.
-
-Keyboard prompt packages are built from the disc assets and current bindings
-under `cache/keyboard-prompts/`. Rebinding needs a restart. Mixed input enables
-synchronous memory-export readback to keep prompt copies current; see
-[input troubleshooting](COMPATIBILITY.md#keyboard-and-controller-prompts-do-not-update)
-before changing those renderer flags.
-
-The package worker uses the host LZX decoder only for supported, validated
-buffers. Unsupported layouts and decoder errors fall back to the guest decoder.
-The D3D12 copy optimization keeps the GPU draw and mirrors its result only when
-the source data is current on the CPU. Other exports retain normal readback.
+- `src/settings/pc_settings.cpp` validates and atomically saves the PC profile.
+  Command-line and environment values override it. `lollipop_60fps` migrates to
+  `lollipop_fps`.
+- Native options load after the save. Apply uses the game's setters and save
+  routine on the engine tick thread. `game_bridge` restores the caller's PPC
+  context; guest calls must not hold runtime or registry locks.
+- `game_menus` routes movie hooks. `native_quit_dialog` owns the native system
+  window; `exit_flow` forwards UI input, blocks gameplay and waits for release.
+  Cancelling preserves the settings draft and existing native pause state.
+- The PC page hides and closes the original Options movie. Display changes have
+  a 15-second rollback timer. Settings sync runs every 250 ms; quit updates run
+  each frame.
+- The main menu reuses the disabled Downloads slot. Its patched `MENU_PL.xxx`
+  lives in the cache; the tagged Options command bypasses native Kismet routing.
+- Prompt artwork is cached under `cache/keyboard-prompts/`. Rebinding requires a
+  restart. Mixed input needs synchronous memory-export readback.
+- Host LZX decoding falls back to the guest decoder for unsupported layouts or
+  errors. CPU copy mirroring requires current source data and retains the GPU draw.
 
 ## Shader preparation and collection
 
-`assets/shaders/pipelines.txt` stores pipeline state, shader fingerprints,
-executable locations and patches for runtime variants. Shader programs come from
-the user's disc and loaded executable. They are checked against their fingerprints
-before use and cached under `cache/shaders/`.
+`assets/shaders/pipelines.txt` stores pipeline state and shader fingerprints.
+Programs come from the user's disc or executable, are validated before use, and
+are cached under `cache/shaders/`. Damaged local caches are rebuilt. See
+[coverage limits](COMPATIBILITY.md#shader-coverage).
 
-The local scan index uses package names, sizes and modification times. Damaged
-cache files are rebuilt, and cached pipelines with missing shaders are dropped.
-The bundled inventory is still validated strictly. Coverage is described in
-[compatibility](COMPATIBILITY.md#shader-coverage).
-
-To collect new combinations, use a copied save and a separate cache. For example:
+Collect with a copied save and separate cache:
 
 ```powershell
 ./run.ps1 -UserDirectory out/user-collection -CacheDirectory out/cache-collection
 ```
 
-Finish preparation, play the scenes to record, then close the game so the cache
-is stable. Collect its pipeline records with:
+Play the required scenes, close the game, then collect:
 
 ```powershell
 ./out/build/win-amd64-release/lollipop_shader_tool.exe collect `
     out/cache-collection out/pipeline-inventory.txt "Stage and situations exercised"
 ```
 
-Reusing the output file merges earlier records and coverage notes. Review it
-before replacing `assets/shaders/pipelines.txt`, rebuild, then verify with a fresh
-cache and normal rendering. The frame log's `pipeline_cache_misses` counter helps
-identify combinations still compiled during play.
+Reusing the output merges records. Review before replacing
+`assets/shaders/pipelines.txt`, rebuild, and check normal rendering with a fresh
+cache. Watch `pipeline_cache_misses` for combinations compiled during play.
 
-For automated collection, `--d3d12_pipeline_collection=true --audio_mute=true`
-records selected pipelines without color/depth draws. Memory exports still run.
-This mode produces no game image, so check the collected inventory with normal
-rendering afterward.
-
-The collector excludes the engine-generated loading copy pipeline from the
-portable inventory. It can be prepared from a player's runtime cache on later
-launches. Stream `Swan_Event_PL` into an initialized final-stage world; direct
-map boot is unsupported.
+`--d3d12_pipeline_collection=true --audio_mute=true` skips color/depth draws
+while recording pipelines. Verify its results with normal rendering afterward.
+The portable inventory excludes the engine-generated loading copy pipeline.
+Stream `Swan_Event_PL` into an initialized final-stage world; direct map boot
+is unsupported.
 
 ## Texture reload stress check
 
-Use a copied native save in an unused directory under `out/`. A reduced cache
-limit exercises texture eviction and CPU memory-invalidation callbacks together:
+Use a copied save and reduced cache limits:
 
 ```powershell
 ./run.ps1 -UserDirectory out/texture-test-user -CacheDirectory out/texture-test-cache `
@@ -170,31 +111,23 @@ limit exercises texture eviction and CPU memory-invalidation callbacks together:
     --texture_cache_memory_limit_soft_lifetime=1 --perf_log_csv=out/texture-test-frames.csv
 ```
 
-Load the prologue through the main menu, then repeat native Restart and
-death/Continue. Check that `texture_cache_evictions` rises in the frame log,
-gameplay resumes, and there is no access violation or GPU device loss. Repeat
-with the default limits afterward. Texture destruction must hold the shared
-memory critical region while checking and removing watch handles; callbacks can
-clear and recycle those handles on a CPU thread.
+Repeat prologue Restart and death/Continue. Confirm rising
+`texture_cache_evictions`, resumed gameplay, and no access violation or GPU loss.
+Repeat with default limits. Texture destruction must hold the shared-memory
+critical region while removing watch handles. Mid-frame GPU waits must invalidate
+cached texture bindings before eviction.
 
-Mid-frame fence waits must also invalidate the command processor's cached texture
-bindings before eviction. A reloaded texture can have the same guest key and a
-different host descriptor. Exercise `ce TelephoneIntro` followed by `ce TeleTest`
-from an initialized, copied checkpoint 25 save to check the phone level's load and
-unload under cache pressure; this bypasses story triggers.
-
-With that save loaded normally, `tests/phone_transition_smoke.ps1` repeats three
-phone load/unload cycles, checks frame progress and eviction, and saves captures
-for visual inspection. Supply the test process ID and the bridge and log paths:
+For phone load/unload checks, load a copied checkpoint 25 save normally and run:
 
 ```powershell
 ./tests/phone_transition_smoke.ps1 -GameProcessId 1234 -Directory out/phone-control `
     -FrameLog out/phone-frames.csv -GameLog out/phone-game.log
 ```
 
-## Background control bridge
+Inspect its captures. The script invokes `ce TelephoneIntro` and `ce TeleTest`;
+these bypass story triggers and do not verify normal progression.
 
-Launch with a separate save directory and the bridge enabled:
+## Background control bridge
 
 ```powershell
 ./run.ps1 -UserDirectory out/user-test --lollipop_test_directory=out/test-control `
@@ -202,86 +135,66 @@ Launch with a separate save directory and the bridge enabled:
     --perf_log_csv=out/lab-frames.csv
 ```
 
-The bridge is enabled only when its directory is supplied. It uses local files
-and sends input without desktop focus. Injected input shares player 1 with real
-devices. Send a command with:
+From another PowerShell window:
 
 ```powershell
 ./scripts/test-control.ps1 -Command 'input 4096 0 0 0 0 150'
 ```
 
-Use `-Directory` if the bridge is in a different location.
+Supplying the bridge directory enables local file commands without desktop focus.
+Injected input shares player 1 with real devices. Use `-Directory` with the control
+script for a different bridge path.
 
 | Command | Purpose |
 | --- | --- |
-| `get name` | Read a runtime setting |
-| `set name value` | Change a live setting; restart-only settings are rejected |
-| `input buttons lx ly rx ry duration_ms [lt rt]` | Set controller input for up to 10 seconds, optionally including triggers |
-| `input_device keyboard` / `input_device gamepad` | Choose the injected device |
-| `input_state` | Read guest/UI buttons, triggers and the active hint device |
-| `game_settings_state` | Read cached native option values |
-| `game_console command` | Queue a native console command on the engine thread |
-| `game_console_state` | Read console status |
-| `ui_state` | List active UI dialog rectangles |
-| `ui_mouse x y down` | Send mouse down/up to the SDK UI |
-| `ui_key key down` | Send a navigation key down/up to the SDK UI |
-| `capture` | Save the game image to `capture.bmp`; SDK overlays are excluded |
-| `gpu_capture_start` / `gpu_capture_stop` | Capture when launched under RenderDoc |
-| `quit` | Close the test process |
-| `quit_state`, `quit_selection` | Inspect native quit dialog state and choice (1 Yes, 2 No) |
+| `get name` / `set name value` | Read or change live settings; restart-only writes are rejected |
+| `input buttons lx ly rx ry duration_ms [lt rt]` | Inject controller input for up to 10 seconds |
+| `input_device keyboard` / `input_device gamepad` | Select injected device |
+| `input_state` | Read guest/UI buttons, triggers and hint device |
+| `game_settings_state` | Read cached native options |
+| `game_console command` / `game_console_state` | Queue an engine-thread console command or read its status |
+| `ui_state` | List active dialog rectangles |
+| `ui_mouse x y down` / `ui_key key down` | Send UI mouse or navigation-key events |
+| `capture` | Save `capture.bmp` without SDK overlays |
+| `gpu_capture_start` / `gpu_capture_stop` | Capture under RenderDoc |
+| `quit` | Close the test game |
+| `quit_state` / `quit_selection` | Read native quit state and selection: 1 Yes, 2 No |
 
-Button masks are decimal Xbox bits; stick axes range from -32768 to 32767.
-The example presses A. Optional trigger values range from 0 to 255; omitting
-them releases both triggers. For example, `input 0 0 0 0 0 150 0 255` pulls RT
-for Star Soul. Mouse/key `down` values are 1 for down and 0 for up; send
-both events. UI keys are `enter`, `escape`, `backspace`, `tab`, `up`, `down`,
-`left` and `right`.
+Button masks are decimal Xbox bits; axes range from -32768 to 32767. Triggers
+range from 0 to 255; omitting them releases both. The example presses A.
+`input 0 0 0 0 0 150 0 255` pulls RT for Star Soul.
 
-Console commands accept up to 240 printable ASCII characters on one line.
-For example, `game_console open STAGE02_PL?game=AshGame.ASH_GameInfo` requests
-the stadium map. Poll `game_console_state` until `complete` or `error` before
-queuing another command. Completion means the command returned; check that the
-expected scene actually loaded. Use copied saves for console travel and `--cl`
-guest launch arguments.
+UI events use 1 for press and 0 for release; send both. Keys: `enter`, `escape`,
+`backspace`, `space`, `tab`, `up`, `down`, `left`, `right`.
 
-Commands use the local player console when available, with the world console as
-a startup fallback. `game_console ce <event>` can invoke a level's console event.
-These events bypass normal story triggers; they are diagnostic checks, not proof
-of story progression.
-
-A routing smoke check on a copied prologue save is `game_console ce cp25`:
-Juliet should move to the alleyway, and Continue should restore checkpoint 25
-after quitting and restarting the app.
+Console commands accept 240 printable ASCII characters. Poll
+`game_console_state` until `complete` or `error` before sending another command;
+completion does not prove the requested scene loaded. Commands use the local
+player console, falling back to the world console during startup. Use copied
+saves for console travel and `--cl` launch arguments.
 
 ## Frame and engine measurements
-
-To record frame intervals and engine ticks:
 
 ```powershell
 ./run.ps1 --perf_log_csv=out/frames.csv --lollipop_tick_trace_csv=out/ticks.csv
 ./scripts/measure-frames.ps1 -Path out/frames.csv -TargetFPS 60
 ```
 
-The frame log measures guest swap intervals. It does not measure monitor
-presentation or GPU execution time. Tick records include the engine object;
-group by that object when comparing cadence. The tick trace flushes every 60 rows.
+Frame logs measure guest swap intervals, not monitor presentation or GPU duration.
+Group tick records by engine object. `measure-frames.ps1` supports `-LastFrames`,
+`-AfterFrame`, and timed windows with `-StartHostUs` / `-EndHostUs` in Windows
+Stopwatch microseconds. Only complete intervals count.
 
-`measure-frames.ps1` accepts `-LastFrames` and `-AfterFrame` for sample ranges,
-or `-StartHostUs` and `-EndHostUs` for a timed window in Windows Stopwatch
-microseconds. Only complete intervals inside a timed window count. Results
-include frame percentiles, fence waits, cache misses and available prompt counters.
-
-With the bridge running, confirm live gameplay before starting the benchmark:
+With the bridge running in live gameplay:
 
 ```powershell
 ./scripts/benchmark-gameplay.ps1 -Path out/lab-frames.csv -OutputDirectory out/benchmark-new
 ```
 
-Use a new output directory. The benchmark sends 60 seconds of idle, camera,
-movement and attack inputs, and saves per-phase timing, settings and screenshots.
-Inspect the screenshots for tutorials, cutscenes or death screens before comparing
-results. Keep the save, scene and graphics/input settings consistent between runs.
+Use a new output directory. The benchmark records 60 seconds of idle, camera,
+movement and attacks. Inspect captures for menus, cutscenes or death screens;
+keep the save, scene and settings consistent between runs.
 
-Verify the native pause menu before leaving a combat test unattended. Start can
-open a cutscene skip prompt or be ignored during a finisher. Close the game before
-replaying a GPU capture or profiling a different GPU workload.
+Verify native pause before leaving combat unattended: Start may open a skip
+prompt or be ignored during a finisher. Close the game before replaying a GPU
+capture or profiling another GPU workload.
