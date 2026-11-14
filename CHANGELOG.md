@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-11-14
 
 - Add character shadow resolution choices (Original, 256, 512 and 1024) to launcher
   and in-game Graphics settings. Changes apply after restarting the game.
-- Check for stable releases in the background when the launcher starts. Show a
+- Launcher 0.2.6 checks for stable releases in the background on startup, with a
   dismissible update notice, an Updates badge and release notes for newer releases.
 
 ## 0.1.2 — 2026-11-14
