@@ -17,7 +17,7 @@ do not verify the normal story route.
   failures were not reproduced in the current targeted checks. Stability across
   a full playthrough, including normal traversal through that phone-call
   transition, remains unverified.
-- Uncached shaders can pause the game while compiling. Optional shader preparation
+- Uncached shaders can pause the game while compiling. Automatic shader preparation
   reduces these pauses; combinations missing from the inventory still compile on use.
 - Physical controllers, multiple monitors, other disc versions and Vulkan need
   more testing. Automated controller checks use injected input.
@@ -65,9 +65,10 @@ until the drift stops. A value of 100% disables that stick.
 
 ## Shader preparation
 
-Normal launches start the game without a shader-preparation screen. Shaders
-compile as needed and are cached for later launches. To prepare the recorded
-shaders ahead of play, use the launcher's Prepare shaders action or:
+Normal D3D12 ROV launches automatically prepare the recorded shaders before
+starting the game. An animated progress screen stays responsive during preparation.
+First-time preparation can take several minutes; later launches reuse the cache.
+To prepare shaders without starting the game, use the launcher's Prepare shaders action or:
 
 ```powershell
 ./run.ps1 -PrecompileShaders
@@ -75,6 +76,7 @@ shaders ahead of play, use the launcher's Prepare shaders action or:
 
 Preparation requires D3D12 ROV and `store_shaders=true`. It validates the local
 shader inventory and rebuilds damaged inventory caches.
+Other renderers and launches with shader storage disabled retain on-demand compilation.
 
 ### Shader coverage
 

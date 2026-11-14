@@ -53,8 +53,13 @@ public:
 protected:
   void OnPreLaunchModule() override { prefetch_recompiled_code(); }
 
+  bool ShouldInitializeShaderStorage() const override { return !shader_storage_prepared_; }
+
   void LaunchModule() override {
-    if (!REXCVAR_GET(lollipop_precompile_only)) {
+    const bool prepare_only = REXCVAR_GET(lollipop_precompile_only);
+    if (!prepare_only && (!rex::cvar::Query<bool>("store_shaders") || cache_root().empty() ||
+                          REXCVAR_GET(lollipop_gpu_backend) == "vulkan" ||
+                          rex::cvar::GetFlagByName("render_target_path_d3d12") != "rov")) {
       ReXApp::LaunchModule();
       return;
     }
@@ -91,7 +96,7 @@ protected:
                      : "Complete",
                  completed, total);
         });
-    shader_worker_ = std::jthread([this, report] {
+    shader_worker_ = std::jthread([this, report, prepare_only] {
       try {
         if (!rex::cvar::Query<bool>("store_shaders"))
           throw std::runtime_error("Shader preparation requires --store_shaders=true.");
@@ -114,7 +119,16 @@ protected:
                 "Some shader pipelines could not be prepared. Check the runtime log.");
         }
         rex::system::SetShaderPrecompileCallback({});
-        app_context().CallInUIThreadDeferred([this] { window()->RequestClose(); });
+        app_context().CallInUIThreadDeferred([this, prepare_only] {
+          if (prepare_only) {
+            window()->RequestClose();
+            return;
+          }
+          shader_storage_prepared_ = true;
+          loading_screen_.reset();
+          loading_.reset();
+          ReXApp::LaunchModule();
+        });
       } catch (const std::exception& error) {
         REXLOG_ERROR("Shader preparation failed: {}", error.what());
         rex::system::SetShaderPrecompileCallback({});
@@ -124,7 +138,8 @@ protected:
           loading_->failed = std::max(1u, loading_->failed);
         }
         report("Failed", 0, 0);
-        app_context().CallInUIThreadDeferred([this] { window()->RequestClose(); });
+        if (prepare_only)
+          app_context().CallInUIThreadDeferred([this] { window()->RequestClose(); });
       }
     });
   }
@@ -196,6 +211,7 @@ protected:
   }
 
 private:
+  bool shader_storage_prepared_ = false;
   std::shared_ptr<shader_loading_state> loading_;
   std::unique_ptr<rex::ui::ImGuiDialog> loading_screen_;
   std::jthread shader_worker_;

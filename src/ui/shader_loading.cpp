@@ -1,6 +1,7 @@
 #include "shader_loading.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <imgui.h>
 #include <rex/ui/imgui_dialog.h>
@@ -51,13 +52,25 @@ private:
     ImGui::Spacing();
     if (error.empty()) {
       ImGui::TextUnformatted(stage.c_str());
+      const auto cursor = ImGui::GetCursorScreenPos();
+      const ImVec2 center(cursor.x + 12 * scale, cursor.y + 14 * scale);
+      auto* draw = ImGui::GetWindowDrawList();
+      const float rotation = float(std::fmod(ImGui::GetTime(), 1.0)) * 6.2831853f;
+      draw->PathArcTo(center, 9 * scale, rotation, rotation + 4.712389f, 24);
+      draw->PathStroke(ImGui::GetColorU32(ImVec4(1, 0.47f, 0.69f, 1)), 0, 3 * scale);
+      ImGui::Dummy(ImVec2(30 * scale, 28 * scale));
+      ImGui::SameLine();
+      ImGui::TextUnformatted("Preparing for smoother gameplay...");
       ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.82f, 0.13f, 0.4f, 1));
       const std::string count =
           total ? std::to_string(completed) + " / " + std::to_string(total) : "Checking";
       ImGui::ProgressBar(total ? float(completed) / total : 0, ImVec2(width, 26 * scale),
                          count.c_str());
       ImGui::PopStyleColor();
-      ImGui::TextWrapped("This window will close when preparation finishes.");
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+      ImGui::TextWrapped("Shaders are cached for future launches. First-time preparation can take "
+                         "several minutes. Please wait until preparation finishes.");
+      ImGui::PopTextWrapPos();
     } else {
       ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
       ImGui::TextUnformatted(error.c_str());

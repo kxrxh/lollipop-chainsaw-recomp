@@ -97,6 +97,11 @@ progress is needed.
 
 ## Shader preparation and collection
 
+Run `./tests/shader_startup_test.ps1 -GameDirectory <disc> -BuildDirectory <build>`
+to check automatic preparation with a new cache and isolated saves, then a warm
+relaunch. It checks that preparation runs only once per launch and captures a
+guest frame after the handoff. Evidence stays under a unique `out/` directory.
+
 `assets/shaders/pipelines.txt` stores pipeline state and shader fingerprints.
 Programs come from the user's disc or executable, except the engine loading copy
 shader reconstructed by a fingerprint-checked generator. They are validated before

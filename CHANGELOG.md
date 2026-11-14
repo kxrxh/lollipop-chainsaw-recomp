@@ -12,7 +12,9 @@
   without installing Visual Studio Build Tools, Windows SDK or VC++ Redistributable.
 - Keep C++ runtime DLLs with the game and launcher state beside the launcher, with
   import of the previously remembered game folder.
-- Start the game directly; shader preparation remains available as a separate action.
+- Automatically prepare recorded shaders before D3D12 ROV gameplay, with an animated
+  progress screen and cache reuse on later launches. Preparation without launching
+  the game remains available as a separate action.
 - Prepare the engine loading-copy shader without a prior play session, and extend
   the recorded prologue shader combinations.
 - Handle chunked streaming copies and export rebasing without unnecessary GPU readbacks.
