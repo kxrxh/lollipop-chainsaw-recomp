@@ -54,8 +54,11 @@ the playable build. Recovery records in `out/launcher/` protect directory swaps.
 The version marker is published with the build and restored on rollback. Older
 installations show an unknown version until rebuilt.
 
-The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`. Self-update
-selects the latest release's `Lollipop-Chainsaw-Launcher.exe`, checks its official
+The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`. A background
+startup check compares the latest stable tag with the bundled recomp version.
+Newer releases show an Updates badge and a notice that can be dismissed for the
+session. Failed checks stay on the Updates page. Self-update selects the latest
+release's `Lollipop-Chainsaw-Launcher.exe`, checks its official
 URL, size and SHA-256, and downloads it through the resumable package cache. Its
 file version prevents launcher downgrades independently of the recomp version.
 A copy of the current launcher waits for the old process to exit, replaces its
@@ -88,6 +91,10 @@ Use an isolated save directory for game checks; copy existing saves there if nee
 - `src/settings/pc_settings.cpp` validates and atomically saves the PC profile.
   Command-line and environment values override it. `lollipop_60fps` migrates to
   `lollipop_fps`.
+- `lollipop_shadow_resolution` keeps native character shadows at `0` (default), or
+  raises their resolution cap and texel density to `256`, `512` or `1024` at startup.
+  The manifest hooks run after native system settings initialize, before render-target
+  allocation, and retain the selected values across native settings reloads.
 - Native options load after the save. Apply uses the game's setters and save
   routine on the engine tick thread. `game_bridge` restores the caller's PPC
   context; guest calls must not hold runtime or registry locks.

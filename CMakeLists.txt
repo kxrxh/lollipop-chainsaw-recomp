@@ -46,6 +46,7 @@ add_executable(lollipop WIN32
     src/game/main_menu.cpp
     src/game/package_lzx.cpp
     src/game/shader_inventory.cpp
+    src/game/shadow_settings.cpp
     src/game/startup_hooks.cpp
     src/game/timing_hooks.cpp
     src/input/keyboard_controls.cpp
@@ -106,7 +107,7 @@ add_test(NAME lollipop_checkpoint_copy_export COMMAND lollipop_copy_export_test)
 set(LOLLIPOP_HEADERS
     app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h
     game/native_quit_dialog.h game/main_menu.h game/package_lzx.h
-    game/startup_hooks.h game/timing_hooks.h
+    game/startup_hooks.h game/timing_hooks.h game/shadow_settings.h
     game/shader_inventory.h ui/shader_loading.h
     input/keyboard_controls.h input/live_prompts.h input/prompt_artwork.h
     settings/pc_settings.h testing/test_bridge.h ui/settings_menu.h ui/exit_flow.h)
@@ -138,6 +139,11 @@ add_test(NAME lollipop_settings_shader_default COMMAND lollipop_settings_test
     "${CMAKE_CURRENT_BINARY_DIR}/settings-test/shader-default.toml" --shader-default)
 add_test(NAME lollipop_settings_shader_cli COMMAND lollipop_settings_test
     "${CMAKE_CURRENT_BINARY_DIR}/settings-test/shader-cli.toml" --shader-cli)
+
+add_executable(lollipop_shadow_test tests/shadow_settings_test.cpp src/game/shadow_settings.cpp)
+target_include_directories(lollipop_shadow_test PRIVATE src)
+target_link_libraries(lollipop_shadow_test PRIVATE rex::runtime)
+add_test(NAME lollipop_shadow_settings COMMAND lollipop_shadow_test)
 
 add_executable(lollipop_keyboard_test tests/keyboard_controls_test.cpp
     src/input/keyboard_controls.cpp src/input/prompt_artwork.cpp

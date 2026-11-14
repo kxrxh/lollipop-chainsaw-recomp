@@ -27,6 +27,9 @@ internal sealed class GameSettings {
                       "none|Off", "fxaa|FXAA", "fxaa_extreme|FXAA / Strong"),
     new GraphicsField("anisotropic_override", "Texture filtering", "Sharper textures at an angle.",
                       "5", "-1|Original", "0|Off", "2|2x", "3|4x", "4|8x", "5|16x"),
+    new GraphicsField("lollipop_shadow_resolution", "Shadow resolution",
+                      "Sharper character shadows. Requires a restart; increases GPU usage.", "0",
+                      "0|Original", "256|256 × 256", "512|512 × 512", "1024|1024 × 1024"),
     new GraphicsField("lollipop_fps", "Frame rate limit",
                       "90 and 120 FPS gameplay is still experimental.", "60",
                       "30|30 FPS / Original", "60|60 FPS", "90|90 FPS", "120|120 FPS"),
@@ -100,6 +103,9 @@ internal sealed class GameSettings {
       break;
     case "lollipop_fps":
       valid = new[] { "30", "60", "90", "120" }.Contains(value);
+      break;
+    case "lollipop_shadow_resolution":
+      valid = new[] { "0", "256", "512", "1024" }.Contains(value);
       break;
     case "swap_post_effect":
       valid = new[] { "none", "fxaa", "fxaa_extreme" }.Contains(value);

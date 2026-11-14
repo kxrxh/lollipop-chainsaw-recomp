@@ -49,7 +49,10 @@
               <Button Name="HomeNav" Style="{StaticResource Nav}" Content="&#xE80F;" ToolTip="Overview" AutomationProperties.Name="Overview"/>
               <Button Name="ManageNav" Style="{StaticResource Nav}" Content="&#xE8B7;" ToolTip="Manage game" AutomationProperties.Name="Manage game"/>
               <Button Name="SettingsNav" Style="{StaticResource Nav}" Content="&#xE713;" ToolTip="Game settings" AutomationProperties.Name="Game settings"/>
-              <Button Name="UpdatesNav" Style="{StaticResource Nav}" Content="&#xE895;" ToolTip="Updates" AutomationProperties.Name="Updates"/>
+              <Grid>
+                <Button Name="UpdatesNav" Style="{StaticResource Nav}" Content="&#xE895;" ToolTip="Updates" AutomationProperties.Name="Updates"/>
+                <Ellipse Name="UpdateBadge" Visibility="Collapsed" Fill="#FF8FC1" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,9,5,0" IsHitTestVisible="False"/>
+              </Grid>
             </StackPanel>
           </Border>
           <Button Name="Help" Grid.Row="2" Style="{StaticResource Nav}" Content="&#xE897;" Background="#D9090C10" ToolTip="Help &amp; support" AutomationProperties.Name="Help and support"/>
@@ -58,9 +61,19 @@
           <Grid.RowDefinitions><RowDefinition Height="84"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid Margin="28,18,22,14">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <TextBlock Text="LOLLIPOP / " Foreground="#D0C8D3" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
-              <TextBlock Name="PageHeading" Text="Overview" FontSize="12" VerticalAlignment="Center"/>
+            <StackPanel VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="LOLLIPOP / " Foreground="#D0C8D3" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Name="PageHeading" Text="Overview" FontSize="12" VerticalAlignment="Center"/>
+              </StackPanel>
+              <Border Name="UpdateNotice" Visibility="Collapsed" Background="#ED18131E" BorderBrush="#805B4B5B" BorderThickness="1" CornerRadius="12" HorizontalAlignment="Left" Margin="0,5,12,0">
+                <StackPanel Orientation="Horizontal">
+                  <Button Name="UpdateNoticeAction" Background="Transparent" BorderThickness="0" Foreground="#FF8FC1" FontSize="11" Padding="8,4" AutomationProperties.LiveSetting="Polite">
+                    <TextBlock Name="UpdateNoticeText" MaxWidth="200" TextTrimming="CharacterEllipsis"/>
+                  </Button>
+                  <Button Name="DismissUpdateNotice" Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="9" Background="Transparent" BorderThickness="0" Padding="7,4" ToolTip="Dismiss update notice" AutomationProperties.Name="Dismiss update notice"/>
+                </StackPanel>
+              </Border>
             </StackPanel>
             <Border Grid.Column="1" Background="#E6090C10" CornerRadius="22" Padding="18,10" VerticalAlignment="Center" Margin="10,0,18,0">
               <StackPanel Orientation="Horizontal">
@@ -136,7 +149,7 @@
                   <TextBlock Name="BundledVersion" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0"/>
                   <TextBlock Name="InstalledBuildVersion" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,24"/>
                   <TextBlock Name="UpdateStatus" Text="Check for the latest stable release on GitHub." FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                  <TextBlock Name="UpdateDetail" Text="Update launcher downloads the latest stable launcher and restarts it. Apply its game build from Manage game when ready." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,16"/>
+                  <TextBlock Name="UpdateDetail" Text="The launcher checks for stable releases on startup. Update launcher downloads the latest stable launcher and restarts it. Apply its game build from Manage game when ready." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,16"/>
                   <WrapPanel>
                     <Button Name="UpdateLauncher" Content="Update launcher" Margin="0,0,12,8"/>
                     <Button Name="CheckUpdates" Content="Check for updates" Margin="0,0,12,8"/>
@@ -225,7 +238,7 @@
                 <TextBlock Text="Already installed?" Style="{StaticResource HelpHeading}"/>
                 <TextBlock Style="{StaticResource HelpBody}" Text="Open Lollipop Chainsaw Launcher and select Play. Setup can add a desktop shortcut to the launcher. You can also create one from Manage game. The launcher remembers your game folder; use Locate game to change it."/>
                 <TextBlock Text="Updates &amp; repair" Style="{StaticResource HelpHeading}"/>
-                <TextBlock Style="{StaticResource HelpBody}" Text="Open Updates to see launcher, bundled recomp and installed game versions, and check for a stable recomp release. Download its launcher, select your existing game folder, then use Apply launcher build / Repair in Manage game. An imported disc does not need the ISO again. This also resumes interrupted installation."/>
+                <TextBlock Style="{StaticResource HelpBody}" Text="The launcher checks for stable releases on startup. A notice and an Updates badge appear when a newer recomp release is available. Open Updates for release notes and select Update launcher to download and restart. Use Apply launcher build / Repair in Manage game to update the game. An imported disc does not need the ISO again. This also resumes interrupted installation."/>
                 <TextBlock Text="Saves &amp; settings" Style="{StaticResource HelpHeading}"/>
                 <TextBlock Style="{StaticResource HelpBody}" Text="Saves and PC settings live in the user folder. Keep it when moving your game. Open Game settings to configure display and graphics before playing. Save settings or press Play to apply your changes on the next launch. Audio and controls are also available in the game's Options menu."/>
               </StackPanel>

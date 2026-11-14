@@ -33,14 +33,18 @@ int main(int argc, char** argv) try {
   for (const auto& setting : pc_settings()) values[setting.name] = setting.recommended;
   values["window_height"] = "1440";
   check(validate_pc_settings(values), "Recommended profile validates");
+  check(values.contains("lollipop_shadow_resolution") &&
+            values.at("lollipop_shadow_resolution") == "0",
+        "Existing profiles retain original shadow resolution by default");
   const std::filesystem::path path = argv[1];
   if (argc == 3 && std::string_view(argv[2]) == "--launcher-profile") {
     configure_pc_settings(path);
-    const pc_values expected{
-        {"window_width", "1920"},     {"window_height", "1080"},      {"fullscreen", "false"},
-        {"vsync", "false"},           {"present_letterbox", "false"}, {"resolution_scale", "3"},
-        {"swap_post_effect", "fxaa"}, {"anisotropic_override", "4"},  {"lollipop_fps", "90"},
-        {"present_dither", "true"},   {"lollipop_music_volume", "6"}};
+    const pc_values expected{{"window_width", "1920"},       {"window_height", "1080"},
+                             {"fullscreen", "false"},        {"vsync", "false"},
+                             {"present_letterbox", "false"}, {"resolution_scale", "3"},
+                             {"swap_post_effect", "fxaa"},   {"anisotropic_override", "4"},
+                             {"lollipop_fps", "90"},         {"present_dither", "true"},
+                             {"lollipop_music_volume", "6"}, {"lollipop_shadow_resolution", "512"}};
     for (const auto& [name, value] : expected)
       check(rex::cvar::GetFlagByName(name) == value,
             ("Launcher setting not applied: " + name + " = " + rex::cvar::GetFlagByName(name))
@@ -94,13 +98,30 @@ int main(int argc, char** argv) try {
     selected["lollipop_fps"] = fps;
     check(save_pc_settings(path, selected, error), "All frame limits can be saved");
   }
-  check(save_pc_settings(path, values, error), "Restore recommended profile");
+  for (const char* resolution : {"0", "256", "512", "1024"}) {
+    auto selected = values;
+    selected["lollipop_shadow_resolution"] = resolution;
+    check(save_pc_settings(path, selected, error), "All shadow resolutions can be saved");
+  }
+  values["lollipop_shadow_resolution"] = "1024";
+  check(save_pc_settings(path, values, error), "Restore selected profile");
   const std::pair<const char*, const char*> invalid_values[] = {
-      {"mnk_sensitivity", "nan"}, {"mnk_sensitivity", "51"},
-      {"lollipop_music_volume", "11"}, {"lollipop_sfx_volume", "-1"},
-      {"lollipop_music_volume", "5.5"}, {"lollipop_subtitles", "maybe"},
-      {"lollipop_fps", "45"}, {"lollipop_fps", "121"}, {"lollipop_fps", "90.5"},
-      {"swap_post_effect", "dlss"}, {"window_height", "-1"}, {"vsync", "true\nsecret = 1"}};
+      {"mnk_sensitivity", "nan"},
+      {"mnk_sensitivity", "51"},
+      {"lollipop_music_volume", "11"},
+      {"lollipop_sfx_volume", "-1"},
+      {"lollipop_music_volume", "5.5"},
+      {"lollipop_subtitles", "maybe"},
+      {"lollipop_fps", "45"},
+      {"lollipop_fps", "121"},
+      {"lollipop_fps", "90.5"},
+      {"lollipop_shadow_resolution", "-1"},
+      {"lollipop_shadow_resolution", "2048"},
+      {"lollipop_shadow_resolution", "512.0"},
+      {"lollipop_shadow_resolution", "300"},
+      {"swap_post_effect", "dlss"},
+      {"window_height", "-1"},
+      {"vsync", "true\nsecret = 1"}};
   for (const auto& [name, bad] : invalid_values) {
     auto invalid = values;
     invalid[name] = bad;
@@ -113,6 +134,8 @@ int main(int argc, char** argv) try {
   configure_pc_settings(path);
   check(rex::cvar::GetFlagByName("window_width") == "1920", "Explicit launch flag wins");
   check(rex::cvar::GetFlagByName("swap_post_effect") == "fxaa", "Graphics profile round trips");
+  check(rex::cvar::GetFlagByName("lollipop_shadow_resolution") == "1024",
+        "Shadow resolution round trips");
   check(rex::cvar::Query<int32_t>("window_height") == 1440, "Invalid writes preserved the last good file");
   {
     std::ofstream file(path);

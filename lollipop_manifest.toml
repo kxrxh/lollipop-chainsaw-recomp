@@ -75,6 +75,18 @@ address = 0x829D0CF8
 name = "lollipop_tick_trace"
 registers = ["r3", "f1"]
 
+# FSystemSettings::Initialize, after loading/copying settings and before render-target allocation.
+[[entrypoint.midasm_hook]]
+address = 0x823CC058
+name = "lollipop_initialize_shadows"
+registers = []
+
+# FEngineLoop::Tick: retain the startup shadow choice across native settings reloads.
+[[entrypoint.midasm_hook]]
+address = 0x829BD280
+name = "lollipop_update_shadows"
+registers = []
+
 # UWorld::IsPaused false return, after li r3,0. Native true returns stay untouched.
 [[entrypoint.midasm_hook]]
 address = 0x82582FE0

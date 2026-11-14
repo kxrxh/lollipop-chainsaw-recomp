@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -23,6 +25,7 @@ internal sealed class Launcher {
   private readonly Stopwatch elapsed = new Stopwatch();
   private string stepLabel = "";
   private Release? latest;
+  private string? dismissedRelease;
   private IInputElement? helpReturnFocus;
 
   internal Launcher(string kit, string executable, string? locationFile = null) {
@@ -56,6 +59,11 @@ internal sealed class Launcher {
     Find<Button>("ManageShortcut").Click += delegate { SetPage("Manage"); };
     Find<Button>("SettingsShortcut").Click += delegate { SetPage("Settings"); };
     Find<Button>("UpdatesShortcut").Click += delegate { SetPage("Updates"); };
+    Find<Button>("UpdateNoticeAction").Click += delegate { SetPage("Updates"); };
+    Find<Button>("DismissUpdateNotice").Click += delegate {
+      dismissedRelease = latest?.Tag;
+      Find<Border>("UpdateNotice").Visibility = Visibility.Collapsed;
+    };
     Find<Button>("ChooseIso").Click += delegate {
       var picker =
           new Microsoft.Win32.OpenFileDialog { Title = "Choose your Xbox 360 disc image",
@@ -91,7 +99,7 @@ internal sealed class Launcher {
     Find<Button>("OpenInstall").Click += delegate { OpenPath(Destination); };
     Find<Button>("OpenSaves").Click += delegate { OpenPath(Path.Combine(Destination!, "user")); };
     Find<Button>("CreateDesktopShortcut").Click += delegate { CreateDesktopShortcut(); };
-    Find<Button>("CheckUpdates").Click += delegate { CheckUpdates(); };
+    Find<Button>("CheckUpdates").Click += async delegate { await CheckUpdates(); };
     Find<Button>("UpdateLauncher").Click += delegate { UpdateLauncher(); };
     Find<Button>("ViewRelease").Click += delegate {
       OpenPath(latest == null ? Releases.Page
@@ -267,7 +275,7 @@ internal sealed class Launcher {
                                             : Visibility.Collapsed;
     foreach (var name in new[] { "ChooseIso", "ChooseFolder", "HomeNav", "ManageNav", "SettingsNav",
                                  "UpdatesNav", "ManageShortcut", "SettingsShortcut",
-                                 "UpdatesShortcut" })
+                                 "UpdatesShortcut", "UpdateNoticeAction" })
       Find<Button>(name).IsEnabled = !busy;
     Find<Button>("CheckUpdates").IsEnabled = !busy && !CheckingUpdates;
     Find<Button>("UpdateLauncher").IsEnabled = !busy && !CheckingUpdates;
@@ -349,12 +357,23 @@ internal sealed class Launcher {
 
   internal void ShowRelease(Release? release) {
     latest = release;
+    var available = release != null && Releases.IsNewer(release.Tag, Releases.GameVersion);
+    var notice = available ? "Recomp " + release!.Tag + " available" : "Updates";
+    Find<Border>("UpdateNotice").Visibility =
+        available && dismissedRelease != release!.Tag ? Visibility.Visible : Visibility.Collapsed;
+    Find<TextBlock>("UpdateNoticeText").Text = notice;
+    Find<Button>("UpdateNoticeAction").ToolTip =
+        notice + ". View release notes and update options.";
+    AutomationProperties.SetName(Find<Button>("UpdateNoticeAction"), notice + ". View update.");
+    Find<System.Windows.Shapes.Ellipse>("UpdateBadge").Visibility =
+        available ? Visibility.Visible : Visibility.Collapsed;
+    Find<Button>("UpdatesNav").ToolTip = notice;
+    AutomationProperties.SetName(Find<Button>("UpdatesNav"), notice);
     Find<Button>("ViewRelease").Content = release == null ? "All releases" : "View release";
     Find<TextBlock>("UpdateStatus").Text =
         release == null ? "No public releases yet."
-        : Releases.IsNewer(release.Tag, Releases.GameVersion)
-            ? "Recomp " + release.Tag + " is available."
-            : "You're up to date with the latest stable release.";
+        : available     ? "Recomp " + release.Tag + " is available."
+                        : "You're up to date with the latest stable release.";
     Find<TextBlock>("UpdateDetail").Text =
         release == null
             ? "You're using a development build. Published releases will appear here " +
@@ -369,11 +388,14 @@ internal sealed class Launcher {
                                                           : release.Body;
     Find<RichTextBox>("ReleaseNotes").Document =
         MarkdownNotes.Render(notes, uri => OpenPath(uri.AbsoluteUri));
+    if (Find<Border>("UpdateNotice").Visibility == Visibility.Visible)
+      UIElementAutomationPeer.FromElement(Find<Button>("UpdateNoticeAction"))
+          ?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
   }
 
-  internal async void CheckUpdates() {
+  internal async Task CheckUpdates(Func<Release?>? fetchRelease = null) {
     var button = Find<Button>("CheckUpdates");
-    if (!button.IsEnabled)
+    if (Busy || CheckingUpdates)
       return;
     CheckingUpdates = true;
     Find<Button>("UpdateLauncher").IsEnabled = false;
@@ -381,12 +403,12 @@ internal sealed class Launcher {
     button.Content = "Checking...";
     Find<TextBlock>("UpdateStatus").Text = "Checking GitHub for a stable release...";
     try {
-      var release = await Task.Run(delegate { return Releases.Latest(); });
+      var release = await Task.Run(fetchRelease ?? Releases.Latest);
       ShowRelease(release);
     } catch (Exception error) {
       Find<TextBlock>("UpdateStatus").Text = "Couldn't check for updates.";
       Find<TextBlock>("UpdateDetail").Text =
-          "Check your connection and try again, or browse All releases. " + error.Message;
+          "Check your connection and try again, or browse releases. " + error.Message;
     } finally {
       CheckingUpdates = false;
       button.Content = "Check for updates";

@@ -159,6 +159,7 @@ internal static class SetupTests {
       DownloadTest(tools, progress, sandbox);
       ReleaseTest(args[0]);
       LauncherUpdateTests.Run(sandbox);
+      UpdateNotificationTests.Run(sandbox);
       MarkdownTests.Run();
       GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
       LauncherInstallationTests.Run(sandbox);
@@ -535,7 +536,8 @@ internal static class SetupTests {
     var settings = GameSettings.Load(destination);
     var path = GameSettings.PathFor(destination);
     Check(!File.Exists(path) && settings.Values["window_size"] == "2560x1440" &&
-              settings.Values["swap_post_effect"] == "none",
+              settings.Values["swap_post_effect"] == "none" &&
+              settings.Values["lollipop_shadow_resolution"] == "0",
           "Reading settings wrote a profile or changed startup defaults");
     var selected = new Dictionary<string, string>(settings.Values);
     settings.Save(destination, Environment.ProcessPath!, selected);
@@ -556,6 +558,7 @@ internal static class SetupTests {
     selected["vsync"] = "false";
     selected["present_letterbox"] = "false";
     selected["resolution_scale"] = "3";
+    selected["lollipop_shadow_resolution"] = "512";
     selected["swap_post_effect"] = "fxaa";
     selected["anisotropic_override"] = "4";
     selected["lollipop_fps"] = "90";
@@ -570,6 +573,9 @@ internal static class SetupTests {
           .Run(gameSettingsTest, sandbox, new[] { path, "--launcher-profile" }, true);
     foreach (var invalid in new[] { "vsync = \"maybe\"", "window_width = \"-1\"",
                                     "resolution_scale = \"9\"", "lollipop_fps = \"45\"",
+                                    "lollipop_shadow_resolution = \"2048\"",
+                                    "lollipop_shadow_resolution = \"300\"",
+                                    "lollipop_shadow_resolution = \"512.0\"",
                                     "audio_mute = \"true\"\naudio_mute = \"false\"",
                                     "lollipop_60fps = \"true\"\nlollipop_fps = \"60\"", "[display]",
                                     "unknown = \"value\"" })
@@ -796,6 +802,7 @@ internal static class SetupTests {
                         !launcher.Find<Button>("CreateDesktopShortcut").IsEnabled &&
                         !launcher.Find<Button>("UpdateLauncher").IsEnabled &&
                         !launcher.Find<Button>("CheckUpdates").IsEnabled &&
+                        !launcher.Find<Button>("UpdateNoticeAction").IsEnabled &&
                         !launcher.Find<CheckBox>("DesktopShortcut").IsEnabled &&
                         !launcher.Find<Button>("SaveSettings").IsEnabled,
                     "Closing help re-enabled actions during an operation");
@@ -815,7 +822,8 @@ internal static class SetupTests {
             }
             foreach (var name in new[] { "Primary", "Secondary", "HomeNav", "ManageNav",
                                          "SettingsNav", "UpdatesNav", "Help", "Minimize",
-                                         "Maximize", "CloseWindow" }) {
+                                         "Maximize", "CloseWindow", "UpdateNoticeAction",
+                                         "DismissUpdateNotice" }) {
               var control = launcher.Find<Button>(name);
               if (control.Visibility != Visibility.Visible)
                 continue;

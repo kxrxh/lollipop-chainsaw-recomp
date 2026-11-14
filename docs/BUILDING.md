@@ -182,6 +182,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./launcher/build.ps1
 
 ## Updating or removing an installation
 
+The launcher checks GitHub for a stable release in the background on each startup.
+A newer recomp release shows a dismissible notice and an Updates badge. Select the
+notice for release notes, or use **Updates → Check for updates** to retry. Connection
+failures appear in Updates and do not prevent playing. Downloads only start when
+you select **Update launcher**.
+
 Close the game, then select **Updates → Update launcher**. It checks the download's
 size and SHA-256, replaces the launcher after it exits, and restarts in the same
 folder. Older published versions cannot replace a newer local launcher. Downloads

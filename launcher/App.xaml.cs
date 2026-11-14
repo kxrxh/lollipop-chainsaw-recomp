@@ -32,8 +32,10 @@ public partial class App : Application {
                     out var created);
       if (!created)
         throw new InvalidOperationException("This launcher is already open.");
-      MainWindow = new Launcher(LauncherPackage.ExtractKit(), executable).Window;
+      var launcher = new Launcher(LauncherPackage.ExtractKit(), executable);
+      MainWindow = launcher.Window;
       MainWindow.Show();
+      _ = launcher.CheckUpdates();
     } catch (Exception error) {
       MessageBox.Show(error.Message, "Lollipop Chainsaw Launcher", MessageBoxButton.OK,
                       MessageBoxImage.Error);

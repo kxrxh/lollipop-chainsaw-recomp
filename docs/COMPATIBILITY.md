@@ -28,6 +28,11 @@ Borderless fullscreen uses the desktop resolution. Window resolution applies
 in windowed mode; Render resolution sets internal resolution. VSync, monitor
 refresh and GPU load affect the displayed frame rate.
 
+**Shadow resolution** in the launcher and in-game Graphics settings offers Original,
+256, 512 and 1024. Original preserves the game's character shadows (normally capped
+at 128). Higher values increase character shadow detail and GPU usage independently
+of Render resolution. Changes require a restart.
+
 ## Controls
 
 | Action | Default key |
