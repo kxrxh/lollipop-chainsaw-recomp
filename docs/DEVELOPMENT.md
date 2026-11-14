@@ -27,8 +27,8 @@ Retain upstream notices when editing SDK patches.
 
 ## Build and tests
 
-`./build.ps1` updates generated code incrementally, builds and runs CTest. Unchanged
-manifests retain their timestamps. To test an existing build:
+`./build.ps1` updates generated code, builds changed sources and runs CTest.
+To test an existing build:
 
 ```powershell
 . ./scripts/build-tools.ps1
@@ -42,37 +42,33 @@ full test suite, header checks and shader tool. Player installations configure
 `BUILD_TESTING=OFF`, build only `lollipop`, and skip CTest. Launcher payloads omit
 test sources.
 
-Apply launcher build / Repair builds in `out/build/game-compile/`, stages runtime files in
-`out/build/game-staging/`, and publishes after the build and required runtime-file checks pass. Recovery data
-in `out/launcher/` protects interrupted directory swaps.
-The launcher synchronizes source kits into the installation's stable `out/source/`
-directory, preserving unchanged file timestamps. CMake keeps its cache except when
-migrating an older source path. ReXGlue's content fingerprints skip unchanged code
-generation, and Ninja reuses objects and precompiled headers. SDK and compiler
-packages use fixed archive timestamps so repackaging identical tools keeps the same
-cache paths. Launcher tests compile
-a small fixture twice, then change one host source and check that only its object
-is rebuilt, including when archive timestamps differ.
-The installed version marker travels with the staged build, so rollback restores
-the matching version. Older installations without a marker show an unknown version
-until rebuilt. The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`; update checks
-compare stable release tags with its bundled version. **Update launcher** independently
-selects the latest release's `Lollipop-Chainsaw-Launcher.exe` asset, validates its
-official URL, size and SHA-256 digest, and downloads it through the existing resumable
-package cache. The downloaded EXE's launcher version prevents downgrading a newer
-local build, independently of the recomp release tag. A copy of the current launcher
-runs as an update helper, waits for the
-old process to exit, atomically replaces its EXE and restarts it. This also works when
-the downloaded stable launcher predates the update protocol. The selected game and
-launcher state stay beside the original EXE. Self-update tests cover invalid assets,
-damaged cached downloads, locked targets, process handoff and restart.
+Launcher builds use `out/build/game-compile/` and the stable source copy in
+`out/source/`. Unchanged sources and manifests retain their timestamps. ReXGlue
+skips unchanged translations; Ninja reuses objects and precompiled headers. Fixed
+SDK/compiler archive timestamps keep package cache paths stable. CMake starts fresh
+only when migrating an older source path. Automatic regeneration is disabled for
+launcher builds to avoid loops from archived timestamps.
 
-`launcher/Services/GameSettings.cs` edits the same `user/pc-settings.toml` profile read by
-the game. It preserves unrelated settings and comments, migrates the legacy FPS
-key, rejects malformed profiles, detects external changes and publishes writes
-atomically under the installation lock. Settings cannot be saved while the game
-is running. The launcher test feeds a saved profile to the C++ settings loader to
-check compatibility and native setting import behavior.
+Runtime files are staged in `out/build/game-staging/` and checked before replacing
+the playable build. Recovery records in `out/launcher/` protect directory swaps.
+The version marker is published with the build and restored on rollback. Older
+installations show an unknown version until rebuilt.
+
+The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`. Self-update
+selects the latest release's `Lollipop-Chainsaw-Launcher.exe`, checks its official
+URL, size and SHA-256, and downloads it through the resumable package cache. Its
+file version prevents launcher downgrades independently of the recomp version.
+A copy of the current launcher waits for the old process to exit, replaces its
+EXE atomically and restarts it. State stays beside the original EXE.
+
+Tests cover source-path migration, object/PCH reuse, changed headers, reproducible
+packages, invalid downloads, locked files and updater restart.
+
+`launcher/Services/GameSettings.cs` edits `user/pc-settings.toml`. It preserves
+unrelated settings and comments, migrates the legacy FPS key, rejects malformed
+profiles and detects external changes. Writes are atomic and use the installation
+lock. Settings cannot be saved while the game is running. Tests pass a launcher
+profile to the C++ loader to check compatibility and native setting imports.
 
 The SDK-style launcher targets .NET 10 WPF, with the SDK pinned by
 `launcher/global.json` and NuGet versions recorded in each project's lockfile.
@@ -85,8 +81,7 @@ Release notes use Markdig and native WPF document elements. Web links open in th
 browser; HTML stays inert and image alt text is shown without fetching remote images.
 The game source kit contains native runtime sources and required resources only.
 
-Use an isolated save directory for game checks. Copy existing saves there when
-progress is needed.
+Use an isolated save directory for game checks; copy existing saves there if needed.
 
 ## Settings and runtime integration
 

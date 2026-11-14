@@ -4,19 +4,14 @@ Tested on Windows x64 with Direct3D 12 ROV, an i7-10700K, 32 GB RAM and an
 RTX 3080 at 2560×1440. Checks cover boot, menus, settings and prologue combat
 through the third rescue and helicopter crash. A full playthrough is unverified.
 
-Current targeted checks also cover loading a saved prologue checkpoint, native
-Restart and rendering console-triggered phone scenes. A D3D12 ROV stress run at
-2× render scale with 32/64 MB texture-cache limits completed three level loads
-and over 115,000 texture evictions without a GPU crash. Console-triggered scenes
-do not verify the normal story route.
+Checks also cover checkpoint loading, native Restart and console-triggered phone
+scenes. The normal story route through those phone scenes is unverified.
 
 ## Known issues
 
-- Earlier runs encountered loading/cutscene stalls and D3D12 GPU hangs during
-  reloads, Continue and the phone-call transition after the third rescue. These
-  failures were not reproduced in the current targeted checks. Stability across
-  a full playthrough, including normal traversal through that phone-call
-  transition, remains unverified.
+- Earlier builds had loading/cutscene stalls and D3D12 hangs during reloads,
+  Continue and the phone call after the third rescue. Recent targeted checks did
+  not reproduce them; full-playthrough stability is unverified.
 - Uncached shaders can pause the game while compiling. Automatic shader preparation
   reduces these pauses; combinations missing from the inventory still compile on use.
 - Physical controllers, multiple monitors, other disc versions and Vulkan need

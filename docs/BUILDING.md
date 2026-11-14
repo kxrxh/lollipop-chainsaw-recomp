@@ -10,64 +10,46 @@ play instructions, see the [README](../README.md).
 ./launcher/build.ps1
 ```
 
-Output: `out/launcher/Lollipop Chainsaw Launcher.exe`. The script fetches the pinned
-.NET 10 SDK into `out/tools/` and restores the locked NuGet packages into `out/nuget/`.
-It publishes a self-contained Windows x64 executable; players do not need to install
-.NET. Build the patched SDK once using the manual build requirements below.
-The launcher embeds that SDK, its runtime DLLs, a minimal LLVM 20.1.8 package and
-dependency notices in the EXE. The compiler package keeps `clang`, `clang++`,
-`lld-link`, the LLVM library tools and builtin headers; debuggers, sanitizers and
-unrelated target tools are omitted. Identical executable aliases share archive data.
-To use an SDK built elsewhere, pass `-SdkDirectory <folder>` to `launcher/build.ps1`.
-Use `-LlvmDirectory <LLVM bin or root>` if LLVM 20.1.8 is not on PATH or under Program Files.
-Packaging rejects an SDK whose patch identity differs from the bundled game sources.
+Output: `out/launcher/Lollipop Chainsaw Launcher.exe`, a self-contained Windows x64
+app with the patched ReXGlue SDK, runtime DLLs, minimal LLVM 20.1.8 and dependency
+notices. Players do not need .NET installed.
+
+The script downloads the pinned .NET SDK into `out/tools/` and restores locked NuGet
+packages into `out/nuget/`. Pass `-SdkDirectory <folder>` for an existing patched SDK,
+or `-LlvmDirectory <LLVM bin or root>` if LLVM is not on PATH or under Program Files.
+The SDK's patch identity must match the game sources.
 
 Open [Lollipop.Launcher.slnx](../launcher/Lollipop.Launcher.slnx) in an IDE for the
 WPF application and its test project. Build and publish output stays under `out/launcher/`.
 UI-only IDE builds and launcher tests can run without an SDK; installing a game
 requires the packaged launcher produced by `launcher/build.ps1`.
 
-`VERSION` sets the bundled recomp version; `launcher/VERSION` independently sets
-the launcher version. Updates shows both alongside the installed game version.
-Development builds use a `-dev` suffix. Stable recomp release tags use `vMAJOR.MINOR.PATCH`; update checking
-uses the public GitHub latest-release API. **Update launcher** downloads the latest
-stable launcher, verifies its size and GitHub SHA-256 digest, then restarts it at
-the same location. A helper replaces the EXE only after the launcher exits.
-An older published launcher cannot replace a newer local build.
-**View release** opens the downloads and release notes in the browser.
+`VERSION` sets the bundled recomp version; `launcher/VERSION` sets the launcher
+version. Stable release tags use `vMAJOR.MINOR.PATCH`; development builds use `-dev`.
 
-Setup installs `Lollipop Chainsaw Launcher.exe` in the game folder. Keep
-**Create a desktop shortcut to the launcher** checked during setup, or use
-**Create desktop shortcut** in Manage game afterward. The shortcut opens the
-launcher; select Play there to start the game.
+Setup installs the launcher in the game folder. Create a desktop shortcut during
+setup or from **Manage game → Create desktop shortcut**. The shortcut opens the
+launcher; select **Play** to start the game.
 
-The launcher remembers the last selected game folder across restarts and updates
-kept in the same folder. Its preference is stored beside the launcher in
-`launcher-data/game-location.txt`. Older preferences are read once from LocalAppData.
-A launcher installed inside a game folder uses that installation. If a saved folder
-is unavailable, use Locate game to select it again.
+The selected game folder is saved in `launcher-data/game-location.txt` beside the
+launcher. A launcher inside an installation uses that game folder. Older preferences
+are imported from LocalAppData. Use **Locate game** if the saved folder has moved.
 
 ### Portable player setup
 
-The launcher includes a prebuilt ReXGlue SDK in `out/launcher/sdk.zip`, embedded in
-the published EXE. Setup unpacks it into `out/tools/sdk/<archive hash>/` in the game
-folder and reuses it on repair. The package includes the code generator, runtime
-and GPU DLLs, headers, libraries, CMake files and dependency notices. No game files
-or generated game translations are included. The player does not need Git, and
-setup does not build the SDK.
+Setup extracts the bundled SDK into `out/tools/sdk/<archive hash>/` and reuses it
+on repair. It compiles the game locally from your disc; Git and an SDK build are
+not required. The launcher contains no game files or generated translations.
 
-Setup reuses compatible installed compiler tools without modifying them. Otherwise it
-unpacks the bundled minimal LLVM from `out/launcher/llvm.tar.xz` into the game folder's
-`out/tools/packages/`. Missing CMake, Ninja, Microsoft C++ headers/libraries and Windows
-SDK files are downloaded from pinned official packages into that same private folder.
-No Build Tools, SDK or VC++ Redistributable installer is run; administrator rights
-and global PATH changes are not needed. Runtime DLLs are copied beside the game
-and SDK executables. Microsoft tools retain their linked license terms in setup.
+Compatible installed tools are reused. Bundled LLVM is extracted into
+`out/tools/packages/`; missing CMake, Ninja, Microsoft C++ headers/libraries and
+Windows SDK files are downloaded there from pinned official packages. Runtime DLLs
+are copied beside the game and SDK executables. No system installers or administrator
+rights are required. Microsoft license terms are linked in setup.
 
-Keep the launcher in a writable folder. Its source kit and remembered location stay
-under `launcher-data/` beside its EXE. The self-contained .NET runtime may use the
-Windows temporary directory while running. Game files, saves and settings remain
-inside the selected game folder.
+Keep the launcher in a writable folder. `launcher-data/` holds its source cache and
+preferences; game files, saves and settings stay in the selected installation. The
+.NET runtime may extract files to the Windows temporary directory.
 
 ## Supported game
 
@@ -122,11 +104,9 @@ To validate an existing import, run `./prepare-game.ps1 -InputPath ./game`.
 
 The SDK script downloads ReXGlue 0.10.1 at
 `bd833a2ab69d305f99ddf57418fc38ffec8af93d`, applies the patches in `patches/`,
-and installs to `out/sdk/`. The game build validates the executable, generates
-C++ incrementally, compiles changed sources and runs CTest. ReXGlue reuses unchanged
-translations, and CMake/Ninja retain compiled objects and precompiled headers.
-Normal launches start the game directly and reuse
-cached shaders. Shader preparation is optional; see
+and installs to `out/sdk/`. `build.ps1` validates the executable, updates generated
+C++, builds changed sources and runs CTest. Unchanged translations and compiled
+objects are reused. For launch behavior and shader caches, see
 [shader preparation](COMPATIBILITY.md#shader-preparation).
 
 ### Custom paths
@@ -177,14 +157,14 @@ The launcher caches its source kit under `launcher-data/source/` beside its EXE.
 | Problem | Action |
 | --- | --- |
 | Interrupted setup | Reopen the launcher and use the remembered destination. Use Repair game if the disc is already imported; otherwise supply the same ISO in Manage game. Check `out/launcher/latest.log`. |
-| Preparing game tools failed | Download the complete launcher again. The SDK is bundled; no SDK compilation or Git download is needed. Check `out/launcher/latest.log`. |
+| Preparing game tools failed | Download the complete launcher again and check `out/launcher/latest.log`. |
 | Install folder rejected | Choose an empty folder for a new install. Close the game and other launcher windows; check write access. |
 | Unsupported or incomplete disc | Compare the executable hash above. Re-extract if it differs or `AshGame/` or `Engine/` is missing. |
-| Tool download failed in the launcher | Check internet access and free space, then retry. Verified packages are reused. No system installation is needed. |
+| Tool download failed in the launcher | Check internet access and free space, then retry. Verified packages are reused. |
 | Missing compiler in a manual build | Check the manual build requirements above. Supply `-LlvmDirectory` if needed. |
 | SDK patch conflict | Use new SDK source and build directories; see below. |
 | Paths refer to an old checkout | Rerun `build.ps1`. Use a new build directory for an SDK built at the old location. |
-| Ninja reports `build.ninja` still dirty after 100 tries | CMake is stuck regenerating its build files. Future-dated inputs can cause this; check Windows date/time synchronization. Use the updated launcher and retry setup or Repair. Launcher builds explicitly configure before compiling and disable automatic regeneration, so archived source or SDK timestamps cannot cause this loop. Manual developer builds keep automatic regeneration enabled. |
+| Ninja reports `build.ninja` still dirty after 100 tries | Update the launcher and retry Repair. For manual builds, check Windows date/time synchronization; future-dated inputs can cause a CMake regeneration loop. |
 
 To build the SDK from a clean checkout without deleting the old one:
 
@@ -202,21 +182,22 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./launcher/build.ps1
 
 ## Updating or removing an installation
 
-Close the game. In Updates, select **Update launcher** to download the latest stable
-launcher and restart automatically. Your selected game folder is remembered.
-In Manage game, select **Apply launcher build / Repair** to update the game.
-You can also download a newer launcher manually and select Locate game.
-An imported disc does not need the ISO again.
-The update preserves saves, settings and bindings. It builds the game in a staged
-folder and checks required runtime files before replacing playable files.
-Unchanged source files, generated translations and compiled objects are reused.
-The first update from an older launcher may rebuild once to migrate its source
-paths; SDK or compiler changes can also require recompilation. Keep `out/source/`,
-`out/generated/` and `out/build/game-compile/` to retain the incremental build cache.
-Updating only the launcher does not rebuild the game. Downloads and the updater
-helper are cached in `launcher-data/updates/` beside its EXE.
-Player installations skip developer tests and tools; manual development builds
-run the full test suite. Rerun Repair game after an interruption.
+Close the game, then select **Updates → Update launcher**. It checks the download's
+size and SHA-256, replaces the launcher after it exits, and restarts in the same
+folder. Older published versions cannot replace a newer local launcher. Downloads
+and the update helper are cached in `launcher-data/updates/`.
+
+With launcher 0.2.4 or earlier, download the new EXE once manually. Use **Locate game**
+if needed. Later launcher updates can be installed with the button.
+
+To update the game, select **Manage game → Apply launcher build / Repair**. The ISO
+is not needed again. Setup checks a staged build before replacing playable files;
+saves, settings and bindings are kept. After an interruption, run Repair again.
+
+Unchanged translations and objects are reused. The first update from an older
+launcher, or a change of SDK/compiler, may require a full rebuild. Keep `out/source/`,
+`out/generated/` and `out/build/game-compile/` to retain the build cache. Updating
+only the launcher does not rebuild the game.
 
 Back up `user/` before moving or removing the installation. Build output and
 caches can be recreated. For game issues, see [troubleshooting](COMPATIBILITY.md).
