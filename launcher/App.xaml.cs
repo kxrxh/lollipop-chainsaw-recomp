@@ -22,6 +22,11 @@ public partial class App : Application {
       SetTaskbarIdentity();
       var executable = Environment.ProcessPath ?? throw new InvalidOperationException(
                                                       "Could not locate the launcher executable.");
+      if (e.Args.Length > 0 && e.Args[0] == LauncherUpdate.Command) {
+        LauncherUpdate.Complete(e.Args);
+        Shutdown();
+        return;
+      }
       instanceLock =
           new Mutex(true, "Local\\LollipopSetup-" + Tools.HashText(executable.ToUpperInvariant()),
                     out var created);

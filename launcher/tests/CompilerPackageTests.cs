@@ -41,6 +41,14 @@ internal static class CompilerPackageTests {
                             "-LlvmDirectory", bin, "-OutputFile", output };
     tools.Run(powershell, sandbox, arguments, true);
     var hash = Tools.HashFile(output);
+    var inputTime = DateTime.UtcNow.AddDays(2);
+    foreach (var file in Directory.GetFiles(llvm, "*", SearchOption.AllDirectories))
+      File.SetLastWriteTimeUtc(file, inputTime);
+    tools.Run(powershell, sandbox, arguments, true);
+    if (Tools.HashFile(output) != hash ||
+        Directory.GetFiles(llvm, "*", SearchOption.AllDirectories)
+            .Any(file => File.GetLastWriteTimeUtc(file) != inputTime))
+      throw new Exception("Repackaging unchanged LLVM changed its cache identity or source timestamps");
     using (var payload = File.OpenRead(output)) {
       var compiler = tools.Get(new Package("LLVM", "llvm.tar.xz", hash, "bin/clang++.exe"),
                                Path.Combine(sandbox, "embedded compiler"), false, payload);

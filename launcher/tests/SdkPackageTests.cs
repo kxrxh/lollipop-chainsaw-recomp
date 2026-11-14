@@ -110,6 +110,15 @@ internal static class SdkPackageTests {
             "The SDK package still uses wildcard paths to load its import configuration");
     }
     var hash = Tools.HashFile(output);
+    var inputTime = DateTime.UtcNow.AddDays(2);
+    foreach (var file in Directory.GetFiles(sdk, "*", SearchOption.AllDirectories))
+      File.SetLastWriteTimeUtc(file, inputTime);
+    tools.Run(program, sandbox, arguments, true);
+    if (Tools.HashFile(output) != hash ||
+        Directory.GetFiles(sdk, "*", SearchOption.AllDirectories)
+            .Any(file => File.GetLastWriteTimeUtc(file) != inputTime))
+      throw new Exception(
+          "Repackaging unchanged SDK files changed their cache identity or timestamps");
     foreach (var invalid in new[] { "missing import configuration", "machine path",
                                     "game executable", "unknown DLL", "missing license",
                                     "wrong SDK" }) {

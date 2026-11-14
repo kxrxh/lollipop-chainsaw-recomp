@@ -12,6 +12,8 @@ game files are not included.
 Download the [latest launcher](https://github.com/kxrxh/lollipop-chainsaw-recomp/releases/latest)
 and run it. Requires Windows x64, internet for setup, and an ISO of the
 [supported Xbox 360 disc](docs/BUILDING.md#supported-game).
+Use **Updates → Update launcher** for later launcher releases. Applying a game
+update reuses unchanged compiled files; saves and settings are preserved.
 
 ## Launcher
 

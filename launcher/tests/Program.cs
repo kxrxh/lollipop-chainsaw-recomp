@@ -44,6 +44,22 @@ internal static class SetupTests {
 
   [STAThread]
   private static int Main(string[] args) {
+    if (args.Length == 0) {
+      var marker = Path.Combine(AppContext.BaseDirectory, "launcher-restarted");
+      File.WriteAllText(marker + ".tmp", Environment.ProcessId.ToString());
+      File.Move(marker + ".tmp", marker);
+      return 0;
+    }
+    if (args[0] == LauncherUpdate.Command) {
+      LauncherUpdate.Complete(args);
+      return 0;
+    }
+    if (args[0] == "--update-parent") {
+      File.WriteAllText(args[1], "ready");
+      while (!File.Exists(args[2]))
+        Thread.Sleep(50);
+      return 0;
+    }
     if (args.Length > 0 && args[0] == "--echo") {
       foreach (var value in args.Skip(1))
         Console.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(value)));
@@ -136,10 +152,13 @@ internal static class SetupTests {
       ManifestTest(args[0], sandbox);
       if (args.Length > 3)
         BuildTimestampTest(sandbox, args[2], args[3]);
+      if (args.Length > 4)
+        IncrementalBuildTests.Run(sandbox, args[2], args[3], args[4]);
       FolderTest(sandbox);
       UpdateTest(sandbox);
       DownloadTest(tools, progress, sandbox);
       ReleaseTest(args[0]);
+      LauncherUpdateTests.Run(sandbox);
       MarkdownTests.Run();
       GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
       LauncherInstallationTests.Run(sandbox);
@@ -216,11 +235,11 @@ internal static class SetupTests {
     File.SetLastWriteTimeUtc(project, future);
     File.SetLastWriteTimeUtc(dependency, future);
     var tools = new Tools(new RecordedProgress(), Console.WriteLine);
-    tools.Run(
-        cmake, sandbox,
-        Installer.GameConfigureOptions.Concat(
-            new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja }),
-        true);
+    tools.Run(cmake, sandbox,
+              Installer.GameConfigureOptions(source, build)
+                  .Concat(new[] { "-S", source, "-B", build, "-G", "Ninja",
+                                  "-DCMAKE_MAKE_PROGRAM=" + ninja }),
+              true);
     tools.Run(cmake, sandbox, new[] { "--build", build, "--target", "fixture" }, true);
     Check(File.Exists(Path.Combine(build, "built")),
           "Future-dated source or SDK files prevented the launcher build");
@@ -706,6 +725,8 @@ internal static class SetupTests {
       launcher.ShowRelease(null);
       Check(launcher.Find<TextBlock>("UpdateStatus").Text == "No public releases yet.",
             "Missing releases were advertised as up to date");
+      Check(launcher.Find<Button>("UpdateLauncher").IsEnabled,
+            "One-click launcher updates require a separate release check");
       launcher.ShowRelease(Releases.Parse("{\"tag_name\":\"v99.0.0\",\"body\":\"Update notes\"}"));
       Check(launcher.Find<TextBlock>("UpdateStatus").Text.Contains("v99.0.0 is available") &&
                 new TextRange(launcher.Find<RichTextBox>("ReleaseNotes").Document.ContentStart,
@@ -773,6 +794,8 @@ internal static class SetupTests {
               Check(!launcher.Find<Button>("HomeNav").IsEnabled &&
                         !launcher.Find<Button>("Primary").IsEnabled &&
                         !launcher.Find<Button>("CreateDesktopShortcut").IsEnabled &&
+                        !launcher.Find<Button>("UpdateLauncher").IsEnabled &&
+                        !launcher.Find<Button>("CheckUpdates").IsEnabled &&
                         !launcher.Find<CheckBox>("DesktopShortcut").IsEnabled &&
                         !launcher.Find<Button>("SaveSettings").IsEnabled,
                     "Closing help re-enabled actions during an operation");
@@ -780,6 +803,16 @@ internal static class SetupTests {
             surface.Measure(size);
             surface.Arrange(new Rect(size));
             surface.UpdateLayout();
+            if (page == "Updates") {
+              var actions = (FrameworkElement)launcher.Find<Button>("UpdateLauncher").Parent;
+              foreach (var name in new[] { "UpdateLauncher", "CheckUpdates", "ViewRelease" }) {
+                var control = launcher.Find<Button>(name);
+                var point = control.TranslatePoint(new Point(0, 0), actions);
+                Check(control.ActualWidth > 0 && point.X >= 0 &&
+                          point.X + control.ActualWidth <= actions.ActualWidth + 1,
+                      "Launcher update action clipped: " + name);
+              }
+            }
             foreach (var name in new[] { "Primary", "Secondary", "HomeNav", "ManageNav",
                                          "SettingsNav", "UpdatesNav", "Help", "Minimize",
                                          "Maximize", "CloseWindow" }) {

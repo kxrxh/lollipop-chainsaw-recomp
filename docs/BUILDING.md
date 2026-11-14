@@ -30,8 +30,11 @@ requires the packaged launcher produced by `launcher/build.ps1`.
 `VERSION` sets the bundled recomp version; `launcher/VERSION` independently sets
 the launcher version. Updates shows both alongside the installed game version.
 Development builds use a `-dev` suffix. Stable recomp release tags use `vMAJOR.MINOR.PATCH`; update checking
-uses the public GitHub latest-release API. Release downloads open in the browser.
-The launcher never replaces itself while running.
+uses the public GitHub latest-release API. **Update launcher** downloads the latest
+stable launcher, verifies its size and GitHub SHA-256 digest, then restarts it at
+the same location. A helper replaces the EXE only after the launcher exits.
+An older published launcher cannot replace a newer local build.
+**View release** opens the downloads and release notes in the browser.
 
 Setup installs `Lollipop Chainsaw Launcher.exe` in the game folder. Keep
 **Create a desktop shortcut to the launcher** checked during setup, or use
@@ -120,7 +123,9 @@ To validate an existing import, run `./prepare-game.ps1 -InputPath ./game`.
 The SDK script downloads ReXGlue 0.10.1 at
 `bd833a2ab69d305f99ddf57418fc38ffec8af93d`, applies the patches in `patches/`,
 and installs to `out/sdk/`. The game build validates the executable, generates
-C++, compiles and runs CTest. Normal launches start the game directly and reuse
+C++ incrementally, compiles changed sources and runs CTest. ReXGlue reuses unchanged
+translations, and CMake/Ninja retain compiled objects and precompiled headers.
+Normal launches start the game directly and reuse
 cached shaders. Shader preparation is optional; see
 [shader preparation](COMPATIBILITY.md#shader-preparation).
 
@@ -155,6 +160,7 @@ Paths are relative to the checkout or chosen install folder.
 | `user/` | Saves and `pc-settings.toml` |
 | `cache/` | Shader and UI artwork caches |
 | `out/generated/` | Generated C++ |
+| `out/source/` | Stable game source kit used by launcher builds |
 | `out/tools/sdk/` | Bundled SDK unpacked by player setup |
 | `out/tools/`, `out/sdk/` | Compiler packages and the developer-built SDK |
 | `out/build/` | SDK, game and test builds |
@@ -196,11 +202,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./launcher/build.ps1
 
 ## Updating or removing an installation
 
-Close the game and launcher. Open the newer launcher, select Locate game and
-choose the existing install folder. In Manage game, select Apply launcher build / Repair.
+Close the game. In Updates, select **Update launcher** to download the latest stable
+launcher and restart automatically. Your selected game folder is remembered.
+In Manage game, select **Apply launcher build / Repair** to update the game.
+You can also download a newer launcher manually and select Locate game.
 An imported disc does not need the ISO again.
 The update preserves saves, settings and bindings. It builds the game in a staged
 folder and checks required runtime files before replacing playable files.
+Unchanged source files, generated translations and compiled objects are reused.
+The first update from an older launcher may rebuild once to migrate its source
+paths; SDK or compiler changes can also require recompilation. Keep `out/source/`,
+`out/generated/` and `out/build/game-compile/` to retain the incremental build cache.
+Updating only the launcher does not rebuild the game. Downloads and the updater
+helper are cached in `launcher-data/updates/` beside its EXE.
 Player installations skip developer tests and tools; manual development builds
 run the full test suite. Rerun Repair game after an interruption.
 

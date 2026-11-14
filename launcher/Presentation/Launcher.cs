@@ -92,6 +92,7 @@ internal sealed class Launcher {
     Find<Button>("OpenSaves").Click += delegate { OpenPath(Path.Combine(Destination!, "user")); };
     Find<Button>("CreateDesktopShortcut").Click += delegate { CreateDesktopShortcut(); };
     Find<Button>("CheckUpdates").Click += delegate { CheckUpdates(); };
+    Find<Button>("UpdateLauncher").Click += delegate { UpdateLauncher(); };
     Find<Button>("ViewRelease").Click += delegate {
       OpenPath(latest == null ? Releases.Page
                               : Releases.Page + "/tag/" + Uri.EscapeDataString(latest.Tag));
@@ -269,6 +270,7 @@ internal sealed class Launcher {
                                  "UpdatesShortcut" })
       Find<Button>(name).IsEnabled = !busy;
     Find<Button>("CheckUpdates").IsEnabled = !busy && !CheckingUpdates;
+    Find<Button>("UpdateLauncher").IsEnabled = !busy && !CheckingUpdates;
     Find<Button>("OpenInstall").IsEnabled = !busy && Directory.Exists(Destination);
     Find<Button>("OpenSaves").IsEnabled =
         !busy && Destination != null && Directory.Exists(Path.Combine(Destination, "user"));
@@ -357,9 +359,9 @@ internal sealed class Launcher {
         release == null
             ? "You're using a development build. Published releases will appear here " +
                   "when available."
-            : "Latest stable: " + release.Tag + ". Download its launcher, select your existing " +
-                  ("game folder, then apply the build in Manage game. Saves and " +
-                   "settings are kept.");
+            : "Latest stable: " + release.Tag +
+                  ". Select Update launcher to download and restart. " +
+                  "Apply its game build from Manage game. Saves and settings are kept.";
     Find<TextBlock>("NotesHeading").Text =
         release == null ? "What's new in this build" : "Release notes / " + release.Tag;
     var notes = release == null                           ? Releases.Resource("CHANGELOG.md")
@@ -374,6 +376,7 @@ internal sealed class Launcher {
     if (!button.IsEnabled)
       return;
     CheckingUpdates = true;
+    Find<Button>("UpdateLauncher").IsEnabled = false;
     button.IsEnabled = false;
     button.Content = "Checking...";
     Find<TextBlock>("UpdateStatus").Text = "Checking GitHub for a stable release...";
@@ -388,6 +391,55 @@ internal sealed class Launcher {
       CheckingUpdates = false;
       button.Content = "Check for updates";
       button.IsEnabled = !Busy;
+      Find<Button>("UpdateLauncher").IsEnabled = !Busy;
+    }
+  }
+
+  internal async void UpdateLauncher() {
+    if (Busy || CheckingUpdates)
+      return;
+    if (Settings.Dirty && !Settings.Save()) {
+      SetPage("Settings");
+      return;
+    }
+    Busy = true;
+    Show("Busy", "Updating launcher",
+         "Downloading the latest stable launcher. It will restart when ready.", null, null, null);
+    var progress = new Progress<InstallProgress>(
+        update => Progress(update.Activity, update.Status, update.Percent));
+    try {
+      var downloaded = await Task.Run<(string File, string Hash)?>(() => {
+        var release = Releases.Latest();
+        if (release == null)
+          throw new IOException("No stable launcher release is available yet.");
+        var asset = LauncherUpdate.Asset(release);
+        if (Tools.HashFile(executable) == asset.Digest![7..])
+          return null;
+        var tools = new Tools(progress, _ => {});
+        var file = LauncherUpdate.Download(
+            asset, tools, Path.Combine(GameLocation.DataDirectory, "updates"));
+        LauncherUpdate.CheckVersion(file, Releases.LauncherVersion);
+        return (file, asset.Digest[7..]);
+      });
+      if (downloaded != null) {
+        using var helper = LauncherUpdate.StartReplacement(downloaded.Value.File, executable,
+                                                           downloaded.Value.Hash);
+        Busy = false;
+        Window.Close();
+        return;
+      }
+      Busy = false;
+      Home();
+      SetPage("Updates");
+      Find<TextBlock>("UpdateStatus").Text = "You have the latest stable launcher.";
+    } catch (Exception error) {
+      Busy = false;
+      Home();
+      SetPage("Updates");
+      Find<TextBlock>("UpdateStatus").Text = "Couldn't update the launcher.";
+      Find<TextBlock>("UpdateDetail").Text = error.Message;
+    } finally {
+      Busy = false;
     }
   }
 

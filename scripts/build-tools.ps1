@@ -50,5 +50,7 @@ function Write-CodegenManifest {
     $manifest = [regex]::Replace($manifest, '(?m)^file_path\s*=.*$', [Text.RegularExpressions.MatchEvaluator]{ param($match) "file_path = `"$game/default.xex`"" })
     $manifest = [regex]::Replace($manifest, '(?m)^out_directory_path\s*=.*$', [Text.RegularExpressions.MatchEvaluator]{ param($match) "out_directory_path = `"$generated`"" })
     New-Item -ItemType Directory -Path (Split-Path $Output -Parent) -Force | Out-Null
-    Set-Content -LiteralPath $Output -Value $manifest -NoNewline
+    if (-not [IO.File]::Exists($Output) -or [IO.File]::ReadAllText($Output) -cne $manifest) {
+        Set-Content -LiteralPath $Output -Value $manifest -NoNewline
+    }
 }

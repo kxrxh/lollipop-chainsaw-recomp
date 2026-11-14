@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.2 — 2026-11-14
+
+- Release launcher 0.2.5 for Windows x64.
+- Reuse unchanged game objects and precompiled headers across launcher updates by
+  keeping stable source paths, reproducible tool packages and the CMake/Ninja build cache.
+- Add one-click launcher updates with verified GitHub downloads, atomic EXE
+  replacement after exit, and automatic restart. Updating the launcher keeps the
+  installed game, saves and settings intact.
+- Keep newer local launcher builds when the published version is older.
+
 ## 0.1.1 — 2026-11-14
 
 - Bundle a ready-to-use ReXGlue SDK and runtime DLLs with the launcher. Setup

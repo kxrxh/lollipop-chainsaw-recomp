@@ -45,6 +45,8 @@ foreach ($file in $files) {
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 [IO.Directory]::CreateDirectory((Split-Path $output -Parent)) | Out-Null
 $stage = $output + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+# SDK cache paths depend on archive contents, including ZIP timestamps.
+$timestamp = [DateTimeOffset]::new(2000, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
 try {
     $archive = [IO.Compression.ZipFile]::Open($stage, 'Create')
     try {
@@ -60,13 +62,17 @@ try {
                         ForEach-Object { '"${CMAKE_CURRENT_LIST_DIR}/' + $_.Name + '"' })
                     $text = $text.Remove($match.Index, $match.Length).Insert($match.Index, ('set(_cmake_config_files ' + ($configs -join ' ') + ')'))
                     $entry = $archive.CreateEntry($name)
-                    $entry.LastWriteTime = [DateTimeOffset]$file.LastWriteTime
+                    $entry.LastWriteTime = $timestamp
                     $writer = [IO.StreamWriter]::new($entry.Open(), [Text.UTF8Encoding]::new($false))
                     try { $writer.Write($text) } finally { $writer.Dispose() }
                     continue
                 }
             }
-            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name) | Out-Null
+            $entry = $archive.CreateEntry($name)
+            $entry.LastWriteTime = $timestamp
+            $input = [IO.File]::OpenRead($file.FullName)
+            $contents = $entry.Open()
+            try { $input.CopyTo($contents) } finally { $contents.Dispose(); $input.Dispose() }
         }
     } finally { $archive.Dispose() }
     if ([IO.File]::Exists($output)) { [IO.File]::Replace($stage, $output, [NullString]::Value) }

@@ -28,6 +28,12 @@ try {
     $generated = Join-Path $checkout 'out/generated code'
     $output = Join-Path $checkout 'out/build/codegen.toml'
     Write-CodegenManifest -Template $template -Output $output -GameDirectory $game -GeneratedDirectory $generated
+    $manifestTime = [DateTime]::UtcNow.AddDays(-1)
+    [IO.File]::SetLastWriteTimeUtc($output, $manifestTime)
+    Write-CodegenManifest -Template $template -Output $output -GameDirectory $game -GeneratedDirectory $generated
+    if ([IO.File]::GetLastWriteTimeUtc($output) -ne $manifestTime) {
+        throw 'An unchanged manifest was rewritten during an incremental build'
+    }
     $actual = Get-Content -LiteralPath $output
     $game = $game.Replace('\', '/')
     $generated = $generated.Replace('\', '/')

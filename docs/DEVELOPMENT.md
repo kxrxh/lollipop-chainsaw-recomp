@@ -27,7 +27,8 @@ Retain upstream notices when editing SDK patches.
 
 ## Build and tests
 
-`./build.ps1` regenerates code, builds and runs CTest. To test an existing build:
+`./build.ps1` updates generated code incrementally, builds and runs CTest. Unchanged
+manifests retain their timestamps. To test an existing build:
 
 ```powershell
 . ./scripts/build-tools.ps1
@@ -44,10 +45,27 @@ test sources.
 Apply launcher build / Repair builds in `out/build/game-compile/`, stages runtime files in
 `out/build/game-staging/`, and publishes after the build and required runtime-file checks pass. Recovery data
 in `out/launcher/` protects interrupted directory swaps.
+The launcher synchronizes source kits into the installation's stable `out/source/`
+directory, preserving unchanged file timestamps. CMake keeps its cache except when
+migrating an older source path. ReXGlue's content fingerprints skip unchanged code
+generation, and Ninja reuses objects and precompiled headers. SDK and compiler
+packages use fixed archive timestamps so repackaging identical tools keeps the same
+cache paths. Launcher tests compile
+a small fixture twice, then change one host source and check that only its object
+is rebuilt, including when archive timestamps differ.
 The installed version marker travels with the staged build, so rollback restores
 the matching version. Older installations without a marker show an unknown version
 until rebuilt. The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`; update checks
-compare stable release tags with its bundled version and leave installed files alone.
+compare stable release tags with its bundled version. **Update launcher** independently
+selects the latest release's `Lollipop-Chainsaw-Launcher.exe` asset, validates its
+official URL, size and SHA-256 digest, and downloads it through the existing resumable
+package cache. The downloaded EXE's launcher version prevents downgrading a newer
+local build, independently of the recomp release tag. A copy of the current launcher
+runs as an update helper, waits for the
+old process to exit, atomically replaces its EXE and restarts it. This also works when
+the downloaded stable launcher predates the update protocol. The selected game and
+launcher state stay beside the original EXE. Self-update tests cover invalid assets,
+damaged cached downloads, locked targets, process handoff and restart.
 
 `launcher/Services/GameSettings.cs` edits the same `user/pc-settings.toml` profile read by
 the game. It preserves unrelated settings and comments, migrates the legacy FPS

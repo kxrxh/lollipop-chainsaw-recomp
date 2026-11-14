@@ -83,6 +83,13 @@ try {
         [IO.File]::Copy((Join-Path $root "launcher/assets/LICENSE.$part"), (Join-Path $stage "licenses/LICENSE.$part"))
     }
     [IO.File]::WriteAllText((Join-Path $stage 'licenses/SOURCES.txt'), ($sources -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+    # Archive hashes determine compiler paths; packaging dates must not invalidate game objects.
+    $timestamp = [DateTime]::new(2000, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    foreach ($entry in Get-ChildItem -LiteralPath $stage -Recurse -Force) {
+        $entry.CreationTimeUtc = $timestamp
+        $entry.LastAccessTimeUtc = $timestamp
+        $entry.LastWriteTimeUtc = $timestamp
+    }
     & (Join-Path ([Environment]::SystemDirectory) 'tar.exe') -cJf $archive -C $stage bin lib licenses
     if ($LASTEXITCODE -ne 0) { throw 'Compiler package creation failed.' }
     if ([IO.File]::Exists($output)) { [IO.File]::Replace($archive, $output, [NullString]::Value) }

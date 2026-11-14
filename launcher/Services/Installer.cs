@@ -9,9 +9,6 @@ namespace lollipop;
 internal sealed class Installer {
   private const string GameHash =
       "a687f47d537b011600146c665e59f5d2b4d4243284799d84fee7da45cdd2df26";
-  // Setup explicitly configures its immutable source kit before every build.
-  internal static readonly string[] GameConfigureOptions =
-      ["--fresh", "-DCMAKE_SUPPRESS_REGENERATION=ON"];
   private readonly string kit, destination, executable;
   private readonly IProgress<InstallProgress> progress;
   private Tools tools = null!;
@@ -185,21 +182,37 @@ internal sealed class Installer {
     return template;
   }
 
+  internal static List<string> GameConfigureOptions(string source, string build) {
+    // Explicit configuration avoids regeneration loops from archived SDK timestamps.
+    var options = new List<string> { "-DCMAKE_SUPPRESS_REGENERATION=ON" };
+    var cache = Path.Combine(build, "CMakeCache.txt");
+    if (File.Exists(cache)) {
+      var previous =
+          Regex.Match(File.ReadAllText(cache), @"(?m)^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)\r?$");
+      if (previous.Success &&
+          !String.Equals(Path.GetFullPath(previous.Groups[1].Value.Trim()),
+                         Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase))
+        options.Add("--fresh");
+    }
+    return options;
+  }
+
   private void BuildGame(string sdk, string cmake, string ninja, string clangxx) {
     ValidateGame(Game);
+    var source = LauncherPackage.SyncKit(kit, Path.Combine(destination, "out/source"));
     var build = Path.Combine(destination, "out/build/game-compile");
     Directory.CreateDirectory(build);
     var generated = Path.Combine(destination, "out/generated");
     var manifest = Path.Combine(build, "codegen.toml");
-    File.WriteAllText(
-        manifest,
-        Manifest(File.ReadAllText(Path.Combine(kit, "lollipop_manifest.toml")), Game, generated),
-        new UTF8Encoding(false));
+    var content =
+        Manifest(File.ReadAllText(Path.Combine(source, "lollipop_manifest.toml")), Game, generated);
+    if (!File.Exists(manifest) || File.ReadAllText(manifest) != content)
+      File.WriteAllText(manifest, content, new UTF8Encoding(false));
     tools.Run(Path.Combine(sdk, "bin/rexglue.exe"), destination, new[] { "codegen", manifest },
               true, activity: "Translating game code");
-    var configure = new List<string>(GameConfigureOptions);
+    var configure = GameConfigureOptions(source, build);
     configure.AddRange(
-        new[] { "-S", kit, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
+        new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
                 "-DCMAKE_CXX_COMPILER=" + clangxx, "-DCMAKE_PREFIX_PATH=" + sdk,
                 "-Drexglue_DIR=" + Path.Combine(sdk, "lib/cmake/rexglue"),
                 "-DLOLLIPOP_GAME_DIR=" + Game, "-DLOLLIPOP_GENERATED_DIR=" + generated,
