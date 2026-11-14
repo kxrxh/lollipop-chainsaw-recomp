@@ -404,6 +404,46 @@ index 453c210..eee1297 100644
  // Bump on any change to GpuCreateInfo or to the IGraphicsSystem interface.
  inline constexpr uint32_t kGpuPluginAbiVersion = 1;
  
+diff --git a/include/rex/ui/imgui_dialog.h b/include/rex/ui/imgui_dialog.h
+index a7ab6b3..265c9a9 100644
+--- a/include/rex/ui/imgui_dialog.h
++++ b/include/rex/ui/imgui_dialog.h
+@@ -39,6 +39,9 @@ class ImGuiDialog {
+
+   void Draw();
+
++  // Frame-driven dialogs update on guest paints without generating extra presents.
++  virtual bool IsContinuousRepaintNeeded() const { return true; }
++
+  protected:
+   ImGuiDialog(ImGuiDrawer* imgui_drawer);
+
+diff --git a/include/rex/ui/overlay/achievement_toast.h b/include/rex/ui/overlay/achievement_toast.h
+index 7642601..0367f58 100644
+--- a/include/rex/ui/overlay/achievement_toast.h
++++ b/include/rex/ui/overlay/achievement_toast.h
+@@ -35,6 +35,8 @@ class AchievementToastDialog : public AchievementNotificationDialog {
+   // Thread-safe: safe to call from any thread, including guest threads.
+   void Push(const rex::system::AchievementEvent& event) override;
+
++  bool IsContinuousRepaintNeeded() const override { return false; }
++
+  protected:
+   void OnDraw(ImGuiIO& io) override;
+
+diff --git a/include/rex/ui/overlay/debug_overlay.h b/include/rex/ui/overlay/debug_overlay.h
+index e15e410..dff29c7 100644
+--- a/include/rex/ui/overlay/debug_overlay.h
++++ b/include/rex/ui/overlay/debug_overlay.h
+@@ -32,6 +32,8 @@ class DebugOverlayDialog : public ImGuiDialog {
+
+   void SetStatsProvider(FrameStatsProvider provider) { stats_provider_ = std::move(provider); }
+
++  bool IsContinuousRepaintNeeded() const override { return false; }
++
+  protected:
+   void OnDraw(ImGuiIO& io) override;
+
 diff --git a/src/core/perf/counter.cpp b/src/core/perf/counter.cpp
 index 536009e..68ec6db 100644
 --- a/src/core/perf/counter.cpp
@@ -1592,6 +1632,30 @@ index bf8252b..c4b202e 100644
          REXLOG_INFO("DRED (Device Removed Extended Data) enabled");
        } else {
          REXLOG_WARN(
+diff --git a/src/ui/imgui_drawer.cpp b/src/ui/imgui_drawer.cpp
+index f270f3c..ae1f1b4 100644
+--- a/src/ui/imgui_drawer.cpp
++++ b/src/ui/imgui_drawer.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+
++#include <algorithm>
+ #include <cfloat>
+ #include <cstring>
+ #include <filesystem>
+@@ -436,8 +437,9 @@ void ImGuiDrawer::Draw(UIDrawContext& ui_draw_context) {
+   // it now if needed.
+   DetachIfLastDialogRemoved();
+
+-  if (!dialogs_.empty()) {
+-    // Repaint (and handle input) continuously if still active. In detached mode
++  if (std::any_of(dialogs_.begin(), dialogs_.end(),
++                  [](const auto* dialog) { return dialog->IsContinuousRepaintNeeded(); })) {
++    // Repaint (and handle input) continuously if requested. In detached mode
+     // there is no presenter; the app drives repaint via its own present loop.
+     if (presenter_) {
+       presenter_->RequestUIPaintFromUIThread();
 diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
 index 7360ed9..175194d 100644
 --- a/src/ui/presenter.cpp

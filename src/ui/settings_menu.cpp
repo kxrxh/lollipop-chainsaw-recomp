@@ -102,6 +102,8 @@ public:
     set_settings_pause(false);
   }
 
+  bool IsContinuousRepaintNeeded() const override { return visible_; }
+
 private:
   void show(bool visible) {
     if (visible == visible_)

@@ -71,6 +71,8 @@ if(WIN32)
     target_include_directories(lollipop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/assets")
 endif()
 target_include_directories(lollipop PRIVATE src "${LOLLIPOP_GENERATED_DIR}")
+# Match the patched SDK's debug overlay class layout.
+target_compile_definitions(lollipop PRIVATE REXGLUE_ENABLE_PERF_COUNTERS)
 target_link_libraries(lollipop PRIVATE lollipop_recomp rex::runtime gdiplus bcrypt)
 rexglue_configure_target(lollipop GPU_PLUGINS xenos)
 # Runtime-loaded GPU plugins must also trigger SDK restaging after a rebuild.
@@ -103,6 +105,11 @@ set_tests_properties(lollipop_shader_inventory PROPERTIES TIMEOUT 30)
 add_executable(lollipop_copy_export_test tests/copy_export_test.cpp)
 target_link_libraries(lollipop_copy_export_test PRIVATE rex::runtime)
 add_test(NAME lollipop_checkpoint_copy_export COMMAND lollipop_copy_export_test)
+
+add_executable(lollipop_imgui_repaint_test tests/imgui_repaint_test.cpp)
+target_link_libraries(lollipop_imgui_repaint_test PRIVATE rex::runtime)
+target_compile_definitions(lollipop_imgui_repaint_test PRIVATE REXGLUE_ENABLE_PERF_COUNTERS)
+add_test(NAME lollipop_imgui_repaint COMMAND lollipop_imgui_repaint_test)
 
 set(LOLLIPOP_HEADERS
     app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h

@@ -205,6 +205,9 @@ saves for console travel and `--cl` launch arguments.
 ```
 
 Frame logs measure guest swap intervals, not monitor presentation or GPU duration.
+Hidden PC settings, achievement toasts and the F3 debug overlay update with guest
+frames without extra host presents, so RTSS / MSI Afterburner tracks the game's frame
+rate during normal play. Settings, the console and loading screens repaint independently.
 Group tick records by engine object. `measure-frames.ps1` supports `-LastFrames`,
 `-AfterFrame`, and timed windows with `-StartHostUs` / `-EndHostUs` in Windows
 Stopwatch microseconds. Only complete intervals count.
