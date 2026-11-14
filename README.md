@@ -13,12 +13,6 @@ Download the [latest launcher](https://github.com/kxrxh/lollipop-chainsaw-recomp
 and run it. Requires Windows x64, internet for setup, and an ISO of the
 [supported Xbox 360 disc](docs/BUILDING.md#supported-game).
 
-Before your first play session, open **Manage game → Prepare shaders** in the
-launcher to precompile shaders and reduce long loading times and compilation
-pauses during gameplay. Preparation can take a while; shaders are cached for
-later launches. Some shaders may still compile as you play. See
-[shader preparation](docs/COMPATIBILITY.md#shader-preparation) for details.
-
 ## Launcher
 
 ![Launcher overview with the game ready to play](docs/screenshots/launcher-home.png)
