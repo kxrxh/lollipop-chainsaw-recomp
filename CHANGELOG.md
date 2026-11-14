@@ -2,10 +2,22 @@
 
 ## Unreleased
 
+## 0.1.1 — 2026-11-14
+
+- Bundle a ready-to-use ReXGlue SDK and runtime DLLs with the launcher. Setup
+  compiles only the game from the player's ISO, without downloading Git or building the SDK.
+- Bundle minimal LLVM 20.1.8 with the compiler, linker and builtin headers, instead
+  of downloading the complete LLVM distribution on the player's computer.
 - Setup reuses compatible installed tools and downloads missing build tools privately,
   without installing Visual Studio Build Tools, Windows SDK or VC++ Redistributable.
 - Keep C++ runtime DLLs with the game and launcher state beside the launcher, with
   import of the previously remembered game folder.
+- Start the game directly; shader preparation remains available as a separate action.
+- Prepare the engine loading-copy shader without a prior play session, and extend
+  the recorded prologue shader combinations.
+- Handle chunked streaming copies and export rebasing without unnecessary GPU readbacks.
+- Prefetch translated executable code before launch to reduce first-use paging stalls.
+- Prevent archived source or SDK timestamps from trapping Ninja in a regeneration loop.
 
 ## 0.1.0 — 2026-11-13
 

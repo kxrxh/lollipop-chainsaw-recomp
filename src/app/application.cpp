@@ -17,6 +17,7 @@
 
 #include "game/game_menus.h"
 #include "game/shader_inventory.h"
+#include "game/startup_hooks.h"
 #include "game/timing_hooks.h"
 #include "input/keyboard_controls.h"
 #include "input/live_prompts.h"
@@ -50,17 +51,14 @@ public:
       : ReXApp(context, "lollipop", PPCImageConfig) {}
 
 protected:
-  bool ShouldInitializeShaderStorage() const override { return !shaders_prepared_; }
+  void OnPreLaunchModule() override { prefetch_recompiled_code(); }
 
   void LaunchModule() override {
-    if ((rex::cvar::GetFlagByName("render_target_path_d3d12") != "rov" ||
-         !rex::cvar::Query<bool>("store_shaders")) &&
-        !REXCVAR_GET(lollipop_precompile_only)) {
+    if (!REXCVAR_GET(lollipop_precompile_only)) {
       ReXApp::LaunchModule();
       return;
     }
     loading_ = std::make_shared<shader_loading_state>();
-    loading_->start_game = !REXCVAR_GET(lollipop_precompile_only);
     loading_screen_ =
         make_shader_loading(*imgui_drawer(), loading_, [this] { window()->RequestClose(); });
     auto report = [this](std::string_view stage, uint32_t completed, uint32_t total) {
@@ -116,18 +114,7 @@ protected:
                 "Some shader pipelines could not be prepared. Check the runtime log.");
         }
         rex::system::SetShaderPrecompileCallback({});
-        app_context().CallInUIThreadDeferred([this] {
-          if (REXCVAR_GET(lollipop_precompile_only)) {
-            window()->RequestClose();
-            return;
-          }
-          {
-            std::lock_guard lock(loading_->mutex);
-            loading_->visible = false;
-          }
-          shaders_prepared_ = true;
-          ReXApp::LaunchModule();
-        });
+        app_context().CallInUIThreadDeferred([this] { window()->RequestClose(); });
       } catch (const std::exception& error) {
         REXLOG_ERROR("Shader preparation failed: {}", error.what());
         rex::system::SetShaderPrecompileCallback({});
@@ -137,8 +124,7 @@ protected:
           loading_->failed = std::max(1u, loading_->failed);
         }
         report("Failed", 0, 0);
-        if (REXCVAR_GET(lollipop_precompile_only))
-          app_context().CallInUIThreadDeferred([this] { window()->RequestClose(); });
+        app_context().CallInUIThreadDeferred([this] { window()->RequestClose(); });
       }
     });
   }
@@ -150,11 +136,8 @@ protected:
 
   void OnKeyDown(rex::ui::KeyEvent& event) override {
     if (loading_) {
-      std::lock_guard lock(loading_->mutex);
-      if (loading_->visible) {
-        event.set_handled(true);
-        return;
-      }
+      event.set_handled(true);
+      return;
     }
     if (!event.prev_state())
       rex::ui::ProcessKeyEvent(event);
@@ -213,7 +196,6 @@ protected:
   }
 
 private:
-  bool shaders_prepared_ = false;
   std::shared_ptr<shader_loading_state> loading_;
   std::unique_ptr<rex::ui::ImGuiDialog> loading_screen_;
   std::jthread shader_worker_;

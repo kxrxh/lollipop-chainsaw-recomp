@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <iostream>
+#include <limits>
 #include <utility>
 
 #include <rex/graphics/util/draw.h>
@@ -25,16 +26,48 @@ int main() {
   words[XE_GPU_REG_VGT_MAX_VTX_INDX] = 0xffffff;
   const draw_util::MemExportRange range{0x05ad5400, 8192};
   auto matches = [&](uint32_t count) {
-    return draw_util::IsLollipopCopyExport(std::bit_cast<RegisterFile>(words), count, range);
+    return draw_util::GetLollipopCopyExport(std::bit_cast<RegisterFile>(words), count, range);
   };
-  if (!matches(128) || matches(0) || matches(64) || matches(UINT32_MAX))
+  const auto full = matches(128);
+  if (!full || full->source != 0x155cc000 || full->destination != 0x16b55000 ||
+      full->length != 8192 || matches(0) || matches(129) || matches(UINT32_MAX))
     return 1;
+
+  // Opening-level streaming copies one 4 KiB chunk at a time from a larger allocation.
+  const auto first = matches(64);
+  words[XE_GPU_REG_VGT_INDX_OFFSET] = 64;
+  const auto second = matches(64);
+  if (!first || !second || first->length != 4096 || second->length != 4096 ||
+      second->source != first->source + 4096 || second->destination != first->destination + 4096)
+    return 2;
+  words[c + 7 * 4] = std::bit_cast<uint32_t>(64.0f);
+  const auto rebased = matches(64);
+  if (!rebased || rebased->source != second->source || rebased->destination != first->destination)
+    return 3;
+  for (float invalid : {64.5f, 65.0f, -1.0f, std::numeric_limits<float>::infinity(),
+                        std::numeric_limits<float>::quiet_NaN()}) {
+    words[c + 7 * 4] = std::bit_cast<uint32_t>(invalid);
+    if (matches(64))
+      return 4;
+  }
+  words[c + 7 * 4] = 0;
+  words[XE_GPU_REG_VGT_INDX_OFFSET] = 65;
+  if (matches(64))
+    return 5;
+  words[XE_GPU_REG_VGT_INDX_OFFSET] = 0;
+
+  words[fetch] = 0x1fffe003;
+  if (!matches(128))
+    return 6;
+  words[fetch] = 0x20000003;
+  if (matches(128))
+    return 7;
+  words[fetch] = 0x155cc003;
 
   // Each mutation independently invalidates the byte-for-byte copy.
   for (auto [index, mask] : std::initializer_list<std::pair<uint32_t, uint32_t>>{
            {fetch, 1},
            {fetch + 1, 1},
-           {fetch + 1, 4},
            {c + 24, 1},
            {c + 25, 1},
            {c + 26, 1},

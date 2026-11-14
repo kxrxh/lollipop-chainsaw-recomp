@@ -9,7 +9,9 @@ namespace lollipop;
 internal sealed class Installer {
   private const string GameHash =
       "a687f47d537b011600146c665e59f5d2b4d4243284799d84fee7da45cdd2df26";
-  private const string SdkCommit = "bd833a2ab69d305f99ddf57418fc38ffec8af93d";
+  // Setup explicitly configures its immutable source kit before every build.
+  internal static readonly string[] GameConfigureOptions =
+      ["--fresh", "-DCMAKE_SUPPRESS_REGENERATION=ON"];
   private readonly string kit, destination, executable;
   private readonly IProgress<InstallProgress> progress;
   private Tools tools = null!;
@@ -122,25 +124,22 @@ internal sealed class Installer {
         }
         var pending = Path.Combine(state, "setup.pending");
         File.WriteAllText(pending, update ? "Updating" : "Installing");
-        Step("Preparing runtime",
-             "Checking existing C++ runtime files; missing files stay in this game folder.", 5);
-        var runtime = BuildToolchain.PrepareRuntime(tools, Packages);
+        Step("Preparing game tools", "Unpacking the bundled SDK and runtime libraries.", 4);
+        var sdk = SdkPackage.Install(kit, destination);
+        var runtime = Path.Combine(sdk, "bin");
         tools.EnvironmentVariables["PATH"] =
             runtime + ";" + Environment.GetEnvironmentVariable("PATH");
         Step(Directory.Exists(Game) ? "Checking imported disc" : "Reading your disc",
-             "Extracting and verifying your disc files.", 5);
+             "Extracting and verifying your disc files.", 4);
         Import(source, runtime);
         Step("Preparing build tools",
              "Reusing compatible installed tools. Missing tools are downloaded into this game " +
                  "folder.",
-             5);
+             4);
         toolchain = BuildToolchain.Prepare(tools, Packages, destination, runtime);
-        Step("Preparing game tools",
-             "Downloading and compiling the game tools. This can take several minutes.", 5);
-        BuildSdk(toolchain.Git, toolchain.CMake, toolchain.Ninja, toolchain.Compiler);
         Step("Building your game", "Compiling your Windows game and preparing its runtime files.",
-             5);
-        BuildGame(toolchain.CMake, toolchain.Ninja, toolchain.Compiler);
+             4);
+        BuildGame(sdk, toolchain.CMake, toolchain.Ninja, toolchain.Compiler);
         BuildToolchain.CopyRuntime(runtime, GameUpdate.Stage(destination));
         if (!File.Exists(Path.Combine(GameUpdate.Stage(destination), "lollipop.exe")))
           throw new IOException("The build did not produce a playable game.");
@@ -174,73 +173,6 @@ internal sealed class Installer {
     Directory.Move(stage, Game);
   }
 
-  private void BuildSdk(string git, string cmake, string ninja, string clangxx) {
-    var id = GameUpdate.SdkId(kit, SdkCommit);
-    var source = Path.Combine(destination, "out/tools/rexglue-source-" + id);
-    if (!Directory.Exists(source)) {
-      var stage = Path.Combine(destination, "out/tools/sdk-clone-" + Guid.NewGuid().ToString("N"));
-      tools.Run(git, destination,
-                new[] { "clone", "--progress", "--branch", "v0.10.1", "--depth", "1",
-                        "https://github.com/rexglue/rexglue-sdk.git", stage },
-                true);
-      Directory.Move(stage, source);
-    }
-    if (tools.Capture(git, destination, "-C", source, "rev-parse", "HEAD") != SdkCommit)
-      throw new IOException("ReXGlue source must be checked out at v0.10.1 (bd833a2).");
-    tools.Run(git, destination,
-              new[] { "-C",
-                      source,
-                      "submodule",
-                      "update",
-                      "--init",
-                      "--progress",
-                      "--depth",
-                      "1",
-                      "--jobs",
-                      "8",
-                      "thirdparty/cli11",
-                      "thirdparty/libmspack",
-                      "thirdparty/FFmpeg",
-                      "thirdparty/tomlplusplus",
-                      "thirdparty/simde",
-                      "thirdparty/xxHash",
-                      "thirdparty/spdlog",
-                      "thirdparty/fmt",
-                      "thirdparty/utfcpp",
-                      "thirdparty/imgui",
-                      "thirdparty/sdl3",
-                      "thirdparty/o1heap",
-                      "thirdparty/inja" },
-              true);
-    foreach (var name in new[] { "rexglue-fixes.patch", "rexglue-shader-precompile.patch" }) {
-      var patch = Path.Combine(kit, "patches/" + name);
-      if (tools.Run(git, destination,
-                    new[] { "-C", source, "apply", "--reverse", "--check", patch }, false) == 0)
-        continue;
-      tools.Run(git, destination, new[] { "-C", source, "apply", "--check", patch }, true);
-      tools.Run(git, destination, new[] { "-C", source, "apply", patch }, true);
-    }
-    var build = Path.Combine(destination, "out/build/sdk-" + id + "-portable");
-    var configure = new List<string>();
-    if (BuildSourceChanged(build, source))
-      configure.Add("--fresh");
-    configure.AddRange(
-        new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
-                "-DCMAKE_C_COMPILER=" + Path.Combine(Path.GetDirectoryName(clangxx)!, "clang.exe"),
-                "-DCMAKE_CXX_COMPILER=" + clangxx,
-                "-DCMAKE_INSTALL_PREFIX=" + Path.Combine(destination, "out/sdk"),
-                "-DCMAKE_BUILD_TYPE=Release", "-DREXGLUE_ENABLE_TRACY=OFF",
-                "-DREXGLUE_USE_VULKAN=OFF", "-DREXGLUE_BUILD_TESTS=OFF",
-                "-DSDL_TEST_LIBRARY=OFF" });
-    configure.AddRange(toolchain.ConfigureArguments);
-    tools.Run(cmake, destination, configure, true, activity: "Configuring game tools");
-    tools.Run(cmake, destination,
-              new[] { "--build", build, "--target", "install", "--parallel", "6" }, true,
-              activity: "Building game tools");
-    BuildToolchain.CopyRuntime(toolchain.RuntimeDirectory,
-                               Path.Combine(destination, "out/sdk/bin"));
-  }
-
   internal static string Manifest(string template, string game, string generated) {
     var paths = new Dictionary<string, string> {
       { "game_root", Path.GetFullPath(game).Replace('\\', '/') },
@@ -253,22 +185,10 @@ internal sealed class Installer {
     return template;
   }
 
-  internal static bool BuildSourceChanged(string build, string source) {
-    var cache = Path.Combine(build, "CMakeCache.txt");
-    if (!File.Exists(cache))
-      return false;
-    var previous =
-        Regex.Match(File.ReadAllText(cache), @"(?m)^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)\r?$");
-    return previous.Success &&
-           !String.Equals(Path.GetFullPath(previous.Groups[1].Value.Trim()),
-                          Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase);
-  }
-
-  private void BuildGame(string cmake, string ninja, string clangxx) {
+  private void BuildGame(string sdk, string cmake, string ninja, string clangxx) {
     ValidateGame(Game);
     var build = Path.Combine(destination, "out/build/game-compile");
     Directory.CreateDirectory(build);
-    var sdk = Path.Combine(destination, "out/sdk");
     var generated = Path.Combine(destination, "out/generated");
     var manifest = Path.Combine(build, "codegen.toml");
     File.WriteAllText(
@@ -277,9 +197,7 @@ internal sealed class Installer {
         new UTF8Encoding(false));
     tools.Run(Path.Combine(sdk, "bin/rexglue.exe"), destination, new[] { "codegen", manifest },
               true, activity: "Translating game code");
-    var configure = new List<string>();
-    if (BuildSourceChanged(build, kit))
-      configure.Add("--fresh");
+    var configure = new List<string>(GameConfigureOptions);
     configure.AddRange(
         new[] { "-S", kit, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
                 "-DCMAKE_CXX_COMPILER=" + clangxx, "-DCMAKE_PREFIX_PATH=" + sdk,

@@ -28,7 +28,9 @@ and run it. Requires Windows x64, internet for setup, and an ISO of the
 
 ## Known issues
 
-A full playthrough is unverified. Loading/cutscene stalls and D3D12 crashes remain.
+Earlier loading/cutscene stalls and D3D12 crashes were not reproduced in current
+targeted checks. A full playthrough, including the natural third-rescue phone
+transition, remains unverified.
 See [compatibility and troubleshooting](docs/COMPATIBILITY.md).
 
 ## Docs

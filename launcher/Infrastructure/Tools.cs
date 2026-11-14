@@ -21,17 +21,6 @@ internal sealed class Tools {
                       "extract-xiso-Win64_Release.zip",
                   "fc891dfa72f08e3838a2f8b7ec34a8e4d61678da1cc8fee879677f00bf114ce3",
                   "artifacts/extract-xiso.exe");
-  internal static readonly Package Git = new Package(
-      "Git",
-      "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/" +
-          "MinGit-2.56.1-64-bit.zip",
-      "4a92850b6e917da4fd010669b614b55dccf5b0ec333a534cc4be4700dfefdafd", "cmd/git.exe");
-  internal static readonly Package LLVM =
-      new Package("LLVM",
-                  "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/" +
-                      "clang%2Bllvm-20.1.8-x86_64-pc-windows-msvc.tar.xz",
-                  "f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f",
-                  "clang+llvm-20.1.8-x86_64-pc-windows-msvc/bin/clang++.exe");
 
   private readonly IProgress<InstallProgress> progress;
   private readonly Action<string> log;
@@ -72,6 +61,18 @@ internal sealed class Tools {
       throw new IOException("Unexpected staging directory.");
     if (Directory.Exists(stage))
       Directory.Delete(stage, true);
+  }
+
+  internal static void MoveDirectory(string source, string destination) {
+    for (var attempt = 0;; ++attempt) {
+      try {
+        Directory.Move(source, destination);
+        return;
+      } catch (IOException error) when (attempt < 5 && (error.HResult & 0xffff) is 5 or 32 or 33) {
+        // Virus scanners can briefly lock files immediately after extraction.
+        Thread.Sleep(100 << attempt);
+      }
+    }
   }
 
   internal static void Extract(ZipArchive archive, string destination) {
@@ -120,15 +121,10 @@ internal sealed class Tools {
             if (output != null)
               output(args.Data);
             var compile = Regex.Match(args.Data, @"^\[(\d+)/(\d+)\]");
-            var git = Regex.Match(args.Data,
-                                  @"(Receiving objects|Resolving deltas|Updating files):\s*(\d+)%");
             if (compile.Success && Double.Parse(compile.Groups[2].Value) > 0)
               Report("Compiling", args.Data,
                      (int)Math.Min(100, 100 * Double.Parse(compile.Groups[1].Value) /
                                             Double.Parse(compile.Groups[2].Value)));
-            else if (git.Success)
-              Report(git.Groups[1].Value, args.Data,
-                     Math.Min(100, Int32.Parse(git.Groups[2].Value)));
             else if (activity != null && !String.IsNullOrWhiteSpace(args.Data))
               Report(activity, args.Data, -1);
           } catch (Exception error) {
@@ -165,13 +161,10 @@ internal sealed class Tools {
   }
 
   internal static bool Compatible(string name, string version) {
-    var match = Regex.Match(version, @"^git version (\d+\.\d+\.\d+)");
-    if (name == "Git")
-      return match.Success && new Version(match.Groups[1].Value) >= new Version(2, 36, 0);
     if (name == "LLVM")
       return Regex.IsMatch(version, @"clang version 20\.1\.8\b");
-    match = Regex.Match(version,
-                        name == "CMake" ? @"^cmake version (\d+\.\d+\.\d+)" : @"^(\d+\.\d+\.\d+)");
+    var match = Regex.Match(version, name == "CMake" ? @"^cmake version (\d+\.\d+\.\d+)"
+                                                     : @"^(\d+\.\d+\.\d+)");
     return match.Success &&
            (name == "CMake"
                 ? new Version(match.Groups[1].Value) >= new Version(3, 25, 0) &&
@@ -181,8 +174,8 @@ internal sealed class Tools {
   }
 
   private string? Installed(Package package, string directory) {
-    var name = package.Name switch { "Git" => "git.exe", "LLVM" => "clang++.exe",
-                                     "CMake" => "cmake.exe", "Ninja" => "ninja.exe",
+    var name = package.Name switch { "LLVM" => "clang++.exe", "CMake" => "cmake.exe",
+                                     "Ninja" => "ninja.exe",
                                      _ => null };
     if (name is null)
       return null;
@@ -190,7 +183,7 @@ internal sealed class Tools {
                    ? configured
                    : Environment.GetEnvironmentVariable("PATH");
     var folders = (path ?? "").Split(';').ToList();
-    if (package == LLVM)
+    if (package.Name == "LLVM")
       folders.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                                "LLVM/bin"));
     if (package.Name == "CMake")
@@ -201,7 +194,7 @@ internal sealed class Tools {
         continue;
       var candidate = Path.Combine(folder.Trim('"'), name);
       if (!File.Exists(candidate) ||
-          (package == LLVM &&
+          (package.Name == "LLVM" &&
            (!File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "clang.exe")) ||
             !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "lld-link.exe")) ||
             !File.Exists(Path.Combine(Path.GetDirectoryName(candidate)!, "llvm-ar.exe")) ||
@@ -277,7 +270,8 @@ internal sealed class Tools {
     if (total >= 0 && received != total)
       throw new IOException("Download interrupted. Retry to resume " + name + ".");
   }
-  internal string Get(Package package, string cache, bool useInstalled = true) {
+  internal string Get(Package package, string cache, bool useInstalled = true,
+                      Stream? contents = null) {
     Directory.CreateDirectory(cache);
     var folder = Path.Combine(cache, package.Name + "-" + package.Hash.Substring(0, 12));
     var program = Path.Combine(folder, package.File);
@@ -294,7 +288,11 @@ internal sealed class Tools {
     Directory.CreateDirectory(stage);
     var download = folder + ".download";
     try {
-      if (!File.Exists(download) || HashFile(download) != package.Hash)
+      if (contents != null) {
+        contents.Position = 0;
+        using var file = File.Create(download);
+        contents.CopyTo(file);
+      } else if (!File.Exists(download) || HashFile(download) != package.Hash)
         Download(package.Url, download, package.Name);
       Report("Verifying " + package.Name, "Checking SHA-256", -1);
       if (HashFile(download) != package.Hash) {
@@ -314,16 +312,7 @@ internal sealed class Tools {
             new[] { "-xf", download, "-C", stage }, true);
       if (!File.Exists(Path.Combine(stage, package.File)))
         throw new InvalidDataException("The " + package.Name + " download is incomplete.");
-      for (var attempt = 0;; ++attempt) {
-        try {
-          Directory.Move(stage, folder);
-          break;
-        } catch (IOException error)
-            when (attempt < 5 && (error.HResult & 0xffff) is 5 or 32 or 33) {
-          // Virus scanners can briefly lock files immediately after extraction.
-          Thread.Sleep(100 << attempt);
-        }
-      }
+      MoveDirectory(stage, folder);
       File.Delete(download);
       return program;
     } finally {

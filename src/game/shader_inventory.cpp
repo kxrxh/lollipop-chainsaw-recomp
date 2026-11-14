@@ -11,6 +11,7 @@
 #include <string>
 #include <windows.h>
 
+#include <rex/graphics/format/ucode.h>
 #include <rex/hash.h>
 
 #include "game/package_lzx.h"
@@ -23,6 +24,82 @@ constexpr std::array<uint8_t, 8> shader_header{'X', 'E', 'S', 'H', 0x20, 0x20, 0
 constexpr std::array<uint8_t, 12> pipeline_header{'X', 'E', 'P',  'S',  'D',  'X',
                                                   'R', 'O', 0x20, 0x26, 0x02, 0x26};
 using descriptions = std::map<uint64_t, std::array<uint8_t, description_size>>;
+constexpr uint64_t loading_copy_hash = 0x896985ccfaf3c47aull;
+
+shader_program make_loading_copy_shader() {
+  namespace u = rex::graphics::ucode;
+  using instruction = std::array<uint32_t, 3>;
+  std::array<instruction, 28> code{};
+  const auto exec = [](uint32_t address, uint32_t count, uint32_t sequence = 0,
+                       uint32_t fetches = 0, bool end = false) {
+    const uint32_t cache = (1u << fetches) - 1;
+    const uint32_t low = address | (count << 12) | (sequence << 16) | ((cache & 15) << 28);
+    const uint32_t high =
+        (uint32_t(end ? u::ControlFlowOpcode::kExecEnd : u::ControlFlowOpcode::kExec) << 12) |
+        (1u << 9) | (cache >> 4);
+    return uint64_t(low) | (uint64_t(high) << 32);
+  };
+  const auto alloc = [](u::AllocType type, uint32_t count = 0) {
+    return uint64_t(count) | (uint64_t(type) << 41) |
+           (uint64_t(u::ControlFlowOpcode::kAlloc) << 44);
+  };
+  // Five pairs of 48-bit control-flow instructions precede the fetch/ALU instructions.
+  const std::array flow{exec(5, 6, 0x555, 6),
+                        exec(11, 4, 0x25, 2),
+                        alloc(u::AllocType::kMemory, 2),
+                        exec(15, 6),
+                        alloc(u::AllocType::kMemory, 2),
+                        exec(21, 5),
+                        alloc(u::AllocType::kVsPosition),
+                        exec(26, 1),
+                        alloc(u::AllocType::kVsInterpolators),
+                        exec(5, 0, 0, 0, true)};
+  for (size_t i = 0; i < flow.size(); i += 2)
+    code[i / 2] = {uint32_t(flow[i]), uint32_t(flow[i] >> 32) | (uint32_t(flow[i + 1]) << 16),
+                   uint32_t(flow[i + 1] >> 16)};
+  // Load eight 64-bit elements per vertex from fetch constant 95, undoing 8-in-32 swapping.
+  constexpr uint32_t yxwz = 1 | (3 << 6) | (2 << 9);
+  for (uint32_t i = 0; i < 8; ++i) {
+    const bool full = i % 4 == 0;
+    code[5 + i] = {(8 - i) << 12 | (1 << 19) | (31 << 20) | (2 << 25) | (full ? 7u << 27 : 0),
+                   yxwz | (1 << 13) | (26 << 16) | (full ? 0 : 1u << 30), 16 | (i * 2 << 8)};
+  }
+  constexpr uint32_t temp1 = 1u << 31, temp2 = 1u << 30, temp3 = 1u << 29;
+  constexpr uint32_t xxxx = (3 << 2) | (2 << 4) | (1 << 6);
+  const auto alu = [](u::AluVectorOpcode op, uint32_t destination, uint32_t sources,
+                      uint32_t swizzles = 0, bool exporting = true, uint32_t mask = 15) {
+    return instruction{destination | (uint32_t(exporting) << 15) | (mask << 16) |
+                           (uint32_t(u::AluScalarOpcode::kRetainPrev) << 26),
+                       swizzles, sources | (uint32_t(op) << 24)};
+  };
+  // Rebase the export index by c7.x, then emit two groups of four memory exports.
+  code[13] = alu(u::AluVectorOpcode::kAdd, 0, (7 << 8) | temp1 | temp3,
+                 (xxxx << 16) | (xxxx << 8) | (1 << 25), false, 1);
+  code[14] = {1 << 20 | uint32_t(u::AluScalarOpcode::kMulsc0) << 26, 0,
+              255 | uint32_t(u::AluVectorOpcode::kMax) << 24 | temp1 | temp2};
+  for (uint32_t group = 0; group < 2; ++group) {
+    const uint32_t first = 15 + group * 6;
+    code[first] =
+        alu(u::AluVectorOpcode::kMad, 32, 6 | (255 << 8) | temp1, (xxxx << 16) | (0x60 << 8));
+    for (uint32_t i = 0; i < 4; ++i) {
+      const uint32_t source = 8 - group * 4 - i;
+      code[first + 1 + i] = alu(u::AluVectorOpcode::kMax, 33 + i,
+                                (source << 16) | (source << 8) | temp1 | temp2 | temp3);
+    }
+  }
+  code[20] = {1 << 20 | uint32_t(u::AluScalarOpcode::kAddsc0) << 26, 3 << 6,
+              255 | uint32_t(u::AluVectorOpcode::kMax) << 24 | temp1 | temp2};
+  code[26] = alu(u::AluVectorOpcode::kSgt, 62, (128 << 16) | (255 << 8) | temp1 | temp3,
+                 (xxxx << 16) | (xxxx << 8) | (1 << 26));
+  shader_program program{loading_copy_hash, true, {}};
+  for (const auto& instruction : code)
+    for (uint32_t word : instruction)
+      for (unsigned byte = 0; byte < 4; ++byte)
+        program.code.push_back(uint8_t(word >> (24 - byte * 8)));
+  if (XXH3_64bits(program.code.data(), program.code.size()) != loading_copy_hash)
+    throw std::runtime_error("Generated loading copy shader fingerprint mismatch");
+  return program;
+}
 
 bool read_line(std::istream& file, std::string& line) {
   if (!std::getline(file, line))
@@ -412,6 +489,9 @@ void prepare_shader_inventory(const std::filesystem::path& game, const std::file
             {reinterpret_cast<const uint8_t*>(executable_locations.data()),
              executable_locations.size()});
   auto pipelines = parse_inventory(inventory);
+  if (std::ranges::any_of(
+          pipelines, [](const auto& entry) { return le64(entry.second, 0) == loading_copy_hash; }))
+    add_programs(programs, {make_loading_copy_shader()});
   apply_variants(inventory, programs);
   const auto missing_shader = [&](const auto& entry) {
     for (size_t offset : {size_t(0), size_t(16)}) {
@@ -455,13 +535,9 @@ void collect_shader_inventory(const std::filesystem::path& cache,
     previous_text.assign(reinterpret_cast<const char*>(previous.data()), previous.size());
     pipelines.merge(parse_inventory(previous_text));
   }
-  // shortcut: this copy shader is generated during native loading; add a recipe if it reaches
-  // gameplay uncached.
-  std::erase_if(pipelines, [](const auto& entry) {
-    return le64(entry.second, 0) == 0x896985ccfaf3c47aull && !le64(entry.second, 16);
-  });
   std::map<uint64_t, shader_program> disc;
   add_programs(disc, read_shader_library(read_file(cache / "shaders/disc-library.xsh")));
+  add_programs(disc, {make_loading_copy_shader()});
   auto observed = disc;
   add_programs(observed, read_shader_library(read_file(cache / "shaders/shareable/565707D0.xsh")));
   apply_variants(previous_text, observed);

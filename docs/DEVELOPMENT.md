@@ -90,12 +90,17 @@ progress is needed.
   restart. Mixed input needs synchronous memory-export readback.
 - Host LZX decoding falls back to the guest decoder for unsupported layouts or
   errors. CPU copy mirroring requires current source data and retains the GPU draw.
+  Chunked copy exports track only the bytes written by that draw, including vertex
+  offsets and export rebasing, to avoid readback waits during streaming.
+- Windows prefetches the executable code before starting the guest to reduce
+  first-use instruction paging; this does not execute the game or alter saves.
 
 ## Shader preparation and collection
 
 `assets/shaders/pipelines.txt` stores pipeline state and shader fingerprints.
-Programs come from the user's disc or executable, are validated before use, and
-are cached under `cache/shaders/`. Damaged local caches are rebuilt. See
+Programs come from the user's disc or executable, except the engine loading copy
+shader reconstructed by a fingerprint-checked generator. They are validated before
+use and cached under `cache/shaders/`. Damaged local caches are rebuilt. See
 [coverage limits](COMPATIBILITY.md#shader-coverage).
 
 Collect with a copied save and separate cache:
@@ -117,7 +122,7 @@ cache. Watch `pipeline_cache_misses` for combinations compiled during play.
 
 `--d3d12_pipeline_collection=true --audio_mute=true` skips color/depth draws
 while recording pipelines. Verify its results with normal rendering afterward.
-The portable inventory excludes the engine-generated loading copy pipeline.
+The portable inventory includes the engine-generated loading copy pipeline.
 Stream `Swan_Event_PL` into an initialized final-stage world; direct map boot
 is unsupported.
 

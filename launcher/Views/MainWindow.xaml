@@ -108,7 +108,7 @@
                     <Button Name="ChooseIso" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Choose Xbox 360 disc image">
                       <DockPanel><TextBlock DockPanel.Dock="Right" Text="Browse" Foreground="#FF91C3" Margin="12,0,0,0"/><TextBlock Name="IsoName" TextTrimming="CharacterEllipsis"/></DockPanel>
                     </Button>
-                    <TextBlock Text="Use your original Xbox 360 ISO. Compatible installed tools are reused; missing tools stay in this game folder. No system components are installed." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,14,0,0"/>
+                    <TextBlock Text="Use your original Xbox 360 ISO. Game tools are included; setup builds the game locally. Missing compiler tools stay in this game folder. No system components are installed." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,14,0,0"/>
                     <TextBlock Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0">By selecting Install game, you accept Microsoft's <Hyperlink Name="CppTerms" Foreground="#FF91C3">C++ tools terms</Hyperlink> and <Hyperlink Name="SdkTerms" Foreground="#FF91C3">Windows SDK terms</Hyperlink>.</TextBlock>
                   </StackPanel>
                   <CheckBox Name="DesktopShortcut" Content="Create a desktop shortcut to the launcher" IsChecked="True" Margin="0,18,0,0" AutomationProperties.Name="Create a desktop shortcut to the launcher"/>

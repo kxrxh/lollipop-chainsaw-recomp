@@ -4,6 +4,7 @@
 #include <rex/ppc.h>
 
 namespace lollipop {
+bool prefetch_recompiled_code();
 void set_startup_live_check(uint32_t function);
 bool skip_startup_live_check(uint32_t caller, PPCRegister& result);
 } // namespace lollipop

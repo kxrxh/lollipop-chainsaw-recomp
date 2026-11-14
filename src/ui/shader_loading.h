@@ -17,7 +17,7 @@ struct shader_loading_state {
   std::string stage = "Checking shader inventory";
   std::string error;
   uint32_t completed = 0, total = 0, failed = 0;
-  bool visible = true, compiled = false, start_game = true;
+  bool compiled = false;
 };
 std::unique_ptr<rex::ui::ImGuiDialog>
 make_shader_loading(rex::ui::ImGuiDrawer& drawer, std::shared_ptr<shader_loading_state> state,

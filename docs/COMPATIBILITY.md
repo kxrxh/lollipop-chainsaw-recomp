@@ -4,13 +4,21 @@ Tested on Windows x64 with Direct3D 12 ROV, an i7-10700K, 32 GB RAM and an
 RTX 3080 at 2560×1440. Checks cover boot, menus, settings and prologue combat
 through the third rescue and helicopter crash. A full playthrough is unverified.
 
+Current targeted checks also cover loading a saved prologue checkpoint, native
+Restart and rendering console-triggered phone scenes. A D3D12 ROV stress run at
+2× render scale with 32/64 MB texture-cache limits completed three level loads
+and over 115,000 texture evictions without a GPU crash. Console-triggered scenes
+do not verify the normal story route.
+
 ## Known issues
 
-- D3D12 GPU hangs have occurred during reloads, Continue and the phone-call
-  transition after the third rescue. Texture eviction fixes passed diagnostic
-  checks; normal story traversal through that transition remains unverified.
-- Loading and cutscene transitions can stall.
-- Shader combinations missing from the inventory can pause while compiling.
+- Earlier runs encountered loading/cutscene stalls and D3D12 GPU hangs during
+  reloads, Continue and the phone-call transition after the third rescue. These
+  failures were not reproduced in the current targeted checks. Stability across
+  a full playthrough, including normal traversal through that phone-call
+  transition, remains unverified.
+- Uncached shaders can pause the game while compiling. Optional shader preparation
+  reduces these pauses; combinations missing from the inventory still compile on use.
 - Physical controllers, multiple monitors, other disc versions and Vulkan need
   more testing. Automated controller checks use injected input.
 - macOS and Linux are unverified.
@@ -57,23 +65,23 @@ until the drift stops. A value of 100% disables that stick.
 
 ## Shader preparation
 
-Startup prepares recorded shaders from the disc and reuses the local cache on
-later launches. Damaged caches are rebuilt automatically. To prepare separately,
-use the launcher's Prepare shaders action or:
+Normal launches start the game without a shader-preparation screen. Shaders
+compile as needed and are cached for later launches. To prepare the recorded
+shaders ahead of play, use the launcher's Prepare shaders action or:
 
 ```powershell
 ./run.ps1 -PrecompileShaders
 ```
 
-Preparation requires D3D12 ROV and `store_shaders=true`. Ordinary launches with
-`--store_shaders=false` skip it.
+Preparation requires D3D12 ROV and `store_shaders=true`. It validates the local
+shader inventory and rebuilds damaged inventory caches.
 
 ### Shader coverage
 
 The inventory covers all seven stages, boss maps and opening/ending/result
 scenes. Coverage is incomplete for outfits, boss phases and effect combinations.
-The engine-generated loading copy shader compiles on first use and can be
-prepared from the local cache afterward. See
+Preparation also reconstructs the engine-generated loading copy shader, so it
+does not require a prior play session. See
 [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
 
 ## Gameplay problems

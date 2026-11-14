@@ -55,10 +55,6 @@ internal static class SetupTests {
         Console.Error.WriteLine("Fixture diagnostic " + i);
       return 7;
     }
-    if (args.Length > 0 && args[0] == "--git-progress") {
-      Console.Error.WriteLine("Resolving deltas: 100% (35/35), done.");
-      return 0;
-    }
     if (args.Length > 0 && args[0] == "--configure") {
       Console.WriteLine("-- Detecting CXX compiler ABI info");
       Thread.Sleep(150);
@@ -111,16 +107,17 @@ internal static class SetupTests {
             "Full native diagnostics were lost");
       Check(progress.Updates.Any(update => update.Activity == "Compiling" && update.Percent == 25),
             "Compiler progress was lost");
-      tools.Run(executable, sandbox, new[] { "--git-progress" }, true);
-      var afterGit = progress.Updates.Count;
+      tools.Report("Download", "Download complete", 100);
+      var afterDownload = progress.Updates.Count;
       tools.Run(executable, sandbox, new[] { "--configure" }, true,
                 activity: "Configuring game tools");
-      var configuring = progress.Updates.Skip(afterGit).ToArray();
-      Check(configuring.Length >= 3 && configuring[0].Percent == -1 &&
-                configuring.All(update => update.Activity == "Configuring game tools" &&
-                                          update.Percent == -1) &&
-                configuring.Any(update => update.Status == "-- Detecting CXX compiler ABI info"),
-            "A completed Git percentage survived into compiler configuration or hid its output");
+      var configuring = progress.Updates.Skip(afterDownload).ToArray();
+      Check(
+          configuring.Length >= 3 && configuring[0].Percent == -1 &&
+              configuring.All(update => update.Activity == "Configuring game tools" &&
+                                        update.Percent == -1) &&
+              configuring.Any(update => update.Status == "-- Detecting CXX compiler ABI info"),
+          "A completed download percentage survived into compiler configuration or hid its output");
       var writes = 0;
       var failingLog = new Tools(progress, delegate {
         if (++writes > 1)
@@ -128,9 +125,6 @@ internal static class SetupTests {
       });
       Fails(delegate { failingLog.Run(executable, sandbox, new[] { "--echo", "output" }, true); },
             "Log failure was ignored");
-      Check(Tools.Compatible("Git", "git version 2.56.1.windows.1") &&
-                !Tools.Compatible("Git", "git version 2.20.0"),
-            "Git version check failed");
       Check(Tools.Compatible("LLVM", "clang version 20.1.8") &&
                 !Tools.Compatible("LLVM", "clang version 21.1.0"),
             "LLVM pin was lost");
@@ -140,6 +134,8 @@ internal static class SetupTests {
                 Tools.Compatible("Ninja", "1.12.1") && !Tools.Compatible("Ninja", "1.10.0"),
             "Incompatible installed CMake or Ninja tools were accepted");
       ManifestTest(args[0], sandbox);
+      if (args.Length > 3)
+        BuildTimestampTest(sandbox, args[2], args[3]);
       FolderTest(sandbox);
       UpdateTest(sandbox);
       DownloadTest(tools, progress, sandbox);
@@ -149,6 +145,8 @@ internal static class SetupTests {
       LauncherInstallationTests.Run(sandbox);
       GameLocationTests.Run(sandbox);
       BuildToolchainTests.Run(sandbox);
+      SdkPackageTests.Run(args[0], sandbox);
+      CompilerPackageTests.Run(args[0], sandbox);
       LauncherTest(sandbox, executable);
       Console.WriteLine("Standalone launcher checks passed.");
       return 0;
@@ -201,6 +199,34 @@ internal static class SetupTests {
     var pattern = @"(?m)^(game_root|file_path|out_directory_path)\s*=.*\r?\n?";
     Check(Regex.Replace(actual, pattern, "") == Regex.Replace(template, pattern, ""),
           "Manifest hooks changed");
+  }
+
+  private static void BuildTimestampTest(string sandbox, string cmake, string ninja) {
+    var source = Path.Combine(sandbox, "future source kit");
+    var build = Path.Combine(sandbox, "future build");
+    Directory.CreateDirectory(source);
+    var project = Path.Combine(source, "CMakeLists.txt");
+    var dependency = Path.Combine(source, "SDK config.cmake");
+    File.WriteAllText(project, "cmake_minimum_required(VERSION 3.25)\n" +
+                                   "project(timestamp NONE)\n" + "include(\"SDK config.cmake\")\n" +
+                                   "add_custom_target(fixture COMMAND ${CMAKE_COMMAND} -E touch " +
+                                   "\"${CMAKE_BINARY_DIR}/built\")\n");
+    File.WriteAllText(dependency, "# SDK fixture\n");
+    var future = DateTime.UtcNow.AddHours(8);
+    File.SetLastWriteTimeUtc(project, future);
+    File.SetLastWriteTimeUtc(dependency, future);
+    var tools = new Tools(new RecordedProgress(), Console.WriteLine);
+    tools.Run(
+        cmake, sandbox,
+        Installer.GameConfigureOptions.Concat(
+            new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja }),
+        true);
+    tools.Run(cmake, sandbox, new[] { "--build", build, "--target", "fixture" }, true);
+    Check(File.Exists(Path.Combine(build, "built")),
+          "Future-dated source or SDK files prevented the launcher build");
+    Check(File.GetLastWriteTimeUtc(project) == future &&
+              File.GetLastWriteTimeUtc(dependency) == future,
+          "The launcher build changed source or SDK timestamps");
   }
 
   private static void FolderTest(string sandbox) {

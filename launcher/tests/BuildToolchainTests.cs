@@ -6,16 +6,6 @@ namespace lollipop;
 
 internal static class BuildToolchainTests {
   internal static void Run(string sandbox) {
-    var build = Path.Combine(sandbox, "moved SDK build");
-    var sdk = Path.Combine(sandbox, "SDK source");
-    if (Installer.BuildSourceChanged(build, sdk))
-      throw new Exception("A new build was treated as a moved SDK");
-    Directory.CreateDirectory(build);
-    var cache = Path.Combine(build, "CMakeCache.txt");
-    File.WriteAllText(cache, "CMAKE_HOME_DIRECTORY:INTERNAL=" + sdk.Replace('\\', '/') + "\r\n");
-    if (Installer.BuildSourceChanged(build, sdk) ||
-        !Installer.BuildSourceChanged(build, Path.Combine(sandbox, "new location", "SDK source")))
-      throw new Exception("A relocated SDK build could not refresh its CMake cache");
     var source = Path.Combine(sandbox, "runtime source");
     var destination = Path.Combine(sandbox, "runtime destination");
     Directory.CreateDirectory(source);

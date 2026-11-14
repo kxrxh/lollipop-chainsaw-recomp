@@ -17,16 +17,12 @@ private:
   void OnDraw(ImGuiIO& io) override {
     std::string stage, error;
     uint32_t completed, total;
-    bool start_game;
     {
       std::lock_guard lock(state_->mutex);
-      if (!state_->visible)
-        return;
       stage = state_->stage;
       error = state_->error;
       completed = state_->completed;
       total = state_->total;
-      start_game = state_->start_game;
     }
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
@@ -61,8 +57,7 @@ private:
       ImGui::ProgressBar(total ? float(completed) / total : 0, ImVec2(width, 26 * scale),
                          count.c_str());
       ImGui::PopStyleColor();
-      ImGui::TextWrapped(start_game ? "The game will start when the recorded pipelines are ready."
-                                    : "This window will close when preparation finishes.");
+      ImGui::TextWrapped("This window will close when preparation finishes.");
     } else {
       ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
       ImGui::TextUnformatted(error.c_str());

@@ -59,7 +59,7 @@ internal sealed class BuildToolchain {
   ];
   private static readonly string[] RequiredRuntimeNames =
       ["msvcp140.dll", "msvcp140_atomic_wait.dll", "vcruntime140.dll", "vcruntime140_1.dll"];
-  internal string Git = "", Compiler = "", CMake = "", Ninja = "", RuntimeDirectory = "";
+  internal string Compiler = "", CMake = "", Ninja = "";
   internal readonly List<string> ConfigureArguments = [];
 
   private static string Parent(string file, int count = 1) {
@@ -112,7 +112,7 @@ internal sealed class BuildToolchain {
 
   internal static BuildToolchain Prepare(Tools tools, string cache, string directory,
                                          string runtime, bool useInstalled = true) {
-    var result = new BuildToolchain { RuntimeDirectory = runtime };
+    var result = new BuildToolchain();
     var inheritedPath = useInstalled
                             ? Environment.GetEnvironmentVariable("PATH") ?? ""
                             : Environment.SystemDirectory + ";" +
@@ -123,8 +123,10 @@ internal sealed class BuildToolchain {
                       Path.Combine(vs, "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja") });
     tools.EnvironmentVariables["PATH"] =
         runtime + ";" + String.Join(';', cmakeDirectories) + ";" + inheritedPath;
-    result.Git = tools.Get(Tools.Git, cache, useInstalled);
-    result.Compiler = tools.Get(Tools.LLVM, cache, useInstalled);
+    using (var compiler = LauncherPackage.Resource("llvm.tar.xz")) {
+      var package = new Package("LLVM", "llvm.tar.xz", Tools.Hash(compiler), "bin/clang++.exe");
+      result.Compiler = tools.Get(package, cache, useInstalled, compiler);
+    }
     result.CMake = tools.Get(CMakePackage, cache, useInstalled);
     result.Ninja = tools.Get(NinjaPackage, cache, useInstalled);
 
@@ -175,14 +177,14 @@ internal sealed class BuildToolchain {
                                      "LDFLAGS", "RCFLAGS" })
       tools.EnvironmentVariables[variable] = "";
     tools.EnvironmentVariables["PATH"] = String.Join(
-        ';', new[] { runtime, Parent(result.Compiler), Parent(result.Git), Parent(result.CMake),
-                     Parent(result.Ninja), Path.Combine(sdkHeaders, "bin", SdkVersion, "x64"),
-                     inheritedPath });
+        ';', new[] { runtime, Parent(result.Compiler), Parent(result.CMake), Parent(result.Ninja),
+                     Path.Combine(sdkHeaders, "bin", SdkVersion, "x64"), inheritedPath });
     var flags = "-nostdinc -fms-compatibility-version=19.44 -fms-runtime-lib=dll " +
                 String.Join(' ', includes.Select(path => "-isystem " + Tools.Quote(path)));
     var linkFlags = "-nostdlib -fuse-ld=lld " +
                     String.Join(' ', libraries.Select(path => "-Wl,/libpath:" + Tools.Quote(path)));
     result.ConfigureArguments.AddRange([
+      "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF", "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
       "-DCMAKE_C_FLAGS=" + flags, "-DCMAKE_CXX_FLAGS=" + flags,
       "-DCMAKE_EXE_LINKER_FLAGS=" + linkFlags, "-DCMAKE_SHARED_LINKER_FLAGS=" + linkFlags,
       "-DCMAKE_MODULE_LINKER_FLAGS=" + linkFlags,

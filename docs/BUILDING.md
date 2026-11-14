@@ -6,16 +6,26 @@ play instructions, see the [README](../README.md).
 ## Build the launcher
 
 ```powershell
+./build-sdk.ps1
 ./launcher/build.ps1
 ```
 
 Output: `out/launcher/Lollipop Chainsaw Launcher.exe`. The script fetches the pinned
 .NET 10 SDK into `out/tools/` and restores the locked NuGet packages into `out/nuget/`.
 It publishes a self-contained Windows x64 executable; players do not need to install
-.NET. The C++ toolchain is not needed to build the launcher.
+.NET. Build the patched SDK once using the manual build requirements below.
+The launcher embeds that SDK, its runtime DLLs, a minimal LLVM 20.1.8 package and
+dependency notices in the EXE. The compiler package keeps `clang`, `clang++`,
+`lld-link`, the LLVM library tools and builtin headers; debuggers, sanitizers and
+unrelated target tools are omitted. Identical executable aliases share archive data.
+To use an SDK built elsewhere, pass `-SdkDirectory <folder>` to `launcher/build.ps1`.
+Use `-LlvmDirectory <LLVM bin or root>` if LLVM 20.1.8 is not on PATH or under Program Files.
+Packaging rejects an SDK whose patch identity differs from the bundled game sources.
 
 Open [Lollipop.Launcher.slnx](../launcher/Lollipop.Launcher.slnx) in an IDE for the
 WPF application and its test project. Build and publish output stays under `out/launcher/`.
+UI-only IDE builds and launcher tests can run without an SDK; installing a game
+requires the packaged launcher produced by `launcher/build.ps1`.
 
 `VERSION` sets the bundled recomp version; `launcher/VERSION` independently sets
 the launcher version. Updates shows both alongside the installed game version.
@@ -36,9 +46,17 @@ is unavailable, use Locate game to select it again.
 
 ### Portable player setup
 
-Setup reuses compatible installed tools without modifying them. Missing tools are
-downloaded from pinned official packages into the game folder's `out/tools/`:
-Git, LLVM 20.1.8, CMake, Ninja, Microsoft C++ headers/libraries and Windows SDK.
+The launcher includes a prebuilt ReXGlue SDK in `out/launcher/sdk.zip`, embedded in
+the published EXE. Setup unpacks it into `out/tools/sdk/<archive hash>/` in the game
+folder and reuses it on repair. The package includes the code generator, runtime
+and GPU DLLs, headers, libraries, CMake files and dependency notices. No game files
+or generated game translations are included. The player does not need Git, and
+setup does not build the SDK.
+
+Setup reuses compatible installed compiler tools without modifying them. Otherwise it
+unpacks the bundled minimal LLVM from `out/launcher/llvm.tar.xz` into the game folder's
+`out/tools/packages/`. Missing CMake, Ninja, Microsoft C++ headers/libraries and Windows
+SDK files are downloaded from pinned official packages into that same private folder.
 No Build Tools, SDK or VC++ Redistributable installer is run; administrator rights
 and global PATH changes are not needed. Runtime DLLs are copied beside the game
 and SDK executables. Microsoft tools retain their linked license terms in setup.
@@ -102,7 +120,9 @@ To validate an existing import, run `./prepare-game.ps1 -InputPath ./game`.
 The SDK script downloads ReXGlue 0.10.1 at
 `bd833a2ab69d305f99ddf57418fc38ffec8af93d`, applies the patches in `patches/`,
 and installs to `out/sdk/`. The game build validates the executable, generates
-C++, compiles and runs CTest. Launch prepares shaders before starting the game.
+C++, compiles and runs CTest. Normal launches start the game directly and reuse
+cached shaders. Shader preparation is optional; see
+[shader preparation](COMPATIBILITY.md#shader-preparation).
 
 ### Custom paths
 
@@ -135,7 +155,8 @@ Paths are relative to the checkout or chosen install folder.
 | `user/` | Saves and `pc-settings.toml` |
 | `cache/` | Shader and UI artwork caches |
 | `out/generated/` | Generated C++ |
-| `out/tools/`, `out/sdk/` | Downloaded tools and installed SDK |
+| `out/tools/sdk/` | Bundled SDK unpacked by player setup |
+| `out/tools/`, `out/sdk/` | Compiler packages and the developer-built SDK |
 | `out/build/` | SDK, game and test builds |
 | `out/build/win-amd64-release/lollipop.exe` | Playable game |
 | `out/launcher/latest.log` | Setup and launcher log |
@@ -150,13 +171,14 @@ The launcher caches its source kit under `launcher-data/source/` beside its EXE.
 | Problem | Action |
 | --- | --- |
 | Interrupted setup | Reopen the launcher and use the remembered destination. Use Repair game if the disc is already imported; otherwise supply the same ISO in Manage game. Check `out/launcher/latest.log`. |
-| Preparing game tools appears idle | Compiler and dependency configuration can run without a percentage. Check the current activity or `out/launcher/latest.log`; a completed Git percentage only describes that download. |
+| Preparing game tools failed | Download the complete launcher again. The SDK is bundled; no SDK compilation or Git download is needed. Check `out/launcher/latest.log`. |
 | Install folder rejected | Choose an empty folder for a new install. Close the game and other launcher windows; check write access. |
 | Unsupported or incomplete disc | Compare the executable hash above. Re-extract if it differs or `AshGame/` or `Engine/` is missing. |
 | Tool download failed in the launcher | Check internet access and free space, then retry. Verified packages are reused. No system installation is needed. |
 | Missing compiler in a manual build | Check the manual build requirements above. Supply `-LlvmDirectory` if needed. |
 | SDK patch conflict | Use new SDK source and build directories; see below. |
 | Paths refer to an old checkout | Rerun `build.ps1`. Use a new build directory for an SDK built at the old location. |
+| Ninja reports `build.ninja` still dirty after 100 tries | CMake is stuck regenerating its build files. Future-dated inputs can cause this; check Windows date/time synchronization. Use the updated launcher and retry setup or Repair. Launcher builds explicitly configure before compiling and disable automatic regeneration, so archived source or SDK timestamps cannot cause this loop. Manual developer builds keep automatic regeneration enabled. |
 
 To build the SDK from a clean checkout without deleting the old one:
 

@@ -203,6 +203,44 @@ int main(int argc, char** argv) try {
     missing_shader += hex[byte & 15];
   }
   rejects([&] { prepare(missing_shader + '\n'); });
+  {
+    const auto generated_cache = root / "generated-copy-cache";
+    std::vector<uint8_t> copy_description(64);
+    constexpr uint64_t copy_hash = 0x896985ccfaf3c47aull;
+    for (unsigned i = 0; i < 8; ++i)
+      copy_description[i] = uint8_t(copy_hash >> (i * 8));
+    std::string copy_inventory = header;
+    for (uint8_t byte : copy_description) {
+      copy_inventory += hex[byte >> 4];
+      copy_inventory += hex[byte & 15];
+    }
+    copy_inventory += '\n';
+    lollipop::prepare_shader_inventory(root / "game", generated_cache, copy_inventory,
+                                       [](auto, auto, auto) {});
+    const auto generated_library = generated_cache / "shaders/shareable/565707D0.xsh";
+    std::ifstream generated_file(generated_library, std::ios::binary);
+    const std::vector<uint8_t> generated_bytes((std::istreambuf_iterator<char>(generated_file)),
+                                               {});
+    generated_file.close();
+    const auto generated = lollipop::read_shader_library(generated_bytes);
+    check(std::ranges::any_of(generated,
+                              [](const auto& program) {
+                                return program.hash == copy_hash && program.vertex &&
+                                       program.code.size() == 336;
+                              }),
+          "Prepare the exact engine copy shader without any warm-up play");
+    const auto collected_copy = root / "generated-copy-inventory.txt";
+    lollipop::collect_shader_inventory(generated_cache, collected_copy, "Generated copy");
+    std::ifstream collected_file(collected_copy);
+    const std::string collected_text((std::istreambuf_iterator<char>(collected_file)), {});
+    check(collected_text.find(copy_inventory.substr(header.size())) != std::string::npos,
+          "Keep generated copy pipelines in portable inventories");
+    write(generated_library, std::array<uint8_t, 1>{0});
+    lollipop::prepare_shader_inventory(root / "game", generated_cache, collected_text,
+                                       [](auto, auto, auto) {});
+    check(std::filesystem::file_size(generated_library) == generated_bytes.size(),
+          "Rebuild the engine copy shader from its recipe after cache loss");
+  }
   return 0;
 } catch (const std::exception& error) {
   fprintf(stderr, "%s\n", error.what());

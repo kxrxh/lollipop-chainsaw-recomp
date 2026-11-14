@@ -3,6 +3,8 @@
 #include <array>
 
 int main() {
+  if (!lollipop::prefetch_recompiled_code())
+    return 5;
   PPCRegister result{};
   result.u64 = 0x123456789ABCDEF0;
   if (lollipop::skip_startup_live_check(0, result) || result.u64 != 0x123456789ABCDEF0)

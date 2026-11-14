@@ -14,18 +14,19 @@ redistributions must retain the copyright notice, license terms and disclaimer.
 | [Xenia](https://github.com/xenia-project/xenia) | ReXGlue foundations | Included in the ReXGlue notice |
 | [libmspack](https://github.com/kyz/libmspack) | LZX decoding, with a separate XMem padding mode in the SDK patch | [LGPL 2.1 notice](patches/LICENSE.libmspack) |
 | [PM.RAZOR / SSX-RexGlue](https://github.com/pmrazor/SSX-RexGlue) | Adapted texture-copy bounds and scaled-wrapper fixes | [BSD notice](patches/SSX-RexGlue-LICENSE.txt) |
-| [LLVM](https://github.com/llvm/llvm-project) | C++ toolchain | [Upstream license](https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/LICENSE.TXT) |
+| [LLVM 20.1.8](https://github.com/llvm/llvm-project/releases/tag/llvmorg-20.1.8) | Bundled minimal C++ toolchain | [LLVM notice](launcher/assets/LICENSE.LLVM), [Clang notice](launcher/assets/LICENSE.Clang), [LLD notice](launcher/assets/LICENSE.LLD) |
 | [extract-xiso](https://github.com/XboxDev/extract-xiso) | Disc extraction | [Upstream license](https://github.com/XboxDev/extract-xiso/blob/master/LICENSE.TXT) |
-| [MinGit](https://github.com/git-for-windows/git) | Portable Git for setup | Notices included in the upstream archive |
 | [PowerShell](https://github.com/PowerShell/PowerShell) | Build, packaging and development scripts | [Upstream license](https://github.com/PowerShell/PowerShell/blob/master/LICENSE.txt) |
 | [.NET 10 / WPF](https://github.com/dotnet/wpf) | Self-contained launcher runtime | [MIT license](launcher/assets/LICENSE.NET), [runtime notices](launcher/assets/NOTICES.NET) |
 | [Markdig 1.6.0](https://github.com/xoofx/markdig) | Launcher Markdown parsing | [BSD-2-Clause notice](launcher/assets/LICENSE.Markdig) |
 | [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/downloads/) | C++ headers and x64 libraries, reused from an installed toolset or downloaded from official VSIX packages | [Microsoft terms](https://visualstudio.microsoft.com/license-terms/vs2022-ga-diagnosticbuildtools/) |
 | [Windows SDK](https://www.nuget.org/packages/Microsoft.Windows.SDK.CPP/10.0.26100.7705) | Native headers, resource tools and x64 libraries, reused locally or downloaded as SDK NuGet packages | [SDK terms](https://aka.ms/WinSDKLicenseURL) |
-| [Visual C++ Runtime](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files) | App-local runtime DLLs, copied from a compatible installed runtime or downloaded from the official Microsoft runtime VSIX | Microsoft redistribution terms |
+| [Visual C++ Runtime](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files) | App-local runtime DLLs bundled with the SDK; older installations can also reuse a compatible installed runtime or download the official Microsoft runtime VSIX | Microsoft redistribution terms |
 
 Tools and SDK dependencies retain their own licenses. Preserve their notices
 when distributing them; the project license does not replace or restrict them.
+The bundled SDK keeps its dependency notices under `licenses/`, with pinned source
+revisions and the SDK patches used to produce it. It contains no game translations.
 
 [Re-Cherry](https://github.com/MaxDeadBear/Re-Cherry) provided research leads;
 its implementation was not copied.

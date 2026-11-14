@@ -43,17 +43,21 @@ try {
     if ('game_root = "game"' -notin $original -or 'out_directory_path = "out/generated"' -notin $original) {
         throw 'Default manifest must use checkout-local directories'
     }
+    $tools = Get-BuildTools -LlvmDirectory $LlvmDirectory
+    $sdk = [IO.Path]::GetFullPath((Join-Path $RexGlueDirectory '../../..'))
     Push-Location $temporary
     try {
         $installer = Join-Path $temporary 'launcher output/Lollipop Chainsaw Launcher.exe'
-        & "$root/launcher/build.ps1" -OutputFile $installer | Out-Null
+        & "$root/launcher/build.ps1" -OutputFile $installer -SdkDirectory $sdk `
+            -LlvmDirectory (Split-Path $tools.Clangxx -Parent) | Out-Null
     } finally { Pop-Location }
     if (-not (Test-Path -LiteralPath $installer)) { throw 'Standalone launcher was not published.' }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead("$root/out/launcher/kit.zip")
     try {
         foreach ($name in 'CMakeLists.txt','launcher/assets/lollipop.ico','src/main.cpp','VERSION','THIRD_PARTY.md',
-                          'launcher/assets/LICENSE.Markdig','launcher/assets/LICENSE.NET') {
+                          'launcher/assets/LICENSE.Markdig','launcher/assets/LICENSE.NET',
+                          'launcher/assets/LICENSE.LLVM','launcher/assets/LICENSE.Clang','launcher/assets/LICENSE.LLD') {
             if (-not $archive.GetEntry($name)) { throw "Game source kit is missing $name" }
         }
         if ($archive.Entries.FullName -match '^(game|user|cache|out|generated|tests|launcher/tests)/|\.ps1$|\.cs$|\.xaml$|default\.xex$') {
@@ -66,7 +70,6 @@ try {
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target)
         }
     } finally { $archive.Dispose() }
-    $tools = Get-BuildTools -LlvmDirectory $LlvmDirectory
     $playerBuild = Join-Path $temporary 'player build'
     & $tools.CMake -S $playerSource -B $playerBuild -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
         "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-Drexglue_DIR=$RexGlueDirectory" `

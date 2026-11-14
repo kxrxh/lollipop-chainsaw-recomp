@@ -220,6 +220,7 @@ if(WIN32)
         VERBATIM)
     add_custom_target(lollipop_setup_check ALL DEPENDS "${setup_test}")
     add_dependencies(lollipop_setup_check lollipop_settings_test)
-    add_test(NAME lollipop_standalone_setup COMMAND "${setup_test}" "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:lollipop_settings_test>")
+    add_test(NAME lollipop_standalone_setup COMMAND "${setup_test}" "${CMAKE_CURRENT_SOURCE_DIR}"
+        "$<TARGET_FILE:lollipop_settings_test>" "${CMAKE_COMMAND}" "${CMAKE_MAKE_PROGRAM}")
     set_tests_properties(lollipop_standalone_setup PROPERTIES TIMEOUT 60)
 endif()
