@@ -8,7 +8,7 @@
     <ApplicationIcon>assets/lollipop.ico</ApplicationIcon>
     <GameKitPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../out/launcher/kit.zip'))</GameKitPath>
     <GameSdkPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../out/launcher/sdk.zip'))</GameSdkPath>
-    <GameCompilerPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../out/launcher/llvm.tar.xz'))</GameCompilerPath>
+    <GameCompilerPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../out/launcher/llvm.tar.gz'))</GameCompilerPath>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs"/>
@@ -20,7 +20,7 @@
     <EmbeddedResource Include="../CHANGELOG.md" LogicalName="CHANGELOG.md"/>
     <EmbeddedResource Include="$(GameKitPath)" LogicalName="kit.zip"/>
     <EmbeddedResource Include="$(GameSdkPath)" LogicalName="sdk.zip" Condition="Exists('$(GameSdkPath)')"/>
-    <EmbeddedResource Include="$(GameCompilerPath)" LogicalName="llvm.tar.xz" Condition="Exists('$(GameCompilerPath)')"/>
+    <EmbeddedResource Include="$(GameCompilerPath)" LogicalName="llvm.tar.gz" Condition="Exists('$(GameCompilerPath)')"/>
   </ItemGroup>
   <Target Name="PrepareGameKit" BeforeTargets="PrepareForBuild">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)scripts/Pack-Game.ps1&quot; -OutputFile &quot;$(GameKitPath)&quot;"/>

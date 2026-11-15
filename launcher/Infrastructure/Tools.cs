@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Formats.Tar;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -307,9 +308,12 @@ internal sealed class Tools {
                    extension =>
                        package.Url.EndsWith(extension, StringComparison.OrdinalIgnoreCase))) {
         using (var archive = ZipFile.OpenRead(download)) Extract(archive, stage);
+      } else if (package.Url.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)) {
+        using var archive = File.OpenRead(download);
+        using var gzip = new GZipStream(archive, CompressionMode.Decompress);
+        TarFile.ExtractToDirectory(gzip, stage, false);
       } else
-        Run(Path.Combine(Environment.SystemDirectory, "tar.exe"), stage,
-            new[] { "-xf", download, "-C", stage }, true);
+        throw new InvalidDataException("Unsupported package format: " + package.Name);
       if (!File.Exists(Path.Combine(stage, package.File)))
         throw new InvalidDataException("The " + package.Name + " download is incomplete.");
       MoveDirectory(stage, folder);

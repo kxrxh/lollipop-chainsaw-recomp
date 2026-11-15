@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 — 2026-11-15
+
+- Launcher 0.2.7 fixes LLVM extraction during setup on Windows systems whose
+  `tar.exe` cannot unpack XZ archives. The bundled compiler now uses gzip and is
+  extracted by the launcher's .NET runtime, without external archive tools.
+- Avoid duplicate host presents so the displayed FPS counters agree.
+
 ## 0.1.3 — 2026-11-14
 
 - Add character shadow resolution choices (Original, 256, 512 and 1024) to launcher

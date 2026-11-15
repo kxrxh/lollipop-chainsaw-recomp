@@ -42,10 +42,11 @@ on repair. It compiles the game locally from your disc; Git and an SDK build are
 not required. The launcher contains no game files or generated translations.
 
 Compatible installed tools are reused. Bundled LLVM is extracted into
-`out/tools/packages/`; missing CMake, Ninja, Microsoft C++ headers/libraries and
-Windows SDK files are downloaded there from pinned official packages. Runtime DLLs
-are copied beside the game and SDK executables. No system installers or administrator
-rights are required. Microsoft license terms are linked in setup.
+`out/tools/packages/` by the launcher's bundled .NET runtime, without requiring
+`tar.exe` or `xz` on the player's computer. Missing CMake, Ninja, Microsoft C++
+headers/libraries and Windows SDK files are downloaded there from pinned official
+packages. Runtime DLLs are copied beside the game and SDK executables. No system
+installers or administrator rights are required. Microsoft license terms are linked in setup.
 
 Keep the launcher in a writable folder. `launcher-data/` holds its source cache and
 preferences; game files, saves and settings stay in the selected installation. The

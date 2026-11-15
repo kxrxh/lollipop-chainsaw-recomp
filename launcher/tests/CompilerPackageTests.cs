@@ -21,7 +21,8 @@ internal static class CompilerPackageTests {
         }
         '@
         """);
-    var tools = new Tools(new RecordedProgress(), _ => { });
+    var externalToolUsed = false;
+    var tools = new Tools(new RecordedProgress(), _ => externalToolUsed = true);
     var powershell =
         Path.Combine(Environment.SystemDirectory, "WindowsPowerShell/v1.0/powershell.exe");
     var fixtureExe = Path.Combine(sandbox, "compiler-fixture.exe");
@@ -35,7 +36,7 @@ internal static class CompilerPackageTests {
     var headers = Path.Combine(llvm, "lib/clang/20/include");
     Directory.CreateDirectory(headers);
     File.WriteAllText(Path.Combine(headers, "stddef.h"), "// builtin header fixture");
-    var output = Path.Combine(sandbox, "compiler output", "llvm.tar.xz");
+    var output = Path.Combine(sandbox, "compiler output", "llvm.tar.gz");
     var arguments = new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             Path.Combine(root, "launcher/scripts/Pack-Compiler.ps1"),
                             "-LlvmDirectory", bin, "-OutputFile", output };
@@ -50,8 +51,13 @@ internal static class CompilerPackageTests {
             .Any(file => File.GetLastWriteTimeUtc(file) != inputTime))
       throw new Exception("Repackaging unchanged LLVM changed its cache identity or source timestamps");
     using (var payload = File.OpenRead(output)) {
-      var compiler = tools.Get(new Package("LLVM", "llvm.tar.xz", hash, "bin/clang++.exe"),
+      tools.EnvironmentVariables["PATH"] = "";
+      externalToolUsed = false;
+      var compiler = tools.Get(new Package("LLVM", "llvm.tar.gz", hash, "bin/clang++.exe"),
                                Path.Combine(sandbox, "embedded compiler"), false, payload);
+      if (externalToolUsed)
+        throw new Exception("Embedded LLVM extraction launched an external tool");
+      tools.EnvironmentVariables.Remove("PATH");
       var unpacked = Path.GetDirectoryName(Path.GetDirectoryName(compiler))!;
       var files = Directory.GetFiles(unpacked, "*", SearchOption.AllDirectories);
       if (Directory.GetFiles(Path.GetDirectoryName(compiler)!).Length != 6 ||
@@ -68,7 +74,7 @@ internal static class CompilerPackageTests {
       throw new Exception("Compiler packaging changed its source installation");
     using var badPayload = File.OpenRead(output);
     try {
-      tools.Get(new Package("LLVM", "llvm.tar.xz", new string('0', 64), "bin/clang++.exe"),
+      tools.Get(new Package("LLVM", "llvm.tar.gz", new string('0', 64), "bin/clang++.exe"),
                 Path.Combine(sandbox, "invalid embedded compiler"), false, badPayload);
     } catch (InvalidDataException) {
       return;

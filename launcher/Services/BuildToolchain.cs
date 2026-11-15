@@ -123,8 +123,8 @@ internal sealed class BuildToolchain {
                       Path.Combine(vs, "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja") });
     tools.EnvironmentVariables["PATH"] =
         runtime + ";" + String.Join(';', cmakeDirectories) + ";" + inheritedPath;
-    using (var compiler = LauncherPackage.Resource("llvm.tar.xz")) {
-      var package = new Package("LLVM", "llvm.tar.xz", Tools.Hash(compiler), "bin/clang++.exe");
+    using (var compiler = LauncherPackage.Resource("llvm.tar.gz")) {
+      var package = new Package("LLVM", "llvm.tar.gz", Tools.Hash(compiler), "bin/clang++.exe");
       result.Compiler = tools.Get(package, cache, useInstalled, compiler);
     }
     result.CMake = tools.Get(CMakePackage, cache, useInstalled);

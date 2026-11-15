@@ -17,7 +17,7 @@ if (-not $Tests) {
         $compiler = Get-Command clang++.exe -ErrorAction SilentlyContinue
         $LlvmDirectory = if ($compiler) { Split-Path $compiler.Source -Parent } else { Join-Path $env:ProgramFiles 'LLVM/bin' }
     }
-    & "$PSScriptRoot/scripts/Pack-Compiler.ps1" -LlvmDirectory $LlvmDirectory -OutputFile (Join-Path $root 'out/launcher/llvm.tar.xz') | Out-Null
+    & "$PSScriptRoot/scripts/Pack-Compiler.ps1" -LlvmDirectory $LlvmDirectory -OutputFile (Join-Path $root 'out/launcher/llvm.tar.gz') | Out-Null
 }
 $project = if ($Tests) { Join-Path $PSScriptRoot 'tests/Lollipop.Launcher.Tests.csproj' } else { Join-Path $PSScriptRoot 'Lollipop.Launcher.csproj' }
 $assembly = if ($Tests) { 'Lollipop.Launcher.Tests.exe' } else { 'Lollipop.Launcher.exe' }

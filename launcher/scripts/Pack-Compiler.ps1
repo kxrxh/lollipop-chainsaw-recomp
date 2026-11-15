@@ -90,7 +90,7 @@ try {
         $entry.LastAccessTimeUtc = $timestamp
         $entry.LastWriteTimeUtc = $timestamp
     }
-    & (Join-Path ([Environment]::SystemDirectory) 'tar.exe') -cJf $archive -C $stage bin lib licenses
+    & (Join-Path ([Environment]::SystemDirectory) 'tar.exe') -czf $archive --options 'gzip:!timestamp' -C $stage bin lib licenses
     if ($LASTEXITCODE -ne 0) { throw 'Compiler package creation failed.' }
     if ([IO.File]::Exists($output)) { [IO.File]::Replace($archive, $output, [NullString]::Value) }
     else { [IO.File]::Move($archive, $output) }
