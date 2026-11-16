@@ -19,7 +19,7 @@ REXCVAR_DEFINE_BOOL(
 
 REXCVAR_DEFINE_INT32(lollipop_fps, 60, "Lollipop", "Frame limit: 30, 60, 90 or 120 FPS")
     .allowed({"30", "60", "90", "120"})
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_STRING(lollipop_tick_trace_csv, "", "Lollipop",
                       "Opt-in candidate engine Tick timing log")
@@ -27,9 +27,17 @@ REXCVAR_DEFINE_STRING(lollipop_tick_trace_csv, "", "Lollipop",
 
 namespace {
 std::atomic<bool> settings_paused{false};
+std::atomic<bool> cheats_paused{false};
 std::atomic<int> frame_rate{60};
 thread_local bool engine_tick_thread = false;
+
+void apply_frame_rate(int fps) {
+  frame_rate.store(fps, std::memory_order_relaxed);
+  const auto source = rex::cvar::GetFlagSource("video_mode_refresh_rate");
+  if (source == rex::cvar::Source::kDefault || source == rex::cvar::Source::kRuntime)
+    rex::cvar::SetFlagByName("video_mode_refresh_rate", std::to_string(std::max(60, fps)));
 }
+} // namespace
 
 bool lollipop::is_engine_tick_thread() { return engine_tick_thread; }
 
@@ -39,30 +47,40 @@ void lollipop::configure_frame_rate() {
   const auto legacy = rex::cvar::GetFlagSource("lollipop_60fps");
   if (source == Source::kDefault ||
       (legacy == Source::kCommandLine && source != Source::kCommandLine) ||
-      (legacy == Source::kEnvironment && source != Source::kCommandLine && source != Source::kEnvironment))
+      (legacy == Source::kEnvironment && source != Source::kCommandLine &&
+       source != Source::kEnvironment))
     rex::cvar::SetFlagByName("lollipop_fps", REXCVAR_GET(lollipop_60fps) ? "60" : "30");
-  const auto fps = REXCVAR_GET(lollipop_fps);
-  frame_rate.store(fps, std::memory_order_relaxed);
-  const auto refresh_source = rex::cvar::GetFlagSource("video_mode_refresh_rate");
-  if (refresh_source == Source::kDefault || refresh_source == Source::kRuntime)
-    rex::cvar::SetFlagByName("video_mode_refresh_rate", std::to_string(std::max(60, fps)));
+  static const bool watching = [] {
+    rex::cvar::RegisterChangeCallback("lollipop_fps", [](std::string_view, std::string_view value) {
+      apply_frame_rate(std::stoi(std::string(value)));
+    });
+    return true;
+  }();
+  (void)watching;
+  apply_frame_rate(REXCVAR_GET(lollipop_fps));
 }
 
 void lollipop::set_settings_pause(bool paused) {
   settings_paused.store(paused, std::memory_order_relaxed);
 }
 
-void lollipop_settings_pause(PPCRegister &paused) {
-  if (settings_paused.load(std::memory_order_relaxed)) paused.u64 = 1;
+void lollipop::set_cheats_pause(bool paused) {
+  cheats_paused.store(paused, std::memory_order_relaxed);
 }
 
-void lollipop_present_interval(PPCRegister &interval) {
+void lollipop_settings_pause(PPCRegister& paused) {
+  if (settings_paused.load(std::memory_order_relaxed) ||
+      cheats_paused.load(std::memory_order_relaxed))
+    paused.u64 = 1;
+}
+
+void lollipop_present_interval(PPCRegister& interval) {
   if (frame_rate.load(std::memory_order_relaxed) > 30) {
     interval.u64 = 1;
   }
 }
 
-void lollipop_tick_limit(PPCRegister &limit) {
+void lollipop_tick_limit(PPCRegister& limit) {
   const auto fps = frame_rate.load(std::memory_order_relaxed);
   if (fps > 30) {
     limit.f64 = double(fps);

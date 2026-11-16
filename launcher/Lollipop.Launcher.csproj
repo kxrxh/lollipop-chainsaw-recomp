@@ -17,7 +17,6 @@
     <EmbeddedResource Include="assets/*.png" LogicalName="%(Filename)%(Extension)"/>
     <EmbeddedResource Include="VERSION" LogicalName="LAUNCHER_VERSION"/>
     <EmbeddedResource Include="../VERSION" LogicalName="VERSION"/>
-    <EmbeddedResource Include="../CHANGELOG.md" LogicalName="CHANGELOG.md"/>
     <EmbeddedResource Include="$(GameKitPath)" LogicalName="kit.zip"/>
     <EmbeddedResource Include="$(GameSdkPath)" LogicalName="sdk.zip" Condition="Exists('$(GameSdkPath)')"/>
     <EmbeddedResource Include="$(GameCompilerPath)" LogicalName="llvm.tar.gz" Condition="Exists('$(GameCompilerPath)')"/>

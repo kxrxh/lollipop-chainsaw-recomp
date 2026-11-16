@@ -81,11 +81,33 @@ address = 0x823CC058
 name = "lollipop_initialize_shadows"
 registers = []
 
-# FEngineLoop::Tick: retain the startup shadow choice across native settings reloads.
+# FEngineLoop::Tick: apply live shadow quality and retain it across native settings reloads.
 [[entrypoint.midasm_hook]]
 address = 0x829BD280
 name = "lollipop_update_shadows"
 registers = []
+
+# FSceneRenderTargets: reserve full capacity independently of the live per-object quality cap.
+# Direct shadow-depth allocation, atlas dimensions, cube-map bin selection and cube allocation.
+[[entrypoint.midasm_hook]]
+address = 0x827E4614
+name = "lollipop_shadow_capacity"
+registers = ["r11"]
+
+[[entrypoint.midasm_hook]]
+address = 0x827E5324
+name = "lollipop_shadow_capacity"
+registers = ["r11"]
+
+[[entrypoint.midasm_hook]]
+address = 0x827E53CC
+name = "lollipop_shadow_capacity"
+registers = ["r11"]
+
+[[entrypoint.midasm_hook]]
+address = 0x827E546C
+name = "lollipop_shadow_capacity"
+registers = ["r11"]
 
 # UWorld::IsPaused false return, after li r3,0. Native true returns stay untouched.
 [[entrypoint.midasm_hook]]

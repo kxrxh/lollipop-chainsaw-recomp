@@ -14,14 +14,14 @@ scenes. The normal story route through those phone scenes is unverified.
   not reproduce them; full-playthrough stability is unverified.
 - Uncached shaders can pause the game while compiling. Automatic shader preparation
   reduces these pauses; combinations missing from the inventory still compile on use.
-- Physical controllers, multiple monitors, other disc versions and Vulkan need
+- Physical controllers, multiple monitors and other disc versions need
   more testing. Automated controller checks use injected input.
 - macOS and Linux are unverified.
 
 ## Frame rate and display
 
 The default is 60 FPS. Options also offers 30, 90 and 120 FPS; changing the limit
-requires a restart. Physics, quick-time events and cutscenes at 90/120 FPS are
+applies live. Physics, quick-time events and cutscenes at 90/120 FPS are
 unverified. Prerecorded movies may stay at 30 FPS.
 
 Borderless fullscreen uses the desktop resolution. Window resolution applies
@@ -31,7 +31,8 @@ refresh and GPU load affect the displayed frame rate.
 **Shadow resolution** in the launcher and in-game Graphics settings offers Original,
 256, 512 and 1024. Original preserves the game's character shadows (normally capped
 at 128). Higher values increase character shadow detail and GPU usage independently
-of Render resolution. Changes require a restart.
+of Render resolution. Changes apply live, including switching back to Original. Shadow targets
+reserve space for the highest quality at startup so their dimensions remain safe while playing.
 
 ## Controls
 

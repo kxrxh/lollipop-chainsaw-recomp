@@ -4,6 +4,7 @@
 #include "input/prompt_artwork.h"
 #include "settings/pc_settings.h"
 #include "settings_resources.h"
+#include "ui/cheats_menu.h"
 #include "ui/exit_flow.h"
 
 #include <algorithm>
@@ -250,6 +251,11 @@ private:
   }
 
   void OnDraw(ImGuiIO& io) override {
+    // Display recovery must run even when another dialog owns input.
+    if (preview_ && std::chrono::steady_clock::now() >= deadline_)
+      revert();
+    if (cheats_menu_captures_input())
+      return;
     if (exit_.update(io) || suspended_)
       return;
     if (release_pending_ && !ImGui::IsKeyDown(ImGuiKey_Enter) &&

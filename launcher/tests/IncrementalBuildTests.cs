@@ -14,7 +14,7 @@ internal static class IncrementalBuildTests {
     File.WriteAllText(
         Path.Combine(first, "CMakeLists.txt"),
         "cmake_minimum_required(VERSION 3.25)\nproject(incremental LANGUAGES CXX)\n" +
-            "set(CMAKE_CXX_STANDARD 23)\n" +
+            "set(CMAKE_CXX_STANDARD 23)\ninclude(\"SDK config.cmake\")\n" +
             "add_library(guest OBJECT guest.cpp)\ntarget_precompile_headers(guest PRIVATE " +
             "shared.h)\n" +
             "add_executable(host main.cpp)\ntarget_link_libraries(host PRIVATE guest)\n");
@@ -23,9 +23,15 @@ internal static class IncrementalBuildTests {
     File.WriteAllText(Path.Combine(first, "main.cpp"),
                       "#include \"shared.h\"\nint main() { return guest(); }\n");
     File.WriteAllText(Path.Combine(first, "obsolete.h"), "// removed next release\n");
+    File.WriteAllText(Path.Combine(first, "SDK config.cmake"), "# SDK fixture\n");
+    var future = DateTime.UtcNow.AddHours(8);
     var tools = new Tools(new RecordedProgress(), Console.WriteLine);
     void Build(string kit) {
       LauncherPackage.SyncKit(kit, stable);
+      var configuration = new[] { Path.Combine(stable, "CMakeLists.txt"),
+                                  Path.Combine(stable, "SDK config.cmake") };
+      foreach (var file in configuration)
+        File.SetLastWriteTimeUtc(file, future);
       tools.Run(
           cmake, sandbox,
           Installer.GameConfigureOptions(stable, build)
@@ -35,6 +41,8 @@ internal static class IncrementalBuildTests {
                               "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=" + Path.Combine(build, "stage") }),
           true);
       tools.Run(cmake, sandbox, new[] { "--build", build }, true);
+      if (configuration.Any(file => File.GetLastWriteTimeUtc(file) != future))
+        throw new Exception("The launcher build changed source or SDK timestamps");
     }
     tools.Run(cmake, sandbox,
               new[] { "-S", first, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,

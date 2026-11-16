@@ -40,6 +40,7 @@ add_executable(lollipop WIN32
     src/main.cpp
     src/app/application.cpp
     src/game/game_settings.cpp
+    src/game/cheats.cpp
     src/game/game_bridge.cpp
     src/game/game_menus.cpp
     src/game/native_quit_dialog.cpp
@@ -55,6 +56,7 @@ add_executable(lollipop WIN32
     src/settings/pc_settings.cpp
     src/testing/test_bridge.cpp
     src/ui/settings_menu.cpp
+    src/ui/cheats_menu.cpp
     src/ui/exit_flow.cpp
     src/ui/shader_loading.cpp)
 if(WIN32)
@@ -112,12 +114,12 @@ target_compile_definitions(lollipop_imgui_repaint_test PRIVATE REXGLUE_ENABLE_PE
 add_test(NAME lollipop_imgui_repaint COMMAND lollipop_imgui_repaint_test)
 
 set(LOLLIPOP_HEADERS
-    app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h
+    app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h game/cheats.h
     game/native_quit_dialog.h game/main_menu.h game/package_lzx.h
     game/startup_hooks.h game/timing_hooks.h game/shadow_settings.h
     game/shader_inventory.h ui/shader_loading.h
     input/keyboard_controls.h input/live_prompts.h input/prompt_artwork.h
-    settings/pc_settings.h testing/test_bridge.h ui/settings_menu.h ui/exit_flow.h)
+    settings/pc_settings.h testing/test_bridge.h ui/settings_menu.h ui/exit_flow.h ui/cheats_menu.h)
 set(header_checks)
 foreach(header IN LISTS LOLLIPOP_HEADERS)
     string(REPLACE "/" "_" check_name "${header}")
@@ -192,10 +194,24 @@ add_test(NAME lollipop_exit_flow COMMAND lollipop_exit_flow_test)
 
 add_executable(lollipop_bridge_test tests/test_bridge_test.cpp
     src/testing/test_bridge.cpp src/game/game_settings.cpp src/game/game_bridge.cpp
-    src/game/native_quit_dialog.cpp src/game/startup_hooks.cpp src/game/timing_hooks.cpp)
+    src/game/native_quit_dialog.cpp src/game/startup_hooks.cpp src/game/timing_hooks.cpp
+    src/game/cheats.cpp)
 target_include_directories(lollipop_bridge_test PRIVATE src)
 target_link_libraries(lollipop_bridge_test PRIVATE rex::runtime)
 add_test(NAME lollipop_test_bridge COMMAND lollipop_bridge_test)
+
+add_executable(lollipop_cheats_test tests/cheats_test.cpp src/game/cheats.cpp)
+target_include_directories(lollipop_cheats_test PRIVATE src)
+target_link_libraries(lollipop_cheats_test PRIVATE rex::runtime)
+add_test(NAME lollipop_cheats COMMAND lollipop_cheats_test)
+
+add_executable(lollipop_cheats_menu_test tests/cheats_menu_test.cpp
+    src/ui/cheats_menu.cpp src/game/cheats.cpp src/game/game_bridge.cpp
+    src/game/game_settings.cpp src/game/native_quit_dialog.cpp src/game/startup_hooks.cpp
+    src/game/timing_hooks.cpp src/testing/test_bridge.cpp)
+target_include_directories(lollipop_cheats_menu_test PRIVATE src)
+target_link_libraries(lollipop_cheats_menu_test PRIVATE rex::runtime)
+add_test(NAME lollipop_cheats_menu COMMAND lollipop_cheats_menu_test)
 
 add_executable(lollipop_startup_test tests/startup_hooks_test.cpp src/game/startup_hooks.cpp)
 target_include_directories(lollipop_startup_test PRIVATE src)
@@ -229,7 +245,7 @@ if(WIN32)
     add_custom_command(OUTPUT "${setup_test}"
         COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -File
             "${CMAKE_CURRENT_SOURCE_DIR}/launcher/build.ps1" -Tests -OutputFile "${setup_test}"
-        DEPENDS ${setup_sources} launcher/VERSION VERSION CHANGELOG.md
+        DEPENDS ${setup_sources} launcher/VERSION VERSION
         VERBATIM)
     add_custom_target(lollipop_setup_check ALL DEPENDS "${setup_test}")
     add_dependencies(lollipop_setup_check lollipop_settings_test)

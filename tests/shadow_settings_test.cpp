@@ -39,9 +39,9 @@ int main() try {
     put(0x833696B0, 1.27324f);
   };
   const auto* flag = rex::cvar::GetFlagInfo("lollipop_shadow_resolution");
-  check(flag && flag->lifecycle == rex::cvar::Lifecycle::kRequiresRestart &&
+  check(flag && flag->lifecycle == rex::cvar::Lifecycle::kHotReload &&
             rex::cvar::GetFlagByName(flag->name) == "0",
-        "Original shadows are the restart-only default");
+        "Original shadows are the live default");
   for (const auto* bad : {"-1", "128", "300", "2048", "512.0", "invalid"})
     check(!rex::cvar::SetFlagByName(flag->name, bad), "Reject unsupported launch values");
   reset();
@@ -50,28 +50,43 @@ int main() try {
   check(read(0x833696A8) == 128 && read(0x83369740) == 128 &&
             rex::memory::load_and_swap<float>(memory.base + 0x833696B0) == 1.27324f,
         "Original leaves native shadow settings intact");
-  for (const auto wanted : {256, 512, 1024}) {
-    reset();
+  PPCRegister capacity{};
+  capacity.u64 = 128;
+  lollipop_shadow_capacity(capacity);
+  check(capacity.u64 == 1024, "Target capacity supports every live quality choice");
+  // All transitions share one native baseline and one set of allocated targets.
+  for (const auto wanted : {1024, 256, 512, 0, 1024, 512, 256, 0}) {
     check(rex::cvar::SetFlagByName(flag->name, std::to_string(wanted)), "Accept shadow resolution");
-    lollipop::initialize_shadow_settings(memory.base);
-    // Native settings reloads must not undo the chosen resolution or compound its density.
+    const auto render_before = read(0x83369740);
+    lollipop::update_shadow_settings(memory.base);
+    check(read(0x83369740) == render_before,
+          "Live updates leave the render copy to the native render-thread command");
+    const auto expected = wanted ? wanted : 128;
+    check(read(0x833696A8) == expected &&
+              std::abs(rex::memory::load_and_swap<float>(memory.base + 0x833696B0) -
+                       1.27324f * float(expected) / 128.0f) < 0.0001f,
+          "Live quality switches and Original restore density without compounding");
+    put(0x83369740, uint32_t(expected)); // Simulate the queued native settings copy.
+    check(!lollipop::update_shadow_settings(memory.base),
+          "Unchanged quality needs no render command");
+    put(0x83369740, 1u);
+    check(lollipop::update_shadow_settings(memory.base) && read(0x83369740) == 1,
+          "A stale render copy requests a native update without a game-thread write");
+    put(0x83369740, uint32_t(expected));
     for (int reload = 0; reload < 2; ++reload) {
       reset();
       lollipop::update_shadow_settings(memory.base);
-      check(read(0x833696A8) == wanted && read(0x83369740) == wanted &&
+      check(read(0x833696A8) == expected &&
                 std::abs(rex::memory::load_and_swap<float>(memory.base + 0x833696B0) -
-                         1.27324f * float(wanted) / 128.0f) < 0.0001f,
-            "Resolution and density survive native reloads without compounding");
+                         1.27324f * float(expected) / 128.0f) < 0.0001f,
+            "Quality survives native reloads without compounding");
     }
-    rex::cvar::SetFlagByName(flag->name, "0");
-    lollipop::update_shadow_settings(memory.base);
-    check(read(0x833696A8) == wanted, "Menu changes wait until restart");
   }
+  rex::cvar::SetFlagByName(flag->name, "1024");
   reset();
   lollipop::initialize_shadow_settings(memory.base);
-  lollipop::update_shadow_settings(memory.base);
-  check(read(0x833696A8) == 128, "Restart restores original shadows");
-  rex::cvar::SetFlagByName(flag->name, "1024");
+  check(read(0x833696A8) == 1024 && read(0x83369740) == 1024,
+        "Startup overrides initialize both copies before target allocation");
   for (const auto invalid_density : {0.0f, -1.0f, std::numeric_limits<float>::infinity(),
                                      std::numeric_limits<float>::quiet_NaN()}) {
     reset();

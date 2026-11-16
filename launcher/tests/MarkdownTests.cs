@@ -14,7 +14,7 @@ internal static class MarkdownTests {
 
   internal static void Run() {
     var document = MarkdownNotes.Render(
-        "# Changelog\n\n## Unreleased\n\n- **New** launcher\n- `Settings`\n\n" +
+        "# Release notes\n\n## Unreleased\n\n- **New** launcher\n- `Settings`\n\n" +
             "3. First\n4. Second\n\n> A quote\n\n```text\nexample()\n```\n\n" +
             "| Version | Status |\n| --- | --- |\n| 0.2.0 | Ready |",
         _ => {});

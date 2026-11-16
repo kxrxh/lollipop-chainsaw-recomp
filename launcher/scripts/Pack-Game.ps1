@@ -8,6 +8,7 @@ $files = @('LICENSE','THIRD_PARTY.md','VERSION','CMakeLists.txt','lollipop_manif
     'assets/lollipop.rc','assets/settings_resources.h','launcher/assets/lollipop.ico',
     'assets/settings/controls.png','assets/settings/panel.png','assets/settings/quit-game.png',
     'assets/shaders/pipelines.txt','patches/rexglue-fixes.patch','patches/rexglue-shader-precompile.patch',
+    'patches/rexglue-live-settings.patch',
     'patches/LICENSE.rexglue','patches/LICENSE.libmspack','patches/SSX-RexGlue-LICENSE.txt')
 $files += Get-ChildItem -LiteralPath "$root/src" -Recurse -File |
     Where-Object Extension -in '.cpp','.h' | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\','/') }

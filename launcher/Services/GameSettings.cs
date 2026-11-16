@@ -28,7 +28,7 @@ internal sealed class GameSettings {
     new GraphicsField("anisotropic_override", "Texture filtering", "Sharper textures at an angle.",
                       "5", "-1|Original", "0|Off", "2|2x", "3|4x", "4|8x", "5|16x"),
     new GraphicsField("lollipop_shadow_resolution", "Shadow resolution",
-                      "Sharper character shadows. Requires a restart; increases GPU usage.", "0",
+                      "Sharper character shadows. Applies live; increases GPU usage.", "0",
                       "0|Original", "256|256 × 256", "512|512 × 512", "1024|1024 × 1024"),
     new GraphicsField("lollipop_fps", "Frame rate limit",
                       "90 and 120 FPS gameplay is still experimental.", "60",
@@ -89,6 +89,9 @@ internal sealed class GameSettings {
     double scalar;
     bool valid;
     switch (name) {
+    case "lollipop_gpu_backend":
+      valid = new[] { "any", "d3d12", "vulkan" }.Contains(value);
+      break;
     case "window_width":
       valid = Integer(value, 640, 8192);
       break;
@@ -200,7 +203,11 @@ internal sealed class GameSettings {
       var newline = original != null && original.Contains("\r\n") ? "\r\n" : "\n";
       foreach (var line in Regex.Split(original ?? "", "(?<=\n)")) {
         string name, value;
-        if (ReadLine(line, out name, out value) && edited.ContainsKey(name)) {
+        var assignment = ReadLine(line, out name, out value);
+        // Drop the retired renderer setting while preserving the rest of the profile.
+        if (assignment && name == "lollipop_gpu_backend")
+          continue;
+        if (assignment && edited.ContainsKey(name)) {
           output.Append(name + " = \"" + edited[name] + "\"");
           if (line.EndsWith("\n"))
             output.Append(newline);

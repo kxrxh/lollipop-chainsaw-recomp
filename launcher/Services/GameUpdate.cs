@@ -23,9 +23,10 @@ internal static class GameUpdate {
 
   internal static string SdkId(string kit, string commit) {
     return Tools
-        .HashText(commit + "\n" + Tools.HashFile(Path.Combine(kit, "patches/rexglue-fixes.patch")) +
-                  "\n" +
-                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-shader-precompile.patch")))
+        .HashText(commit + "\n" +
+                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-fixes.patch")) + "\n" +
+                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-shader-precompile.patch")) + "\n" +
+                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-live-settings.patch")))
         .Substring(0, 16);
   }
 

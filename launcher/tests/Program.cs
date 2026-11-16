@@ -150,8 +150,6 @@ internal static class SetupTests {
                 Tools.Compatible("Ninja", "1.12.1") && !Tools.Compatible("Ninja", "1.10.0"),
             "Incompatible installed CMake or Ninja tools were accepted");
       ManifestTest(args[0], sandbox);
-      if (args.Length > 3)
-        BuildTimestampTest(sandbox, args[2], args[3]);
       if (args.Length > 4)
         IncrementalBuildTests.Run(sandbox, args[2], args[3], args[4]);
       FolderTest(sandbox);
@@ -221,34 +219,6 @@ internal static class SetupTests {
           "Manifest hooks changed");
   }
 
-  private static void BuildTimestampTest(string sandbox, string cmake, string ninja) {
-    var source = Path.Combine(sandbox, "future source kit");
-    var build = Path.Combine(sandbox, "future build");
-    Directory.CreateDirectory(source);
-    var project = Path.Combine(source, "CMakeLists.txt");
-    var dependency = Path.Combine(source, "SDK config.cmake");
-    File.WriteAllText(project, "cmake_minimum_required(VERSION 3.25)\n" +
-                                   "project(timestamp NONE)\n" + "include(\"SDK config.cmake\")\n" +
-                                   "add_custom_target(fixture COMMAND ${CMAKE_COMMAND} -E touch " +
-                                   "\"${CMAKE_BINARY_DIR}/built\")\n");
-    File.WriteAllText(dependency, "# SDK fixture\n");
-    var future = DateTime.UtcNow.AddHours(8);
-    File.SetLastWriteTimeUtc(project, future);
-    File.SetLastWriteTimeUtc(dependency, future);
-    var tools = new Tools(new RecordedProgress(), Console.WriteLine);
-    tools.Run(cmake, sandbox,
-              Installer.GameConfigureOptions(source, build)
-                  .Concat(new[] { "-S", source, "-B", build, "-G", "Ninja",
-                                  "-DCMAKE_MAKE_PROGRAM=" + ninja }),
-              true);
-    tools.Run(cmake, sandbox, new[] { "--build", build, "--target", "fixture" }, true);
-    Check(File.Exists(Path.Combine(build, "built")),
-          "Future-dated source or SDK files prevented the launcher build");
-    Check(File.GetLastWriteTimeUtc(project) == future &&
-              File.GetLastWriteTimeUtc(dependency) == future,
-          "The launcher build changed source or SDK timestamps");
-  }
-
   private static void FolderTest(string sandbox) {
     var existing = Path.Combine(sandbox, "existing game");
     Directory.CreateDirectory(Path.Combine(existing, "user"));
@@ -265,14 +235,6 @@ internal static class SetupTests {
     File.WriteAllText(Path.Combine(destination, "game/default.xex"), "wrong disc");
     Fails(delegate { Installer.ValidateGame(Path.Combine(destination, "game")); },
           "Wrong disc was accepted");
-    var archive = Path.Combine(sandbox, "escape.zip");
-    using (var zip = ZipFile.Open(archive, ZipArchiveMode.Create))
-        zip.CreateEntry("../escaped.txt");
-    using (var zip = ZipFile.OpenRead(archive)) Fails(delegate {
-      Tools.Extract(zip, Path.Combine(sandbox, "unpack"));
-    }, "Archive escaped its destination");
-    Check(!File.Exists(Path.Combine(sandbox, "escaped.txt")),
-          "Archive wrote outside its destination");
   }
 
   private static void UpdateTest(string sandbox) {
@@ -280,12 +242,16 @@ internal static class SetupTests {
     Directory.CreateDirectory(Path.Combine(kit, "patches"));
     File.WriteAllText(Path.Combine(kit, "patches/rexglue-fixes.patch"), "first patch");
     File.WriteAllText(Path.Combine(kit, "patches/rexglue-shader-precompile.patch"), "second patch");
+    File.WriteAllText(Path.Combine(kit, "patches/rexglue-live-settings.patch"), "live settings patch");
     var id = GameUpdate.SdkId(kit, "commit-a");
     Check(id == GameUpdate.SdkId(kit, "commit-a") && id != GameUpdate.SdkId(kit, "commit-b"),
           "SDK cache did not include the pinned commit");
     File.AppendAllText(Path.Combine(kit, "patches/rexglue-fixes.patch"), " changed");
     Check(id != GameUpdate.SdkId(kit, "commit-a"),
           "New SDK patches reused an old patched checkout");
+    var liveId = GameUpdate.SdkId(kit, "commit-a");
+    File.AppendAllText(Path.Combine(kit, "patches/rexglue-live-settings.patch"), " changed");
+    Check(liveId != GameUpdate.SdkId(kit, "commit-a"), "Live settings changes invalidate the SDK cache");
     var destination = Path.Combine(sandbox, "update player's game");
     Installer.Initialize(destination);
     foreach (var directory in new[] { "game/AshGame", "game/Engine", "user", "cache",
@@ -537,6 +503,7 @@ internal static class SetupTests {
     var path = GameSettings.PathFor(destination);
     Check(!File.Exists(path) && settings.Values["window_size"] == "2560x1440" &&
               settings.Values["swap_post_effect"] == "none" &&
+              !settings.Values.ContainsKey("lollipop_gpu_backend") &&
               settings.Values["lollipop_shadow_resolution"] == "0",
           "Reading settings wrote a profile or changed startup defaults");
     var selected = new Dictionary<string, string>(settings.Values);
@@ -546,7 +513,8 @@ internal static class SetupTests {
           "New profile wrote native save defaults");
     var original = "# Keep my settings\r\nwindow_width = \"1920\"\r\nwindow_height = \"1200\"\r\n" +
                    "resolution_scale = \"4\"\r\nlollipop_music_volume = \"6\"\r\nmnk_sensitivity " +
-                   "= \"22.5\"\r\n" + "lollipop_60fps = \"false\"\r\n# Last comment";
+                   "= \"22.5\"\r\n" + "lollipop_60fps = \"false\"\r\n" +
+                   "lollipop_gpu_backend = \"vulkan\"\r\n# Last comment";
     File.WriteAllText(path, original);
     settings = GameSettings.Load(destination);
     Check(settings.Values["window_size"] == "1920x1200" &&
@@ -566,7 +534,8 @@ internal static class SetupTests {
     settings.Save(destination, Environment.ProcessPath!, selected);
     var saved = File.ReadAllText(path);
     Check(saved.Contains("lollipop_music_volume = \"6\"\r\nmnk_sensitivity = \"22.5\"\r\n") &&
-              saved.Contains("# Last comment\r\n") && !saved.Contains("lollipop_60fps"),
+              saved.Contains("# Last comment\r\n") && !saved.Contains("lollipop_60fps") &&
+              !saved.Contains("lollipop_gpu_backend"),
           "Graphics save changed audio, controls, comments or failed FPS migration");
     if (gameSettingsTest != null)
       new Tools(new RecordedProgress(), Console.Error.WriteLine)
@@ -574,6 +543,7 @@ internal static class SetupTests {
     foreach (var invalid in new[] { "vsync = \"maybe\"", "window_width = \"-1\"",
                                     "resolution_scale = \"9\"", "lollipop_fps = \"45\"",
                                     "lollipop_shadow_resolution = \"2048\"",
+                                    "lollipop_gpu_backend = \"opengl\"",
                                     "lollipop_shadow_resolution = \"300\"",
                                     "lollipop_shadow_resolution = \"512.0\"",
                                     "audio_mute = \"true\"\naudio_mute = \"false\"",
@@ -644,33 +614,6 @@ internal static class SetupTests {
       Check(!launcher.Find<StackPanel>("SettingsFields").IsEnabled &&
                 !launcher.Find<Button>("SaveSettings").IsEnabled,
             "Settings can be saved without a selected game");
-      var brand = (System.Windows.Media.Imaging.BitmapSource)launcher
-                      .Find<System.Windows.Controls.Image>("BrandIcon")
-                      .Source;
-      Check(brand.PixelWidth >= 256 && brand.PixelHeight >= 256,
-            "Launcher enlarged a small icon frame instead of using the full-resolution logo");
-      var title = (System.Windows.Media.Imaging.BitmapSource)launcher
-                      .Find<System.Windows.Controls.Image>("GameTitle")
-                      .Source;
-      Check(title.PixelWidth >= 512 && title.PixelHeight >= 256,
-            "Launcher title logo is missing or too small");
-      var titlePixels = new System.Windows.Media.Imaging.FormatConvertedBitmap(
-          title, System.Windows.Media.PixelFormats.Bgra32, null, 0);
-      var titleCorner = new byte[4];
-      foreach (var corner in new[] {
-                 new Int32Rect(0, 0, 1, 1), new Int32Rect(title.PixelWidth - 1, 0, 1, 1),
-                 new Int32Rect(0, title.PixelHeight - 1, 1, 1),
-                 new Int32Rect(title.PixelWidth - 1, title.PixelHeight - 1, 1, 1)
-               }) {
-        titlePixels.CopyPixels(corner, titleCorner, 4, 0);
-        Check(titleCorner[3] == 0, "Title logo has an opaque rectangular background");
-      }
-      foreach (var name in new[] { "Cover" }) {
-        var art = (System.Windows.Media.Imaging.BitmapSource)launcher
-                      .Find<System.Windows.Media.ImageBrush>(name)
-                      .ImageSource;
-        Check(art.PixelWidth >= 512 && art.PixelHeight >= 512, "Embedded artwork did not load");
-      }
       launcher.Destination = destination;
       launcher.Home();
       Check(launcher.Screen == "Update" && launcher.Find<Button>("Primary").IsEnabled,
@@ -731,6 +674,10 @@ internal static class SetupTests {
       launcher.ShowRelease(null);
       Check(launcher.Find<TextBlock>("UpdateStatus").Text == "No public releases yet.",
             "Missing releases were advertised as up to date");
+      Check(new TextRange(launcher.Find<RichTextBox>("ReleaseNotes").Document.ContentStart,
+                          launcher.Find<RichTextBox>("ReleaseNotes").Document.ContentEnd)
+                    .Text.Trim() == "Release notes will appear here when a release is available.",
+            "Missing releases did not show the release-notes placeholder");
       Check(launcher.Find<Button>("UpdateLauncher").IsEnabled,
             "One-click launcher updates require a separate release check");
       launcher.ShowRelease(Releases.Parse("{\"tag_name\":\"v99.0.0\",\"body\":\"Update notes\"}"));

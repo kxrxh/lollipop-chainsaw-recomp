@@ -1057,7 +1057,7 @@ index ec0df7c..c787a72 100644
    if (length == 0 || start >= kBufferSize) {
      return;
 diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
-index 40740ee..a55f3a7 100644
+index 40740ee..867eb1f 100644
 --- a/src/input/input_system.cpp
 +++ b/src/input/input_system.cpp
 @@ -47,12 +47,17 @@ namespace {
@@ -1139,22 +1139,32 @@ index 40740ee..a55f3a7 100644
    SCOPE_profile_cpu_f("hid");
  
    // A dialog owns the controller.
-@@ -280,20 +294,30 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+@@ -280,20 +294,38 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
      return X_ERROR_SUCCESS;
    }
  
 -  X_RESULT result = GetStateForUI(user_index, out_state);
++  if (out_state && user_index < kMaxGuestUsers &&
++      (consumed_buttons_[user_index] || consumed_left_trigger_[user_index] ||
++       consumed_right_trigger_[user_index])) {
++    X_INPUT_STATE state = {};
++    // Confirm physical releases before reading the guest sample, which capture may mute.
++    if (GetStateForUI(user_index, &state) == X_ERROR_SUCCESS) {
++      consumed_buttons_[user_index] &= static_cast<uint16_t>(state.gamepad.buttons);
++      consumed_left_trigger_[user_index] &= state.gamepad.left_trigger >= kTriggerThreshold;
++      consumed_right_trigger_[user_index] &= state.gamepad.right_trigger >= kTriggerThreshold;
++    }
++  }
++
 +  X_RESULT result = ReadState(user_index, out_state, false);
  
 -  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers &&
 -      consumed_buttons_[user_index] != 0) {
 +  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers) {
      const uint16_t buttons = out_state->gamepad.buttons;
-     // Each button leaves the mask once the player lets go of it.
-     consumed_buttons_[user_index] &= buttons;
+-    // Each button leaves the mask once the player lets go of it.
+-    consumed_buttons_[user_index] &= buttons;
      out_state->gamepad.buttons = static_cast<uint16_t>(buttons & ~consumed_buttons_[user_index]);
-+    consumed_left_trigger_[user_index] &= out_state->gamepad.left_trigger >= kTriggerThreshold;
-+    consumed_right_trigger_[user_index] &= out_state->gamepad.right_trigger >= kTriggerThreshold;
 +    if (consumed_left_trigger_[user_index])
 +      out_state->gamepad.left_trigger = 0;
 +    if (consumed_right_trigger_[user_index])
@@ -1173,7 +1183,7 @@ index 40740ee..a55f3a7 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -311,10 +335,16 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
+@@ -311,10 +343,16 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
        continue;
      }
      X_INPUT_STATE state = {};
@@ -1192,7 +1202,7 @@ index 40740ee..a55f3a7 100644
      if (!any) {
        merged = state;
        any = true;
-@@ -338,17 +368,25 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
+@@ -338,17 +376,25 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
    return X_ERROR_SUCCESS;
  }
  
@@ -1218,7 +1228,7 @@ index 40740ee..a55f3a7 100644
      }
    }
 
-@@ -360,6 +398,7 @@ bool InputSystem::GetVibrationEnabled() const {
+@@ -360,6 +406,7 @@ bool InputSystem::GetVibrationEnabled() const {
  }
  
  void InputSystem::ToggleVibration() {
@@ -1226,7 +1236,7 @@ index 40740ee..a55f3a7 100644
    REXCVAR_SET(vibration, !REXCVAR_GET(vibration));
    // The guest's next SetState may never come while a motor is running.
    X_INPUT_VIBRATION silence = {};
-@@ -376,14 +415,18 @@ void InputSystem::AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gam
+@@ -376,14 +423,18 @@ void InputSystem::AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gam
    // Radial: the cutoff follows the stick's angle, so a diagonal is not held to
    // a larger displacement than a cardinal push.
    auto apply = [](double percentage, const JoystickValue& max, int16_t& axis_x, int16_t& axis_y) {
@@ -1248,7 +1258,7 @@ index 40740ee..a55f3a7 100644
      if (axis_x > -cutoff_x && axis_x < cutoff_x) {
        axis_x = 0;
      }
-@@ -416,6 +459,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
+@@ -416,6 +467,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
  }
  
  X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
@@ -1256,7 +1266,7 @@ index 40740ee..a55f3a7 100644
    SCOPE_profile_cpu_f("hid");
    if (!assignment_ || !vibration) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -461,6 +505,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
+@@ -461,6 +513,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
  
  X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
                                     X_INPUT_KEYSTROKE* out_keystroke) {

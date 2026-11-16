@@ -1,4 +1,5 @@
 #include "game_menus.h"
+#include "game/cheats.h"
 #include "game/game_bridge.h"
 #include "game/game_settings.h"
 #include "game/native_quit_dialog.h"
@@ -24,6 +25,7 @@ void update_game_ui(rex::Runtime& runtime, PPCContext& context) {
   if (game.read(0x83351964) || game.read(0x83340FB0))
     return;
   update_game_settings(game);
+  update_game_cheats(game);
   if (!game_options_closing())
     native_quit().update(game);
 }

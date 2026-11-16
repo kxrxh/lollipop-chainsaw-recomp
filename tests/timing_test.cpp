@@ -35,14 +35,20 @@ int main(int argc, char **argv) {
   worker.join();
   if (!lollipop::is_engine_tick_thread() || worker_is_engine)
     return 16;
-  for (bool settings_open : {false, true, true, false}) {
-    set_settings_pause(settings_open);
-    for (uint64_t native_pause : {0ull, 1ull}) {
-      paused.u64 = native_pause;
-      lollipop_settings_pause(paused);
-      if (paused.u64 != (settings_open ? 1ull : native_pause)) return 9;
+  for (bool settings_open : {false, true}) {
+    for (bool cheats_open : {false, true}) {
+      set_settings_pause(settings_open);
+      lollipop::set_cheats_pause(cheats_open);
+      for (uint64_t native_pause : {0ull, 1ull}) {
+        paused.u64 = native_pause;
+        lollipop_settings_pause(paused);
+        if (paused.u64 != ((settings_open || cheats_open) ? 1ull : native_pause))
+          return 17;
+      }
     }
   }
+  set_settings_pause(false);
+  lollipop::set_cheats_pause(false);
   PPCRegister interval{};
   PPCRegister limit{};
   configure_frame_rate();
@@ -55,7 +61,6 @@ int main(int argc, char **argv) {
   }
   for (int fps : {30, 60, 90, 120}) {
     if (!rex::cvar::SetFlagByName("lollipop_fps", std::to_string(fps))) return 10;
-    configure_frame_rate();
     interval.u64 = 2;
     limit.f64 = 30.0;
     lollipop_present_interval(interval);
@@ -65,10 +70,13 @@ int main(int argc, char **argv) {
   }
   for (const char* invalid : {"0", "45", "121", "90.5", "nan"})
     if (rex::cvar::SetFlagByName("lollipop_fps", invalid)) return 12;
-  // Saving a new limit must not change only half of the active timing setup.
+  // Live changes update both timing hooks and the guest refresh rate together.
   rex::cvar::SetFlagByName("lollipop_fps", "90");
   lollipop_tick_limit(limit);
-  if (limit.f64 != 120.0) return 13;
+  interval.u64 = 2;
+  lollipop_present_interval(interval);
+  if (limit.f64 != 90.0 || interval.u64 != 1 ||
+      rex::cvar::Query<double>("video_mode_refresh_rate") != 90.0) return 13;
   rex::cvar::SetFlagFromCommandLine("lollipop_60fps", "false");
   configure_frame_rate();
   interval.u64 = 2;

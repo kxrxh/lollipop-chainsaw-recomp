@@ -24,6 +24,7 @@
 #include "input/prompt_artwork.h"
 #include "settings/pc_settings.h"
 #include "testing/test_bridge.h"
+#include "ui/cheats_menu.h"
 #include "ui/settings_menu.h"
 #include "ui/shader_loading.h"
 #include <rex/ui/keybinds.h>
@@ -33,7 +34,7 @@ REXCVAR_DEFINE_STRING(lollipop_test_directory, "", "Lollipop",
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 REXCVAR_DEFINE_STRING(lollipop_gpu_backend, "any", "Lollipop", "GPU backend")
-    .allowed({"any", "d3d12", "vulkan"})
+    .allowed({"any", "d3d12"})
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 REXCVAR_DEFINE_BOOL(lollipop_precompile_only, false, "Lollipop",
@@ -58,7 +59,6 @@ protected:
   void LaunchModule() override {
     const bool prepare_only = REXCVAR_GET(lollipop_precompile_only);
     if (!prepare_only && (!rex::cvar::Query<bool>("store_shaders") || cache_root().empty() ||
-                          REXCVAR_GET(lollipop_gpu_backend) == "vulkan" ||
                           rex::cvar::GetFlagByName("render_target_path_d3d12") != "rov")) {
       ReXApp::LaunchModule();
       return;
@@ -170,6 +170,8 @@ protected:
     settings_menu_ =
         make_settings_menu(*imgui_drawer(), *immediate_drawer(), *runtime(), settings_path_,
                            game_data_root(), [this] { window()->RequestClose(); });
+    cheats_menu_ = make_cheats_menu(
+        *imgui_drawer(), *static_cast<rex::input::InputSystem*>(runtime()->input_system()));
     rex::perf::SetCsvLogPath(rex::cvar::GetFlagByName("perf_log_csv"));
     const auto& directory = REXCVAR_GET(lollipop_test_directory);
     if (!directory.empty()) {
@@ -192,6 +194,7 @@ protected:
     stop_live_prompt_updates();
     set_game_ui_memory(nullptr);
     settings_menu_.reset();
+    cheats_menu_.reset();
     rex::system::SetTextureDataCallback({});
     if (test_worker_.joinable()) {
       test_worker_.request_stop();
@@ -218,6 +221,7 @@ private:
   std::chrono::steady_clock::time_point last_progress_{};
   std::filesystem::path settings_path_;
   std::unique_ptr<rex::ui::ImGuiDialog> settings_menu_;
+  std::unique_ptr<rex::ui::ImGuiDialog> cheats_menu_;
   std::jthread test_worker_;
 };
 

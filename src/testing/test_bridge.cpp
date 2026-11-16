@@ -1,4 +1,5 @@
 #include "test_bridge.h"
+#include "game/cheats.h"
 #include "game/game_settings.h"
 #include "game/native_quit_dialog.h"
 
@@ -135,6 +136,11 @@ std::string execute_test_command(test_controls& controls,
   std::istringstream words(command);
   std::string operation;
   words >> operation;
+  if (operation == "game_cheats_state") {
+    if (!(words >> std::ws).eof())
+      return "error game_cheats_state takes no arguments";
+    return "ok " + game_cheats_state();
+  }
   if (operation == "game_console") {
     std::string value;
     std::getline(words >> std::ws, value);
@@ -282,6 +288,9 @@ std::jthread start_test_bridge(rex::input::InputSystem& input,
                      " ui_lt=" + std::to_string(uint8_t(ui.gamepad.left_trigger)) +
                      " ui_rt=" + std::to_string(uint8_t(ui.gamepad.right_trigger)) +
                      " hints=" + (input.IsKeyboardActive() ? "keyboard" : "gamepad");
+          } else if (command == "presentation_state") {
+            result = std::string("ok dither=") +
+                     (presenter.GetGuestOutputPaintConfigFromUIThread().GetDither() ? "true" : "false");
           } else if (command == "gpu_capture_start" || command == "gpu_capture_stop") {
             const auto capture = rex::ui::RenderDocAPI::CreateIfConnected();
             if (!capture) {

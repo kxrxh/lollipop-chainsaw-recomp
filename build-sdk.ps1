@@ -30,7 +30,7 @@ if ($LASTEXITCODE -ne 0 -or $commit -ne (Get-SdkCommit)) {
     thirdparty/simde thirdparty/xxHash thirdparty/spdlog thirdparty/fmt thirdparty/utfcpp `
     thirdparty/imgui thirdparty/sdl3 thirdparty/o1heap thirdparty/inja
 if ($LASTEXITCODE -ne 0) { throw 'SDK dependency checkout failed.' }
-foreach ($patchName in 'rexglue-fixes.patch','rexglue-shader-precompile.patch') {
+foreach ($patchName in 'rexglue-fixes.patch','rexglue-shader-precompile.patch','rexglue-live-settings.patch') {
     $patch = Join-Path $PSScriptRoot "patches/$patchName"
     & git -C $source apply --reverse --check $patch 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -68,7 +68,7 @@ foreach ($dependency in Get-ChildItem -LiteralPath (Join-Path $source 'thirdpart
 }
 $patchLicenses = Join-Path $licenses 'lollipop-patches'
 [IO.Directory]::CreateDirectory($patchLicenses) | Out-Null
-foreach ($name in 'rexglue-fixes.patch','rexglue-shader-precompile.patch','LICENSE.rexglue','LICENSE.libmspack','SSX-RexGlue-LICENSE.txt') {
+foreach ($name in 'rexglue-fixes.patch','rexglue-shader-precompile.patch','rexglue-live-settings.patch','LICENSE.rexglue','LICENSE.libmspack','SSX-RexGlue-LICENSE.txt') {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "patches/$name") -Destination $patchLicenses -Force
 }
 $sourceInfo = @(

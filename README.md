@@ -7,6 +7,14 @@
 The original Xbox 360 game, recompiled for Windows. Requires your own game copy;
 game files are not included.
 
+Press **F6** for the dedicated in-game **Cheats** window: unlimited health, gold and platinum
+medals, and a full Star Soul gauge. Mouse, keyboard and controller navigation are
+supported. Changes apply immediately; **All Off** disables every cheat. Toggles
+reset on restart, but medals and purchases can be kept by the game's normal saves.
+
+In-game render resolution, frame rate, anti-aliasing and color dithering apply
+without restarting. Shadow resolution also applies live.
+
 ## Getting started
 
 Download the [latest launcher](https://github.com/kxrxh/lollipop-chainsaw-recomp/releases/latest)
@@ -41,7 +49,7 @@ shader coverage and known limitations.
 
 [Build from source (optional)](docs/BUILDING.md) ·
 [Update / repair](docs/BUILDING.md#updating-or-removing-an-installation) ·
-[Development](docs/DEVELOPMENT.md) · [Changelog](CHANGELOG.md)
+[Development](docs/DEVELOPMENT.md)
 
 ## Contributing
 

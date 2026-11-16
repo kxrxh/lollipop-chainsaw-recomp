@@ -92,6 +92,9 @@ int main() {
   if (!run("game_settings_state").starts_with("ok loading ") ||
       !run("game_settings_state extra").starts_with("error"))
     return 24;
+  if (run("game_cheats_state") != "ok Waiting for gameplay." ||
+      !run("game_cheats_state extra").starts_with("error"))
+    return 39;
   if (run("quit_state") != "ok idle" || run("quit_selection") != "ok 0" ||
       !run("quit_state extra").starts_with("error") ||
       !run("quit_selection extra").starts_with("error"))

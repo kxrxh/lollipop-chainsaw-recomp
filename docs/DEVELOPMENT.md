@@ -54,7 +54,7 @@ the playable build. Recovery records in `out/launcher/` protect directory swaps.
 The version marker is published with the build and restored on rollback. Older
 installations show an unknown version until rebuilt.
 
-The launcher embeds `VERSION`, `launcher/VERSION` and `CHANGELOG.md`. A background
+The launcher embeds `VERSION` and `launcher/VERSION`; release notes come from GitHub releases. A background
 startup check compares the latest stable tag with the bundled recomp version.
 Newer releases show an Updates badge and a notice that can be dismissed for the
 session. Failed checks stay on the Updates page. Self-update selects the latest
@@ -64,8 +64,8 @@ file version prevents launcher downgrades independently of the recomp version.
 A copy of the current launcher waits for the old process to exit, replaces its
 EXE atomically and restarts it. State stays beside the original EXE.
 
-Tests cover source-path migration, object/PCH reuse, changed headers, reproducible
-packages, invalid downloads, locked files and updater restart.
+Tests cover source-path migration, future-dated configuration, object/PCH reuse, changed
+headers, reproducible packages, invalid downloads, locked files and updater restart.
 
 `launcher/Services/GameSettings.cs` edits `user/pc-settings.toml`. It preserves
 unrelated settings and comments, migrates the legacy FPS key, rejects malformed
@@ -92,18 +92,33 @@ Use an isolated save directory for game checks; copy existing saves there if nee
   Command-line and environment values override it. `lollipop_60fps` migrates to
   `lollipop_fps`.
 - `lollipop_shadow_resolution` keeps native character shadows at `0` (default), or
-  raises their resolution cap and texel density to `256`, `512` or `1024` at startup.
-  The manifest hooks run after native system settings initialize, before render-target
-  allocation, and retain the selected values across native settings reloads.
+  raises their resolution cap and texel density to `256`, `512` or `1024` live.
+  Startup captures the native baseline; the engine tick applies changes and queues the
+  native settings snapshot to the render thread. Shadow allocation and dimension getters
+  reserve the maximum supported capacity so live quality changes cannot invalidate targets.
+  Original restores the baseline, and native reloads cannot compound the density.
 - Native options load after the save. Apply uses the game's setters and save
   routine on the engine tick thread. `game_bridge` restores the caller's PPC
   context; guest calls must not hold runtime or registry locks.
 - `game_menus` routes movie hooks. `native_quit_dialog` owns the native system
   window; `exit_flow` forwards UI input, blocks gameplay and waits for release.
   Cancelling preserves the settings draft and existing native pause state.
+- The SDK keeps consumed buttons and triggers blocked until UI input confirms release,
+  including when ImGui temporarily mutes the guest driver's state.
 - The PC page hides and closes the original Options movie. Display changes have
   a 15-second rollback timer. Settings sync runs every 250 ms; quit updates run
   each frame.
+- Render resolution, frame rate, FXAA and color dithering apply live. Resolution
+  changes wait for a completed GPU frame, drain submissions and replace the
+  scale-dependent render targets, texture cache and shader pipelines while keeping
+  shared GPU memory and the guest running. A scale change can briefly compile shaders.
+- F6 (`bind_cheats`) opens a separate Cheats window in `ui/cheats_menu.cpp`. It owns
+  its input blocker and pause flag, preserving settings drafts and native pause.
+  Cheat flags default off and are excluded from the PC profile. The engine-thread update in
+  `game/cheats.cpp` validates the current Juliet pawn, restores the controller's
+  previous god-mode flag when disabled, and uses native medal and Star Soul setters.
+  Native save behavior is unchanged: disabling a cheat does not remove awarded
+  medals or purchases. Scripted deaths and mission failures can still apply.
 - The main menu reuses the disabled Downloads slot. Its patched `MENU_PL.xxx`
   lives in the cache; the tagged Options command bypasses native Kismet routing.
 - Prompt artwork is cached under `cache/keyboard-prompts/`. Rebinding requires a
@@ -176,6 +191,8 @@ script for a different bridge path.
 | `input_device keyboard` / `input_device gamepad` | Select injected device |
 | `input_state` | Read guest/UI buttons, triggers and hint device |
 | `game_settings_state` | Read cached native options |
+| `game_cheats_state` | Read cheat readiness or a native integration error |
+| `presentation_state` | Read the presenter's active dithering state |
 | `game_console command` / `game_console_state` | Queue an engine-thread console command or read its status |
 | `ui_state` | List active dialog rectangles |
 | `ui_mouse x y down` / `ui_key key down` | Send UI mouse or navigation-key events |
@@ -198,6 +215,12 @@ player console, falling back to the world console during startup. Use copied
 saves for console travel and `--cl` launch arguments.
 
 ## Frame and engine measurements
+
+Run `./tests/live_settings_test.ps1 -GameDirectory <disc> -BuildDirectory <build>`
+to verify 720p / 1440p / 4K switching, frame-rate changes, FXAA, dithering, shadow quality and
+display rollback with Cheats open in one D3D12 process. Saves and captures stay in a new
+`out/` directory.
+Use `-SaveDirectory <save-folder>` to test a copy of an existing save.
 
 ```powershell
 ./run.ps1 --perf_log_csv=out/frames.csv --lollipop_tick_trace_csv=out/ticks.csv

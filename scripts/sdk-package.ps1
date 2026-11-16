@@ -18,7 +18,7 @@ function Get-SdkIdentity {
     $hash = [Security.Cryptography.SHA256]::Create()
     try {
         $parts = @((Get-SdkCommit))
-        foreach ($name in 'rexglue-fixes.patch','rexglue-shader-precompile.patch') {
+        foreach ($name in 'rexglue-fixes.patch','rexglue-shader-precompile.patch','rexglue-live-settings.patch') {
             $parts += Get-PackageFileHash -Path (Join-Path $Root "patches/$name")
         }
         $bytes = [Text.Encoding]::UTF8.GetBytes(($parts -join "`n"))

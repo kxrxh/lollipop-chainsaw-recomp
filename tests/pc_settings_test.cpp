@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <rex/cvar.h>
@@ -104,6 +105,7 @@ int main(int argc, char** argv) try {
     check(save_pc_settings(path, selected, error), "All shadow resolutions can be saved");
   }
   values["lollipop_shadow_resolution"] = "1024";
+  values["lollipop_sfx_volume"] = "7";
   check(save_pc_settings(path, values, error), "Restore selected profile");
   const std::pair<const char*, const char*> invalid_values[] = {
       {"mnk_sensitivity", "nan"},
@@ -130,6 +132,10 @@ int main(int argc, char** argv) try {
   auto unknown = values;
   unknown["game_data_root"] = "unexpected";
   check(!validate_pc_settings(unknown), "Only curated settings can be saved");
+  {
+    std::ofstream file(path, std::ios::app);
+    file << "lollipop_gpu_backend = \"vulkan\"\n";
+  }
   rex::cvar::SetFlagFromCommandLine("window_width", "1920");
   configure_pc_settings(path);
   check(rex::cvar::GetFlagByName("window_width") == "1920", "Explicit launch flag wins");
@@ -137,6 +143,15 @@ int main(int argc, char** argv) try {
   check(rex::cvar::GetFlagByName("lollipop_shadow_resolution") == "1024",
         "Shadow resolution round trips");
   check(rex::cvar::Query<int32_t>("window_height") == 1440, "Invalid writes preserved the last good file");
+  check(rex::cvar::GetFlagByName("lollipop_sfx_volume") == "7",
+        "Retired renderer selection must not discard the remaining profile");
+  check(save_pc_settings(path, lollipop::read_pc_settings(), error), "Save migrated profile");
+  {
+    std::ifstream file(path);
+    const std::string saved((std::istreambuf_iterator<char>(file)), {});
+    check(saved.find("lollipop_gpu_backend") == std::string::npos,
+          "Saving settings removes the retired renderer selection");
+  }
   {
     std::ofstream file(path);
     file << "audio_mute = \"true\"\nwindow_height = \"-1\"\n";

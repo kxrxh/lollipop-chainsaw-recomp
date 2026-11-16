@@ -44,8 +44,7 @@ internal sealed class Launcher {
     Find<TextBlock>("RepairDescription").Text =
         "Build recomp " + Releases.GameVersion +
         " from this launcher. Saves and settings are kept.";
-    Find<RichTextBox>("ReleaseNotes").Document =
-        MarkdownNotes.Render(Releases.Resource("CHANGELOG.md"), uri => OpenPath(uri.AbsoluteUri));
+    ShowRelease(null);
     Find<Button>("Minimize").Click += delegate { Window.WindowState = WindowState.Minimized; };
     Find<Button>("Maximize").Click += delegate {
       Window.WindowState =
@@ -382,8 +381,9 @@ internal sealed class Launcher {
                   ". Select Update launcher to download and restart. " +
                   "Apply its game build from Manage game. Saves and settings are kept.";
     Find<TextBlock>("NotesHeading").Text =
-        release == null ? "What's new in this build" : "Release notes / " + release.Tag;
-    var notes = release == null                           ? Releases.Resource("CHANGELOG.md")
+        release == null ? "Release notes" : "Release notes / " + release.Tag;
+    var notes = release == null
+                    ? "Release notes will appear here when a release is available."
                 : String.IsNullOrWhiteSpace(release.Body) ? "No release notes provided."
                                                           : release.Body;
     Find<RichTextBox>("ReleaseNotes").Document =

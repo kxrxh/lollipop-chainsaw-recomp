@@ -5,6 +5,7 @@
 namespace lollipop {
 void configure_frame_rate();
 void set_settings_pause(bool paused);
+void set_cheats_pause(bool paused);
 bool is_engine_tick_thread();
 } // namespace lollipop
 

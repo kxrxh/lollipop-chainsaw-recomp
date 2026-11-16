@@ -24,7 +24,7 @@ std::span<const pc_setting> pc_settings() {
        {{"false", "Off"}, {"true", "On"}}},
       {"present_letterbox", "Keep aspect ratio", "Keeps the picture from stretching.", "true", 0,
        {{"true", "Original proportions"}, {"false", "Stretch to window"}}},
-      {"resolution_scale", "Render resolution", "Sharper image, higher GPU usage.", "2", 1,
+      {"resolution_scale", "Render resolution", "Applies on the next rendered frame. Higher GPU usage.", "2", 1,
        {{"1", "1280 x 720  /  Native"}, {"2", "2560 x 1440  /  2x"}, {"3", "3840 x 2160  /  3x"}}},
       {"swap_post_effect", "Anti-aliasing", "Smooths jagged edges.", "fxaa", 1,
        {{"none", "Off"}, {"fxaa", "FXAA"}, {"fxaa_extreme", "FXAA  /  Strong"}}},
@@ -163,7 +163,19 @@ void configure_pc_settings(const std::filesystem::path& path) {
         name = "lollipop_fps";
         value = value == "true" ? "60" : "30";
       }
-      if (!values.contains(name) || !provided.insert(name).second) { valid = false; break; }
+      // Ignore the retired renderer setting without discarding other saved options.
+      if (name == "lollipop_gpu_backend") {
+        if ((value != "any" && value != "d3d12" && value != "vulkan") ||
+            !provided.insert(name).second) {
+          valid = false;
+          break;
+        }
+        continue;
+      }
+      if (!values.contains(name) || !provided.insert(name).second) {
+        valid = false;
+        break;
+      }
       values[name] = value;
     }
     if (valid && file.eof() && validate_pc_settings(values)) {
