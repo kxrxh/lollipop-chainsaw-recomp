@@ -15,6 +15,10 @@ reset on restart, but medals and purchases can be kept by the game's normal save
 In-game render resolution, frame rate, anti-aliasing and color dithering apply
 without restarting. Shadow resolution also applies live.
 
+Mash finishers keep their 30 FPS meter decay at higher frame rates while preserving
+native progress and slow motion. Attack homing uses Juliet's actual position after
+collision to avoid accumulating movement against enemies or scenery.
+
 ## Getting started
 
 Download the [latest launcher](https://github.com/kxrxh/lollipop-chainsaw-recomp/releases/latest)

@@ -7,6 +7,7 @@ void configure_frame_rate();
 void set_settings_pause(bool paused);
 void set_cheats_pause(bool paused);
 bool is_engine_tick_thread();
+double engine_tick_delta();
 } // namespace lollipop
 
 // Generated guest code calls these symbols in the global namespace.

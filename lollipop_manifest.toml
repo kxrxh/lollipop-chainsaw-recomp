@@ -75,6 +75,18 @@ address = 0x829D0CF8
 name = "lollipop_tick_trace"
 registers = ["r3", "f1"]
 
+# UObject::execMultiply_FloatFloat, after evaluating both operands and before fmuls.
+[[entrypoint.midasm_hook]]
+address = 0x8226EED8
+name = "lollipop_finisher_multiply"
+registers = ["r31", "f0", "f13"]
+
+# UObject::execVInterpTo, before interpolating the evaluated Current and Target vectors.
+[[entrypoint.midasm_hook]]
+address = 0x822734B0
+name = "lollipop_attack_homing"
+registers = ["r31", "r4"]
+
 # FSystemSettings::Initialize, after loading/copying settings and before render-target allocation.
 [[entrypoint.midasm_hook]]
 address = 0x823CC058

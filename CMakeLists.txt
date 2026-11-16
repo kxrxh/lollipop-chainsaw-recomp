@@ -41,6 +41,7 @@ add_executable(lollipop WIN32
     src/app/application.cpp
     src/game/game_settings.cpp
     src/game/cheats.cpp
+    src/game/combat_timing.cpp
     src/game/game_bridge.cpp
     src/game/game_menus.cpp
     src/game/native_quit_dialog.cpp
@@ -181,6 +182,12 @@ target_link_libraries(lollipop_timing_test PRIVATE rex::runtime)
 add_test(NAME lollipop_timing_hooks COMMAND lollipop_timing_test "${CMAKE_CURRENT_BINARY_DIR}/tick-test.csv")
 add_test(NAME lollipop_timing_legacy_cli COMMAND lollipop_timing_test --legacy-cli)
 add_test(NAME lollipop_timing_fps_cli COMMAND lollipop_timing_test --fps-cli)
+
+add_executable(lollipop_combat_timing_test tests/combat_timing_test.cpp
+    src/game/combat_timing.cpp src/game/timing_hooks.cpp)
+target_include_directories(lollipop_combat_timing_test PRIVATE src)
+target_link_libraries(lollipop_combat_timing_test PRIVATE rex::runtime)
+add_test(NAME lollipop_combat_timing COMMAND lollipop_combat_timing_test)
 
 add_executable(lollipop_input_test tests/input_concurrency_test.cpp)
 target_link_libraries(lollipop_input_test PRIVATE rex::runtime)

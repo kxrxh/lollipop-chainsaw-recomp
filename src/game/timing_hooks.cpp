@@ -30,6 +30,7 @@ std::atomic<bool> settings_paused{false};
 std::atomic<bool> cheats_paused{false};
 std::atomic<int> frame_rate{60};
 thread_local bool engine_tick_thread = false;
+thread_local double tick_delta = 0;
 
 void apply_frame_rate(int fps) {
   frame_rate.store(fps, std::memory_order_relaxed);
@@ -40,6 +41,7 @@ void apply_frame_rate(int fps) {
 } // namespace
 
 bool lollipop::is_engine_tick_thread() { return engine_tick_thread; }
+double lollipop::engine_tick_delta() { return tick_delta; }
 
 void lollipop::configure_frame_rate() {
   using rex::cvar::Source;
@@ -89,6 +91,7 @@ void lollipop_tick_limit(PPCRegister& limit) {
 
 void lollipop_tick_trace(PPCRegister &engine, PPCRegister &delta) {
   engine_tick_thread = true;
+  tick_delta = delta.f64;
   const auto &path = REXCVAR_GET(lollipop_tick_trace_csv);
   if (path.empty())
     return;
