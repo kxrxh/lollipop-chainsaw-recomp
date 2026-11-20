@@ -2,16 +2,16 @@
 
 #include <memory>
 
-namespace rex::input {
-class InputSystem;
+namespace rex::hid {
+class IInputSystem;
 }
 namespace rex::ui {
-class ImGuiDialog;
-class ImGuiDrawer;
+class IDialog;
+class IUISystem;
 } // namespace rex::ui
 
 namespace lollipop {
-std::unique_ptr<rex::ui::ImGuiDialog> make_cheats_menu(rex::ui::ImGuiDrawer& drawer,
-                                                       rex::input::InputSystem& input);
+std::unique_ptr<rex::ui::IDialog> make_cheats_menu(rex::hid::IInputSystem& input);
+void register_cheats_hotkey(rex::ui::IUISystem& ui);
 bool cheats_menu_captures_input();
 } // namespace lollipop

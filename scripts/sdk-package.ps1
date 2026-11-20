@@ -1,7 +1,19 @@
 #requires -Version 5.1
 
 function Get-SdkCommit {
-    'bd833a2ab69d305f99ddf57418fc38ffec8af93d'
+    'a3e1d82678ca20d68d4837a8e9ee4652ff073745'
+}
+
+function Get-SdkPatches {
+    'rexglue-fixes.patch','rexglue-shader-precompile.patch','rexglue-live-settings.patch',
+    'rexglue-input.patch','rexglue-game.patch'
+}
+
+function Get-SdkRuntimeFiles {
+    'rexapp.dll','rexapu.dll','rexapu-sdl3.dll','rexbase.dll','rexfilesystem.dll',
+    'rexgpu.dll','rexgpu-xenos-d3d12.dll','rexgpu-xenos-null.dll','rexgpu-xenos-vulkan.dll',
+    'rexhid.dll','rexhid-sdl3.dll','rexhid-xinput.dll','rexkernel.dll','rexppc.dll',
+    'rexui.dll','rexui-sdl3.dll','rexxam.dll','rexxbdm.dll','SDL3.dll'
 }
 
 function Get-PackageFileHash {
@@ -18,7 +30,7 @@ function Get-SdkIdentity {
     $hash = [Security.Cryptography.SHA256]::Create()
     try {
         $parts = @((Get-SdkCommit))
-        foreach ($name in 'rexglue-fixes.patch','rexglue-shader-precompile.patch','rexglue-live-settings.patch') {
+        foreach ($name in (Get-SdkPatches)) {
             $parts += Get-PackageFileHash -Path (Join-Path $Root "patches/$name")
         }
         $bytes = [Text.Encoding]::UTF8.GetBytes(($parts -join "`n"))

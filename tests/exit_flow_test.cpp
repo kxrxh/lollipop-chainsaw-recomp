@@ -2,10 +2,10 @@
 #include "game/timing_hooks.h"
 #include "ui/exit_flow.h"
 
+#include "input_fixture.h"
 #include <imgui.h>
 #include <iostream>
 #include <memory>
-#include <rex/input/input_system.h>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -13,8 +13,6 @@
 namespace {
 using lollipop::quit_dialog_input;
 using lollipop::quit_dialog_state;
-using rex::X_RESULT;
-using rex::X_STATUS;
 quit_dialog_state dialog_state = quit_dialog_state::idle;
 std::vector<quit_dialog_input> commands;
 bool paused = false;
@@ -24,42 +22,6 @@ void check(bool condition, const char* message) {
     throw std::runtime_error(message);
 }
 
-class controller final : public rex::input::InputDriver {
-public:
-  controller() : InputDriver(nullptr, 0) {}
-  rex::X_STATUS Setup() override { return X_STATUS_SUCCESS; }
-  void EnumerateDevices(std::vector<rex::input::DeviceInfo>& devices) override {
-    rex::input::DeviceInfo device;
-    device.id = static_cast<rex::input::DeviceId>(1);
-    devices.push_back(device);
-  }
-  rex::X_RESULT GetDeviceState(rex::input::DeviceId, rex::input::X_INPUT_STATE* state) override {
-    *state = {};
-    if (is_active())
-      state->gamepad = gamepad;
-    return X_ERROR_SUCCESS;
-  }
-  rex::X_RESULT GetDeviceStateForUI(rex::input::DeviceId,
-                                    rex::input::X_INPUT_STATE* state) override {
-    *state = {};
-    state->gamepad = gamepad;
-    return X_ERROR_SUCCESS;
-  }
-  rex::X_RESULT GetDeviceCapabilities(rex::input::DeviceId, uint32_t,
-                                      rex::input::X_INPUT_CAPABILITIES* caps) override {
-    *caps = {};
-    caps->gamepad.thumb_lx = caps->gamepad.thumb_ly = 32767;
-    return X_ERROR_SUCCESS;
-  }
-  rex::X_RESULT SetDeviceVibration(rex::input::DeviceId, rex::input::X_INPUT_VIBRATION*) override {
-    return X_ERROR_SUCCESS;
-  }
-  rex::X_RESULT GetDeviceKeystroke(rex::input::DeviceId, uint32_t,
-                                   rex::input::X_INPUT_KEYSTROKE*) override {
-    return X_ERROR_EMPTY;
-  }
-  rex::input::X_INPUT_GAMEPAD gamepad{};
-};
 } // namespace
 
 // Replace only the guest window; exercise the real host exit flow and input system.
@@ -90,12 +52,10 @@ int main() {
     io.DisplaySize = ImVec2(1280, 720);
     io.DeltaTime = 1.0f / 60;
     io.Fonts->Build();
-    rex::input::InputSystem input(nullptr);
-    auto driver = std::make_unique<controller>();
-    auto& pad = *driver;
-    input.AddDriver(std::move(driver));
-    input.SetDeviceAssignment(std::make_unique<rex::input::SlotAssignment>());
-    input.SetActiveCallback([&] { return !io.WantCaptureMouse && !io.WantCaptureKeyboard; });
+    input_fixture app("lollipop-exit-flow-test");
+    auto& input = app.GetInput();
+    auto& pad = app.pad();
+    pad.set_connected(true);
     int quit = 0, resumed = 0;
     lollipop::exit_flow flow(input, [&] { ++quit; });
     auto frame = [&] {
@@ -104,7 +64,7 @@ int main() {
       ImGui::EndFrame();
       return pending;
     };
-    pad.gamepad.buttons = 0x1000;
+    pad.state.buttons = 0x1000;
     check(flow.request([&](bool failed) {
       check(!failed, "Cancellation must resume settings without an error");
       ++resumed;
@@ -112,7 +72,7 @@ int main() {
           "Request quit from settings");
     frame();
     check(paused && dialog_state == quit_dialog_state::idle, "Wait for opening A to release");
-    pad.gamepad.buttons = 0;
+    pad.state.buttons = 0;
     frame();
     check(dialog_state == quit_dialog_state::requested, "Release must open the native dialog");
     dialog_state = quit_dialog_state::active;
@@ -126,40 +86,38 @@ int main() {
                                          {0x2000, quit_dialog_input::cancel},
                                          {0x0010, quit_dialog_input::cancel}}) {
       commands.clear();
-      pad.gamepad.buttons = button;
+      pad.state.buttons = button;
       frame();
       check(commands == std::vector{command}, "Captured controller input must reach the dialog");
       frame();
       check(commands.size() == 1, "Held buttons must not repeat accept or cancel");
-      pad.gamepad.buttons = 0;
+      pad.state.buttons = 0;
       frame();
     }
     for (const int axis : {-24000, 24000}) {
       commands.clear();
-      pad.gamepad.thumb_lx = axis;
+      pad.state.thumb_lx = axis;
       frame();
       check(commands == std::vector{axis < 0 ? quit_dialog_input::yes : quit_dialog_input::no},
             "The controller stick must select Yes and No under capture");
-      pad.gamepad.thumb_lx = 0;
+      pad.state.thumb_lx = 0;
       frame();
     }
-    input.SetActiveCallback([] { return true; });
-    pad.gamepad.buttons = 0x2000;
-    rex::input::X_INPUT_STATE guest{};
-    input.GetState(0, &guest);
-    check(guest.gamepad.buttons == 0, "Block guest input even when the driver ignores capture");
+    pad.state.buttons = 0x2000;
+    auto guest = input.GetState(0).value().state;
+    check(guest.buttons == 0, "Block guest input even when the driver ignores capture");
     dialog_state = quit_dialog_state::cancelled;
     frame();
     frame();
     check(resumed == 0 && paused, "Wait for held B before returning to settings");
-    pad.gamepad.buttons = 0;
+    pad.state.buttons = 0;
     frame();
     check(resumed == 1 && dialog_state == quit_dialog_state::idle, "Resume settings once");
     check(!frame(), "Cancellation must finish the exit flow");
-    pad.gamepad.buttons = 0x1000;
-    input.GetState(0, &guest);
-    check(guest.gamepad.buttons == 0x1000, "Cancellation must release its input blocker");
-    pad.gamepad.buttons = 0;
+    pad.state.buttons = 0x1000;
+    guest = input.GetState(0).value().state;
+    check(guest.buttons == 0x1000, "Cancellation must release its input blocker");
+    pad.state.buttons = 0;
     lollipop::request_main_menu_exit();
     frame();
     dialog_state = quit_dialog_state::confirmed;

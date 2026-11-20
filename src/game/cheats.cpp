@@ -1,18 +1,13 @@
 #include "cheats.h"
 #include "game/game_bridge.h"
 
+#include "settings/runtime_settings.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <mutex>
-#include <rex/cvar.h>
-#include <rex/logging.h>
+#include <rex/logging/log_category.h>
 #include <stdexcept>
-
-REXCVAR_DEFINE_BOOL(lollipop_cheat_health, false, "Cheats", "Unlimited health");
-REXCVAR_DEFINE_BOOL(lollipop_cheat_gold, false, "Cheats", "Unlimited gold medals");
-REXCVAR_DEFINE_BOOL(lollipop_cheat_platinum, false, "Cheats", "Unlimited platinum medals");
-REXCVAR_DEFINE_BOOL(lollipop_cheat_soul, false, "Cheats", "Keep Star Soul gauge full");
 
 namespace lollipop {
 namespace {
@@ -51,7 +46,7 @@ std::span<const cheat_option> cheat_options() { return options; }
 
 void disable_cheats() {
   for (const auto& option : options)
-    rex::cvar::SetFlagByName(option.flag, "false");
+    lollipop::settings::SetFlagByName(option.flag, "false");
 }
 
 std::string game_cheats_state() {
@@ -69,7 +64,7 @@ void update_game_cheats(game_bridge& game) {
   next = now + std::chrono::milliseconds(100);
   std::array<bool, std::size(options)> enabled{};
   for (size_t i = 0; i < enabled.size(); ++i)
-    enabled[i] = rex::cvar::Query<bool>(options[i].flag);
+    enabled[i] = lollipop::settings::Query<bool>(options[i].flag);
   if (std::ranges::none_of(enabled, [](bool value) { return value; }) && !protected_controller) {
     publish("Cheats are off. Toggles reset on restart.");
     return;

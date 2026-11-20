@@ -13,14 +13,27 @@ internal static class SdkPackageTests {
                                       bool unsafePath = false) {
     var stream = new MemoryStream();
     using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, true)) {
-      foreach (var name in new[] { "lollipop-sdk.id", "bin/rexglue.exe", "bin/rexruntime.dll",
-                                   "bin/rexgpu-xenos.dll", "bin/msvcp140.dll",
-                                   "bin/msvcp140_atomic_wait.dll", "bin/vcruntime140.dll",
-                                   "bin/vcruntime140_1.dll", "include/rex/rex_app.h",
-                                   "lib/rexruntime.lib", "lib/cmake/rexglue/rexglueConfig.cmake",
+      foreach (var name in new[] { "lollipop-sdk.id",
+                                   "bin/rexglue.exe",
+                                   "bin/msvcp140.dll",
+                                   "bin/msvcp140_atomic_wait.dll",
+                                   "bin/vcruntime140.dll",
+                                   "bin/vcruntime140_1.dll",
+                                   "include/rex/app/title_app.h",
+                                   "include/renderdoc_app.h",
+                                   "lib/rexapp.lib",
+                                   "lib/rexfilesystem.lib",
+                                   "lib/rexgpu.lib",
+                                   "lib/rexhid.lib",
+                                   "lib/rexui.lib",
+                                   "lib/cmake/rexglue/rexglueConfig.cmake",
                                    "lib/cmake/rexglue/rexglueTargets-release.cmake",
-                                   "share/rexglue/rex_app.cpp", "licenses/rexglue/LICENSE",
+                                   "lib/cmake/rexglue/rexglueModules-Release.cmake",
+                                   "cmake/SDL3Config.cmake",
+                                   "cmake/SDL3sharedTargets-release.cmake",
+                                   "licenses/rexglue/LICENSE",
                                    "licenses/SOURCES.txt" }
+                   .Concat(SdkPackage.RuntimeFiles.Select(name => "bin/" + name))
                    .Where(name => name != omitted)) {
         using var writer = new StreamWriter(zip.CreateEntry(name).Open());
         writer.Write(name == "lollipop-sdk.id" ? identity : "SDK fixture");
@@ -56,14 +69,14 @@ internal static class SdkPackageTests {
     if (SdkPackage.Install(payload, cache, Identity) != first ||
         File.ReadAllText(Path.Combine(first, "keep.txt")) != "keep")
       throw new Exception("An intact SDK cache was not reused");
-    File.Delete(Path.Combine(first, "bin/rexruntime.dll"));
+    File.Delete(Path.Combine(first, "bin/rexbase.dll"));
     payload.Position = 0;
     if (SdkPackage.Install(payload, cache, Identity) != first ||
-        !File.Exists(Path.Combine(first, "bin/rexruntime.dll")) ||
+        !File.Exists(Path.Combine(first, "bin/rexbase.dll")) ||
         !Directory.GetDirectories(cache, "incomplete-*")
              .Any(path => File.ReadAllText(Path.Combine(path, "keep.txt")) == "keep"))
       throw new Exception("SDK repair failed or discarded files from the old cache");
-    Reject(Archive(omitted: "bin/rexgpu-xenos.dll"), Path.Combine(sandbox, "missing DLL"));
+    Reject(Archive(omitted: "bin/rexgpu-xenos-d3d12.dll"), Path.Combine(sandbox, "missing DLL"));
     Reject(Archive(identity: "fedcba9876543210"), Path.Combine(sandbox, "wrong patches"));
     Reject(Archive(identity: new string('a', 1024)), Path.Combine(sandbox, "oversized marker"));
     Reject(Archive(unsafePath: true), Path.Combine(sandbox, "unsafe SDK"));
@@ -81,11 +94,15 @@ internal static class SdkPackageTests {
     var release = Path.Combine(sdk, "lib/cmake/rexglue/rexglueTargets-release.cmake");
     var configText =
         "# source: https://github.com/rexglue/rexglue-sdk\n" +
-        "file(GLOB _cmake_config_files \"${CMAKE_CURRENT_LIST_DIR}/rexglueTargets-*.cmake\")\n";
+        "file(GLOB _cmake_config_files \"${CMAKE_CURRENT_LIST_DIR}/rexglueTargets-*.cmake\")\n" +
+        "file(GLOB _rexglue_module_files \"${CMAKE_CURRENT_LIST_DIR}/rexglueModules-*.cmake\")\n";
+    var modules = Path.Combine(sdk, "lib/cmake/rexglue/rexglueModules-Release.cmake");
     File.WriteAllText(cmake, configText);
+    File.WriteAllText(modules, "# Release modules\n");
     File.WriteAllText(release, "# Release import\n");
-    File.WriteAllText(Path.Combine(sdk, "lib/cmake/rexglue/header-only.cmake"),
-                      "file(GLOB _cmake_config_files \"${CMAKE_CURRENT_LIST_DIR}/header-only-*.cmake\")\n");
+    File.WriteAllText(
+        Path.Combine(sdk, "lib/cmake/rexglue/header-only.cmake"),
+        "file(GLOB _cmake_config_files \"${CMAKE_CURRENT_LIST_DIR}/header-only-*.cmake\")\n");
     var diagnostics = new List<string>();
     var tools = new Tools(new RecordedProgress(), diagnostics.Add);
     var program =
@@ -105,7 +122,8 @@ internal static class SdkPackageTests {
       using var reader =
           new StreamReader(zip.GetEntry("lib/cmake/rexglue/rexglueConfig.cmake")!.Open());
       var imports = reader.ReadToEnd();
-      if (imports.Contains("file(GLOB") || !imports.Contains("rexglueTargets-release.cmake"))
+      if (imports.Contains("file(GLOB") || !imports.Contains("rexglueTargets-release.cmake") ||
+          !imports.Contains("rexglueModules-Release.cmake"))
         throw new Exception(
             "The SDK package still uses wildcard paths to load its import configuration");
     }
@@ -119,15 +137,17 @@ internal static class SdkPackageTests {
             .Any(file => File.GetLastWriteTimeUtc(file) != inputTime))
       throw new Exception(
           "Repackaging unchanged SDK files changed their cache identity or timestamps");
-    foreach (var invalid in new[] { "missing import configuration", "machine path",
-                                    "game executable", "unknown DLL", "missing license",
-                                    "wrong SDK" }) {
+    foreach (var invalid in new[] { "missing import configuration", "missing module configuration",
+                                    "machine path", "game executable", "unknown DLL",
+                                    "missing license", "wrong SDK" }) {
       var license = Path.Combine(sdk, "licenses/rexglue/LICENSE");
       var game = Path.Combine(sdk, "bin/lollipop.exe");
       var dll = Path.Combine(sdk, "bin/unknown.dll");
       var marker = Path.Combine(sdk, "lollipop-sdk.id");
       if (invalid == "missing import configuration")
         File.Delete(release);
+      if (invalid == "missing module configuration")
+        File.Delete(modules);
       if (invalid == "machine path")
         File.WriteAllText(cmake, "set(prefix \"C:/Developer/SDK\")\n");
       if (invalid == "game executable")
@@ -143,6 +163,7 @@ internal static class SdkPackageTests {
             "SDK packaging accepted invalid input or damaged its previous output: " + invalid);
       File.WriteAllText(cmake, configText);
       File.WriteAllText(release, "# Release import\n");
+      File.WriteAllText(modules, "# Release modules\n");
       File.Delete(game);
       File.Delete(dll);
       File.WriteAllText(license, "SDK fixture");

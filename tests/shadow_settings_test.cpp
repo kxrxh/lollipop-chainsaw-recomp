@@ -1,9 +1,9 @@
 #include "game/shadow_settings.h"
 
+#include "settings/runtime_settings.h"
 #include <cmath>
 #include <iostream>
 #include <limits>
-#include <rex/cvar.h>
 #include <rex/memory.h>
 #include <stdexcept>
 #include <windows.h>
@@ -38,12 +38,13 @@ int main() try {
     put(0x83369740, 128u);
     put(0x833696B0, 1.27324f);
   };
-  const auto* flag = rex::cvar::GetFlagInfo("lollipop_shadow_resolution");
-  check(flag && flag->lifecycle == rex::cvar::Lifecycle::kHotReload &&
-            rex::cvar::GetFlagByName(flag->name) == "0",
+  const auto* flag = lollipop::settings::GetFlagInfo("lollipop_shadow_resolution");
+  check(flag && flag->GetConstraints().life == rex::SettingLife::kLive &&
+            lollipop::settings::GetFlagByName(flag->GetName()) == "0",
         "Original shadows are the live default");
   for (const auto* bad : {"-1", "128", "300", "2048", "512.0", "invalid"})
-    check(!rex::cvar::SetFlagByName(flag->name, bad), "Reject unsupported launch values");
+    check(!lollipop::settings::SetFlagByName(flag->GetName(), bad),
+          "Reject unsupported launch values");
   reset();
   lollipop::initialize_shadow_settings(memory.base);
   lollipop::update_shadow_settings(memory.base);
@@ -58,7 +59,8 @@ int main() try {
         "Original limits light resolution while projection samples the allocated target size");
   // All transitions share one native baseline and one set of allocated targets.
   for (const auto wanted : {1024, 256, 512, 0, 1024, 512, 256, 0}) {
-    check(rex::cvar::SetFlagByName(flag->name, std::to_string(wanted)), "Accept shadow resolution");
+    check(lollipop::settings::SetFlagByName(flag->GetName(), std::to_string(wanted)),
+          "Accept shadow resolution");
     const auto render_before = read(0x83369740);
     lollipop::update_shadow_settings(memory.base);
     check(read(0x83369740) == render_before,
@@ -86,7 +88,7 @@ int main() try {
             "Quality survives native reloads without compounding");
     }
   }
-  rex::cvar::SetFlagByName(flag->name, "1024");
+  lollipop::settings::SetFlagByName(flag->GetName(), "1024");
   reset();
   lollipop::initialize_shadow_settings(memory.base);
   check(read(0x833696A8) == 1024 && read(0x83369740) == 1024,

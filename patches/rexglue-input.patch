@@ -1,0 +1,842 @@
+diff --git a/include/rex/hid/input_system.h b/include/rex/hid/input_system.h
+index 9aef69e2..eb432e2e 100644
+--- a/include/rex/hid/input_system.h
++++ b/include/rex/hid/input_system.h
+@@ -42,6 +42,9 @@ class REX_HID_API InputSettings final : public SettingOwner {
+   REX_SETTING(bool, mnk_mode, false, "Keyboard and mouse act as a pad");
+   REX_SETTING(bool, mnk_mouse, false, "The mouse moves the right stick");
+   REX_SETTING(f64, mnk_sensitivity, 1.0, "Mouse to stick sensitivity", Range{0.01, 100.0});
++  REX_SETTING(f64, mnk_mouse_deadzone, 0.0, "Mouse-only stick deadzone compensation",
++              Range{0.0, 0.95});
++  REX_SETTING(bool, mnk_gameplay_modifiers, false, "Keep movement active with modifiers");
+   REX_SETTING(bool, mnk_passthrough, false, "Keys reach the title as keystrokes");
+ };
+ 
+@@ -51,7 +54,7 @@ class REX_HID_API InputSettings final : public SettingOwner {
+  * one when nothing else is present. Without input capture only the keyboard and mouse source reads
+  * neutral, and AcquireUIBlock makes every user neutral. Any thread.
+  */
+-REX_DECLARE_INTERFACE(IInputSystem, 2)
++REX_DECLARE_INTERFACE(IInputSystem, 3)
+   static constexpr u32 kMaxUsers = 4;
+ 
+   /** The user value for GetKeystroke that takes a keystroke from any user. */
+@@ -72,6 +75,18 @@ REX_DECLARE_INTERFACE(IInputSystem, 2)
+    */
+   [[nodiscard]] virtual Result<PadReading> GetState(u32 user) = 0;
+ 
++  /** Reads a pad without gameplay UI masking. */
++  [[nodiscard]] virtual Result<PadState> GetStateForUI(u32 user) = 0;
++
++  /** Reports whether the last active input source was keyboard or mouse. Any thread. */
++  virtual bool IsKeyboardActive() const = 0;
++
++  /** Record keyboard or mouse activity while a UI consumes physical input. Any thread. */
++  virtual void NotifyKeyboardActivity() = 0;
++
++  /** Installs a synthetic input source for user zero for automated gameplay tests. */
++  virtual void SetTestInput(MoveOnlyFunction<PadState(bool& keyboard)> read) = 0;
++
+   /**
+    * Returns the capabilities of a user's pad, with the guide bit cleared when guide_button is off,
+    * or kNotFound.
+@@ -238,10 +253,9 @@ REX_DECLARE_INTERFACE(IInputSystem, 2)
+ 
+   /**
+    * Parses one input such as "Shift+W", "LMB", "WheelUp", "PadA" or "LStick". Key text follows
+-   * ParseKeyChord and pad names take no modifiers. Names are case sensitive.
++   * ParseKeyChord and pad names take no modifiers. Names are case sensitive. Bare modifiers are accepted for pad bindings.
+    *
+-   * @return The source, or ErrorCategory::kConfig naming text when it is empty, a bare modifier or
+-   *         names nothing.
++   * @return The source, or ErrorCategory::kConfig naming text when it is empty or names nothing.
+    */
+   [[nodiscard]] virtual Result<InputSource> ParseInputSource(std::string_view text) const = 0;
+ 
+diff --git a/include/rex/ui/image_decode.h b/include/rex/ui/image_decode.h
+new file mode 100644
+index 00000000..6b2314c0
+--- /dev/null
++++ b/include/rex/ui/image_decode.h
+@@ -0,0 +1,28 @@
++/**
++ * @file        ui/image_decode.h
++ *
++ * @copyright   Copyright (c) 2026 Rien Gupta <rgupta9@scu.edu>
++ *              All rights reserved.
++ *
++ * @license     BSD 3-Clause License
++ *              See LICENSE file in the project root for full license text.
++ */
++#pragma once
++#include <cstdint>
++#include <vector>
++
++#include <rex/platform.h>
++#include <rex/types.h>
++
++namespace rex::ui {
++
++/**
++ * Decodes a PNG to tightly packed R8G8B8A8 pixels.
++ *
++ * @param out_width Receives the width in pixels on success.
++ * @param out_height Receives the height in pixels on success.
++ * @return width * height * 4 bytes on success, an empty vector on failure.
++ */
++REX_UI_API std::vector<u8> DecodeImageRGBA(const u8* data, size_t size, int& out_width, int& out_height);
++
++}  // namespace rex::ui
+diff --git a/src/base/input_source.cpp b/src/base/input_source.cpp
+index 4df51641..97e024d2 100644
+--- a/src/base/input_source.cpp
++++ b/src/base/input_source.cpp
+@@ -41,6 +41,10 @@ std::string_view GetPadButtonName(PadInput button) {
+       return source;
+     }
+   }
++  const VirtualKey bare = ParseVirtualKey(text);
++  if (bare == VirtualKey::kShift || bare == VirtualKey::kControl || bare == VirtualKey::kMenu) {
++    return InputSource{.type = InputSourceType::kKey, .code = static_cast<u16>(bare)};
++  }
+   auto chord = ParseKeyChord(text);
+   if (!chord) {
+     return Err<InputSource>(std::move(chord.error()));
+diff --git a/src/gpu/graphics_module.cpp b/src/gpu/graphics_module.cpp
+index 60dc1f7b..5ceb8fc2 100644
+--- a/src/gpu/graphics_module.cpp
++++ b/src/gpu/graphics_module.cpp
+@@ -93,7 +93,8 @@ Result<void> GraphicsModule::Init() {
+     driver_.reset();
+     return std::unexpected(started.error());
+   }
+-  system_->SetOverlayHook([ui](IOverlayRenderer& renderer) { ui->DrawOverlays(renderer); });
++  system_->SetOverlayHook([ui](IOverlayRenderer& renderer) { ui->DrawOverlays(renderer); },
++                          [ui] { return ui->NeedsContinuousPaint(); });
+   return Ok();
+ }
+ 
+diff --git a/src/gpu/graphics_state.h b/src/gpu/graphics_state.h
+index ac71d747..beb9dcd5 100644
+--- a/src/gpu/graphics_state.h
++++ b/src/gpu/graphics_state.h
+@@ -56,6 +56,7 @@ struct GraphicsSystem::State {
+ 
+   std::mutex hook_mutex;
+   MoveOnlyFunction<void(IOverlayRenderer&)> overlay_hook;
++  MoveOnlyFunction<bool()> continuous_paint;
+ 
+   std::mutex resize_mutex;
+   bool resize_pending = false;
+diff --git a/src/gpu/present_thread.cpp b/src/gpu/present_thread.cpp
+index f743ad50..e980d1d7 100644
+--- a/src/gpu/present_thread.cpp
++++ b/src/gpu/present_thread.cpp
+@@ -19,6 +19,7 @@ namespace rex::gpu {
+ namespace {
+ 
+ constexpr u32 kFrameWaitMs = 100;
++constexpr u32 kOverlayFrameWaitMs = 16;
+ constexpr auto kSkipDelay = std::chrono::milliseconds(5);
+ constexpr auto kSleepStep = std::chrono::milliseconds(20);
+ 
+@@ -38,7 +39,14 @@ void SleepUntil(std::chrono::steady_clock::time_point deadline, const std::stop_
+ void GraphicsSystem::State::PresentLoop(const std::stop_token& stop) {
+   auto next_present = std::chrono::steady_clock::now();
+   while (!stop.stop_requested()) {
+-    const rex::gpu::FrameStatus status = driver->WaitForFrame(kFrameWaitMs);
++    u32 wait_ms = kFrameWaitMs;
++    {
++      std::lock_guard lock(hook_mutex);
++      if (continuous_paint && continuous_paint()) {
++        wait_ms = kOverlayFrameWaitMs;
++      }
++    }
++    const rex::gpu::FrameStatus status = driver->WaitForFrame(wait_ms);
+     if (status.new_frame) {
+       CountFrame();
+     }
+diff --git a/src/hid/input_internal.h b/src/hid/input_internal.h
+index 1491b34c..e2de1f1f 100644
+--- a/src/hid/input_internal.h
++++ b/src/hid/input_internal.h
+@@ -12,6 +12,7 @@
+ 
+ #include <array>
+ #include <atomic>
++#include <chrono>
+ #include <deque>
+ #include <memory>
+ #include <mutex>
+@@ -247,6 +248,7 @@ class KeyboardMousePad final : public rex::hid::IInputDriver {
+   bool IsPointerLockWanted() const { return pointer_lock_.load(std::memory_order_relaxed); }
+ 
+   void OnEvent(InputEvent& event);
++  void ClearMouseMotion();
+ 
+   /** Logs bindings that did not parse and reloads the keys. UI thread only. */
+   void RefreshBinds();
+@@ -271,6 +273,9 @@ class KeyboardMousePad final : public rex::hid::IInputDriver {
+   bool key_down_[256] = {};
+   f32 mouse_dx_ = 0.0f;
+   f32 mouse_dy_ = 0.0f;
++  i32 mouse_stick_x_ = 0;
++  i32 mouse_stick_y_ = 0;
++  std::chrono::steady_clock::time_point mouse_sample_time_{};
+   std::deque<rex::hid::PadKeystroke> queue_;
+   std::atomic<bool> pointer_lock_{false};
+   mutable std::atomic<u32> listed_mode_{0};
+diff --git a/src/hid/input_system.cpp b/src/hid/input_system.cpp
+index 5ec15f95..7a68d6e1 100644
+--- a/src/hid/input_system.cpp
++++ b/src/hid/input_system.cpp
+@@ -79,6 +79,11 @@ struct InputSystem::State {
+   std::array<rex::hid::PadState, detail::kMaxUsers> last_state{};
+   std::array<u64, detail::kMaxUsers> last_signature{};
+   std::atomic<i32> ui_blocks{0};
++  std::atomic<i32> active_input{-1};
++  std::array<bool, detail::kMaxUsers> consumed_left_trigger{};
++  std::array<bool, detail::kMaxUsers> consumed_right_trigger{};
++  MoveOnlyFunction<PadState(bool& keyboard)> test_input;
++  std::vector<std::pair<detail::DeviceKey, PadState>> previous_input;
+ 
+   std::atomic<bool> focused{true};
+   std::atomic<bool> captured{true};
+@@ -188,6 +193,8 @@ void InputSystem::State::UpdateConnectionsLocked(std::vector<ConnectionEvent>& e
+     } else {
+       REXHID_INFO("Controller disconnected from user {}.", user);
+       consumed[user] = 0;
++      consumed_left_trigger[user] = false;
++      consumed_right_trigger[user] = false;
+     }
+     events.push_back({user, now});
+   }
+@@ -222,6 +229,39 @@ Result<rex::hid::PadState> InputSystem::State::ReadRawLocked(u32 user) {
+       *state = rex::hid::PadState{};
+     }
+     active.Observe(user, key, *state);
++    if (user == 0 && key.source != keyboard_mouse_source && key.source != idle_source) {
++      const auto last = std::ranges::find(previous_input, key,
++                                        &std::pair<detail::DeviceKey, PadState>::first);
++      PadState before = last == previous_input.end() ? PadState{} : last->second;
++      const auto axis_changed = [](i16 current, i16 previous) {
++        return std::abs(int(current)) >= detail::kThumbDeadzone &&
++               std::abs(int(current) - previous) > 2048;
++      };
++      const auto trigger_changed = [](u8 current, u8 previous) {
++        return current >= detail::kTriggerThreshold &&
++               std::abs(int(current) - previous) >= detail::kTriggerThreshold;
++      };
++      const bool changed = (state->buttons & ~before.buttons) ||
++                           trigger_changed(state->left_trigger, before.left_trigger) ||
++                           trigger_changed(state->right_trigger, before.right_trigger) ||
++                           axis_changed(state->thumb_lx, before.thumb_lx) ||
++                           axis_changed(state->thumb_ly, before.thumb_ly) ||
++                           axis_changed(state->thumb_rx, before.thumb_rx) ||
++                           axis_changed(state->thumb_ry, before.thumb_ry);
++      const bool neutral = detail::IsNeutral(*state);
++      if (!neutral && (detail::IsNeutral(before) || changed)) {
++        active_input.store(0, std::memory_order_relaxed);
++      }
++      if (changed || neutral) {
++        before = *state;
++      }
++      before.buttons = state->buttons;
++      if (last == previous_input.end()) {
++        previous_input.emplace_back(key, before);
++      } else {
++        last->second = before;
++      }
++    }
+     if (!any) {
+       merged = *state;
+       any = true;
+@@ -229,6 +269,13 @@ Result<rex::hid::PadState> InputSystem::State::ReadRawLocked(u32 user) {
+       detail::MergeInto(merged, *state);
+     }
+   }
++  if (user == 0 && test_input) {
++    bool keyboard = true;
++    const auto state = test_input(keyboard);
++    active_input.store(keyboard ? 1 : 0, std::memory_order_relaxed);
++    detail::MergeInto(merged, state);
++    any = true;
++  }
+   if (!any) {
+     return std::unexpected(NotFound("no device answers for the user"));
+   }
+@@ -246,11 +293,19 @@ Result<InputSystem::PadReading> InputSystem::State::ReadUserLocked(u32 user) {
+     return std::unexpected(raw.error());
+   }
+   rex::hid::PadState state = *raw;
++  consumed[user] &= state.buttons;
++  consumed_left_trigger[user] &= state.left_trigger >= detail::kTriggerThreshold;
++  consumed_right_trigger[user] &= state.right_trigger >= detail::kTriggerThreshold;
+   if (ui_blocks.load() > 0) {
+     state = {};
+-  } else if (consumed[user] != 0) {
+-    consumed[user] &= state.buttons;
++  } else {
+     state.buttons = static_cast<u16>(state.buttons & ~consumed[user]);
++    if (consumed_left_trigger[user]) {
++      state.left_trigger = 0;
++    }
++    if (consumed_right_trigger[user]) {
++      state.right_trigger = 0;
++    }
+   }
+   u64 signature = 0xCBF29CE484222325ull;
+   for (const detail::DeviceKey& key : users[user]) {
+@@ -364,6 +419,9 @@ void InputSystem::Stop() {
+   std::lock_guard lock(state.mutex);
+   state.sources.clear();
+   state.devices.clear();
++  state.previous_input.clear();
++  state.test_input = {};
++  state.active_input.store(-1, std::memory_order_relaxed);
+   state.users = {};
+   state.revisions.clear();
+   state.connected = {};
+@@ -385,6 +443,35 @@ Result<InputSystem::PadReading> InputSystem::GetState(u32 user) {
+   return result;
+ }
+ 
++Result<PadState> InputSystem::GetStateForUI(u32 user) {
++  State& state = *state_;
++  std::vector<ConnectionEvent> events;
++  Result<PadState> result = std::unexpected(NotFound("input is not started"));
++  {
++    std::lock_guard lock(state.mutex);
++    if (state.started) {
++      state.RefreshDevicesLocked(events);
++      result = state.ReadRawLocked(user);
++    }
++  }
++  state.Fire(events);
++  return result;
++}
++
++bool InputSystem::IsKeyboardActive() const {
++  const i32 active = state_->active_input.load(std::memory_order_relaxed);
++  return active < 0 ? settings_.mnk_mode.Get() : active != 0;
++}
++
++void InputSystem::NotifyKeyboardActivity() {
++  state_->active_input.store(1, std::memory_order_relaxed);
++}
++
++void InputSystem::SetTestInput(MoveOnlyFunction<PadState(bool& keyboard)> read) {
++  std::lock_guard lock(state_->mutex);
++  state_->test_input = std::move(read);
++}
++
+ Result<rex::hid::PadCapabilities> InputSystem::GetCapabilities(u32 user) {
+   State& state = *state_;
+   std::vector<ConnectionEvent> events;
+@@ -554,6 +641,8 @@ void InputSystem::ReleaseUIBlock() {
+       for (u32 user = 0; user < detail::kMaxUsers; ++user) {
+         if (auto raw = state.ReadRawLocked(user)) {
+           state.consumed[user] |= raw->buttons;
++          state.consumed_left_trigger[user] |= raw->left_trigger >= detail::kTriggerThreshold;
++          state.consumed_right_trigger[user] |= raw->right_trigger >= detail::kTriggerThreshold;
+         }
+       }
+     }
+@@ -573,7 +662,10 @@ void InputSystem::OnInputEvent(InputEvent& event) {
+       if (index < 256) {
+         const u64 bit = u64{1} << (index & 63);
+         if (event.type == Type::kKeyDown) {
+-          state.keys[index >> 6].fetch_or(bit, std::memory_order_relaxed);
++          const u64 before = state.keys[index >> 6].fetch_or(bit, std::memory_order_relaxed);
++          if (!(before & bit)) {
++            NotifyKeyboardActivity();
++          }
+         } else {
+           state.keys[index >> 6].fetch_and(~bit, std::memory_order_relaxed);
+         }
+@@ -582,6 +674,7 @@ void InputSystem::OnInputEvent(InputEvent& event) {
+     }
+     case Type::kButtonDown:
+       state.buttons.fetch_or(ButtonBit(event.button), std::memory_order_relaxed);
++      NotifyKeyboardActivity();
+       break;
+     case Type::kButtonUp:
+       state.buttons.fetch_and(~ButtonBit(event.button), std::memory_order_relaxed);
+@@ -605,6 +698,9 @@ void InputSystem::OnInputEvent(InputEvent& event) {
+           state.moved.store(true, std::memory_order_relaxed);
+         }
+       }
++      if (forwarded.dx != 0.0f || forwarded.dy != 0.0f) {
++        NotifyKeyboardActivity();
++      }
+       break;
+     }
+     case Type::kWheel: {
+@@ -648,7 +744,10 @@ void InputSystem::OnInputEvent(InputEvent& event) {
+ }
+ 
+ void InputSystem::SetInputCaptured(bool captured) {
+-  state_->captured.store(captured, std::memory_order_relaxed);
++  const bool before = state_->captured.exchange(captured, std::memory_order_relaxed);
++  if (before && !captured) {
++    state_->keyboard_mouse->ClearMouseMotion();
++  }
+ }
+ 
+ bool InputSystem::IsKeyDown(VirtualKey key) const {
+@@ -729,7 +828,7 @@ void InputSystem::SetPointerMode(PointerMode mode) {
+ 
+ PointerMode InputSystem::GetPointerModeToApply() const {
+   const State& state = *state_;
+-  if (!state.IsActive()) {
++  if (!state.IsActive() || state.ui_blocks.load() > 0) {
+     return PointerMode::kFree;
+   }
+   if (state.keyboard_mouse->IsPointerLockWanted()) {
+diff --git a/src/hid/input_system.h b/src/hid/input_system.h
+index 54b30c0b..b21ffe9e 100644
+--- a/src/hid/input_system.h
++++ b/src/hid/input_system.h
+@@ -33,6 +33,11 @@ class InputSystem final : public rex::hid::IInputSystem {
+ 
+   rex::hid::InputSettings& GetSettings() override { return settings_; }
+   [[nodiscard]] Result<PadReading> GetState(u32 user) override;
++  [[nodiscard]] Result<PadState> GetStateForUI(u32 user) override;
++  bool IsKeyboardActive() const override;
++  void NotifyKeyboardActivity() override;
++  void SetTestInput(MoveOnlyFunction<PadState(bool& keyboard)> read) override;
++
+   [[nodiscard]] Result<rex::hid::PadCapabilities> GetCapabilities(u32 user) override;
+   [[nodiscard]] Result<void> SetVibration(u32 user, const rex::hid::PadVibration& motors) override;
+   [[nodiscard]] Result<rex::hid::PadKeystroke> GetKeystroke(u32 user,
+diff --git a/src/hid/keyboard_mouse_pad.cpp b/src/hid/keyboard_mouse_pad.cpp
+index 643abf29..377bea50 100644
+--- a/src/hid/keyboard_mouse_pad.cpp
++++ b/src/hid/keyboard_mouse_pad.cpp
+@@ -10,6 +10,7 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <cmath>
+ #include <cstring>
+ #include <ranges>
+ #include <utility>
+@@ -41,14 +42,6 @@ KeyModifiers HeldModifiers(const bool (&key_down)[256]) {
+   return mods;
+ }
+ 
+-bool IsBindPressed(const bool (&key_down)[256], const std::vector<KeyChord>& chords) {
+-  const KeyModifiers live = HeldModifiers(key_down);
+-  return std::ranges::any_of(chords, [&](const KeyChord& chord) {
+-    const u16 index = static_cast<u16>(chord.key);
+-    return chord.modifiers == live && index < 256 && key_down[index];
+-  });
+-}
+-
+ u8 VirtualKeyToHIDUsage(VirtualKey vk_enum) {
+   const u32 vk = static_cast<u32>(vk_enum);
+   if (vk >= 'A' && vk <= 'Z') {
+@@ -229,7 +222,31 @@ Result<rex::hid::PadCapabilities> KeyboardMousePad::GetDeviceCapabilities(
+ }
+ 
+ bool KeyboardMousePad::IsPressed(size_t index) const {
+-  return IsBindPressed(key_down_, binds_[index]);
++  const KeyModifiers live = HeldModifiers(key_down_);
++  const bool gameplay = settings_.mnk_gameplay_modifiers.Get();
++  auto explicit_match = [&](const KeyChord& chord) {
++    return chord.modifiers != KeyModifiers::kNone && HasFlags(live, chord.modifiers);
++  };
++  return std::ranges::any_of(binds_[index], [&](const KeyChord& chord) {
++    const auto key = std::to_underlying(chord.key);
++    if (key >= 256 || !key_down_[key]) {
++      return false;
++    }
++    if (!gameplay) {
++      return chord.modifiers == live;
++    }
++    if (chord.modifiers != KeyModifiers::kNone) {
++      return explicit_match(chord);
++    }
++    if (HasFlags(live, KeyModifiers::kAlt)) {
++      return false;
++    }
++    return std::ranges::none_of(binds_, [&](const auto& group) {
++      return std::ranges::any_of(group, [&](const KeyChord& other) {
++        return other.key == chord.key && explicit_match(other);
++      });
++    });
++  });
+ }
+ 
+ Result<rex::hid::PadState> KeyboardMousePad::GetDeviceState(rex::hid::PadDeviceID id) {
+@@ -304,12 +321,33 @@ Result<rex::hid::PadState> KeyboardMousePad::GetDeviceState(rex::hid::PadDeviceI
+   }
+ 
+   if (settings_.mnk_mouse.Get()) {
+-    const f64 sensitivity = settings_.mnk_sensitivity.Get();
+-    rx += static_cast<i32>(static_cast<f64>(mouse_dx_) * sensitivity * kMouseBaseScale);
+-    ry += static_cast<i32>(static_cast<f64>(-mouse_dy_) * sensitivity * kMouseBaseScale);
++    const auto now = std::chrono::steady_clock::now();
++    const f64 elapsed = mouse_sample_time_ == std::chrono::steady_clock::time_point{}
++                            ? 1.0 / 60.0
++                            : std::chrono::duration<f64>(now - mouse_sample_time_).count();
++    if (elapsed >= 1.0 / 60.0) {
++      const f64 scale = settings_.mnk_sensitivity.Get() * kMouseBaseScale / (elapsed * 60.0);
++      const f64 deadzone = settings_.mnk_mouse_deadzone.Get();
++      const auto axis = [scale, deadzone](f32 delta) -> i32 {
++        if (delta == 0.0f) {
++          return 0;
++        }
++        const f64 magnitude = std::min(std::abs(static_cast<f64>(delta) * scale), 32767.0);
++        return static_cast<i32>(std::copysign(
++            deadzone * 32767.0 + (1.0 - deadzone) * magnitude, delta));
++      };
++      mouse_stick_x_ = axis(mouse_dx_);
++      mouse_stick_y_ = axis(-mouse_dy_);
++      mouse_dx_ = mouse_dy_ = 0.0f;
++      mouse_sample_time_ = now;
++    }
++    rx += mouse_stick_x_;
++    ry += mouse_stick_y_;
++  } else {
++    mouse_dx_ = mouse_dy_ = 0.0f;
++    mouse_stick_x_ = mouse_stick_y_ = 0;
++    mouse_sample_time_ = {};
+   }
+-  mouse_dx_ = 0.0f;
+-  mouse_dy_ = 0.0f;
+ 
+   auto clamp16 = [](i32 value) {
+     return static_cast<i16>(
+@@ -474,6 +512,15 @@ void KeyboardMousePad::OnFocusLost() {
+   std::memset(key_down_, 0, sizeof(key_down_));
+   mouse_dx_ = 0.0f;
+   mouse_dy_ = 0.0f;
++  mouse_stick_x_ = mouse_stick_y_ = 0;
++  mouse_sample_time_ = {};
++}
++
++void KeyboardMousePad::ClearMouseMotion() {
++  std::lock_guard lock(mutex_);
++  mouse_dx_ = mouse_dy_ = 0.0f;
++  mouse_stick_x_ = mouse_stick_y_ = 0;
++  mouse_sample_time_ = {};
+ }
+ 
+ }  // namespace rex::hid::detail
+diff --git a/src/hid/merge.cpp b/src/hid/merge.cpp
+index fb912e05..f8e7ced3 100644
+--- a/src/hid/merge.cpp
++++ b/src/hid/merge.cpp
+@@ -30,17 +30,10 @@ bool PastDeadzone(i16 axis) {
+ }
+ 
+ void ApplyRadial(f64 percentage, i16& axis_x, i16& axis_y) {
+-  if (percentage <= 0.0 || percentage >= 1.0) {
+-    return;
+-  }
+-  const f64 deadzone = kThumbstickMax * percentage;
+-  const f64 theta = std::atan2(static_cast<f64>(axis_y), static_cast<f64>(axis_x));
+-  const f64 cutoff_x = std::cos(theta) * deadzone;
+-  const f64 cutoff_y = std::sin(theta) * deadzone;
+-  if (axis_x > -cutoff_x && axis_x < cutoff_x) {
++  if (percentage >= 1.0 ||
++      (percentage > 0.0 && std::hypot(static_cast<f64>(axis_x), static_cast<f64>(axis_y)) <
++                               kThumbstickMax * percentage)) {
+     axis_x = 0;
+-  }
+-  if (axis_y > -cutoff_y && axis_y < cutoff_y) {
+     axis_y = 0;
+   }
+ }
+diff --git a/src/ui/overlay/bind_table.cpp b/src/ui/overlay/bind_table.cpp
+index ff0ac6f0..5e1fe061 100644
+--- a/src/ui/overlay/bind_table.cpp
++++ b/src/ui/overlay/bind_table.cpp
+@@ -81,7 +81,7 @@ void BindTable::RemoveFromRegistry(Entry& entry) {
+ }
+ 
+ void BindTable::Register(std::string_view name, KeyChord default_key, std::string_view description,
+-                         rex::MoveOnlyFunction<void()> callback) {
++                         rex::MoveOnlyFunction<void()> callback, bool global_hotkey) {
+   Entry* entry = nullptr;
+   {
+     std::lock_guard lock(mutex_);
+@@ -91,6 +91,7 @@ void BindTable::Register(std::string_view name, KeyChord default_key, std::strin
+     entry->description = std::string(description);
+     entry->callback = std::make_shared<rex::MoveOnlyFunction<void()>>(std::move(callback));
+     entry->chord = default_key;
++    entry->global_hotkey = global_hotkey;
+     entry->owner = std::make_unique<BindOwner>(
+         entry->setting_name, input_ ? input_->FormatKeyChord(default_key) : std::string(),
+         entry->description);
+@@ -113,12 +114,16 @@ void BindTable::Unregister(std::string_view name) {
+   entries_.erase(std::ranges::find(entries_, name, &Entry::name));
+ }
+ 
+-bool BindTable::Process(const InputEvent& e) {
++bool BindTable::Process(const InputEvent& e, bool global_only) {
++  if (e.repeat) {
++    return false;
++  }
+   std::shared_ptr<rex::MoveOnlyFunction<void()>> callback;
+   {
+     std::lock_guard lock(mutex_);
+     for (const Entry& entry : entries_) {
+-      if (entry.callback && entry.chord.key != VirtualKey::kNone && entry.chord.key == e.key &&
++      if (entry.callback && (!global_only || entry.global_hotkey) &&
++          entry.chord.key != VirtualKey::kNone && entry.chord.key == e.key &&
+           entry.chord.modifiers == e.modifiers) {
+         callback = entry.callback;
+         break;
+diff --git a/src/ui/overlay/bind_table.h b/src/ui/overlay/bind_table.h
+index c11903a0..fc9ad031 100644
+--- a/src/ui/overlay/bind_table.h
++++ b/src/ui/overlay/bind_table.h
+@@ -39,9 +39,9 @@ class BindTable : public NonCopyable {
+    */
+   void SetInput(const hid::IInputSystem* input);
+   void Register(std::string_view name, KeyChord default_key, std::string_view description,
+-                rex::MoveOnlyFunction<void()> callback);
++                rex::MoveOnlyFunction<void()> callback, bool global_hotkey = false);
+   void Unregister(std::string_view name);
+-  bool Process(const InputEvent& e);
++  bool Process(const InputEvent& e, bool global_only = false);
+ 
+  private:
+   class BindOwner final : public SettingOwner {
+@@ -61,6 +61,7 @@ class BindTable : public NonCopyable {
+     KeyChord chord;
+     std::shared_ptr<rex::MoveOnlyFunction<void()>> callback;
+     bool added = false;
++    bool global_hotkey = false;
+   };
+ 
+   void AddToRegistry(Entry& entry);
+diff --git a/src/ui/overlay/debug_overlay.h b/src/ui/overlay/debug_overlay.h
+index 9d253e38..869b6863 100644
+--- a/src/ui/overlay/debug_overlay.h
++++ b/src/ui/overlay/debug_overlay.h
+@@ -25,6 +25,7 @@ class DebugOverlayDialog : public DialogBase {
+   ~DebugOverlayDialog();
+ 
+   bool Draw(ImGuiIO& io) override;
++  bool NeedsContinuousPaint() const override { return false; }
+ 
+  private:
+   const ModuleOverlayContext& context_;
+diff --git a/src/ui/overlay/image_decode.h b/src/ui/overlay/image_decode.h
+index 96e52b0f..a3774f35 100644
+--- a/src/ui/overlay/image_decode.h
++++ b/src/ui/overlay/image_decode.h
+@@ -1,28 +1,2 @@
+-/**
+- * @file        ui/overlay/image_decode.h
+- *
+- * @copyright   Copyright (c) 2026 Rien Gupta <rgupta9@scu.edu>
+- *              All rights reserved.
+- *
+- * @license     BSD 3-Clause License
+- *              See LICENSE file in the project root for full license text.
+- */
+ #pragma once
+-#include <cstdint>
+-#include <vector>
+-
+-#include <rex/platform.h>
+-#include <rex/types.h>
+-
+-namespace rex::ui {
+-
+-/**
+- * Decodes a PNG to tightly packed R8G8B8A8 pixels.
+- *
+- * @param out_width Receives the width in pixels on success.
+- * @param out_height Receives the height in pixels on success.
+- * @return width * height * 4 bytes on success, an empty vector on failure.
+- */
+-std::vector<u8> DecodeImageRGBA(const u8* data, size_t size, int& out_width, int& out_height);
+-
+-}  // namespace rex::ui
++#include <rex/ui/image_decode.h>
+diff --git a/src/ui/overlay/overlay_registry.cpp b/src/ui/overlay/overlay_registry.cpp
+index cdafc262..95b45b3e 100644
+--- a/src/ui/overlay/overlay_registry.cpp
++++ b/src/ui/overlay/overlay_registry.cpp
+@@ -86,7 +86,7 @@ Result<void> OverlayRegistry::Add(std::span<const OverlayConfig> table) {
+     if (config.default_key.key != VirtualKey::kNone) {
+       binds_.Register(entry.name, config.default_key,
+                       std::format("Toggle the {} overlay", entry.name),
+-                      [this, name = entry.name] { Toggle(name); });
++                      [this, name = entry.name] { Toggle(name); }, config.global_hotkey);
+       entry.bound = true;
+     }
+     entries_.push_back(std::move(entry));
+diff --git a/src/ui/ui_event.cpp b/src/ui/ui_event.cpp
+index 710d0140..eb71c340 100644
+--- a/src/ui/ui_event.cpp
++++ b/src/ui/ui_event.cpp
+@@ -25,7 +25,7 @@ bool UISystem::State::IsCaptureActive() const {
+   if (!focused.load()) {
+     return false;
+   }
+-  if (!overlays || !overlays->IsAnyVisible()) {
++  if (!imgui || dialog_count.load(std::memory_order_relaxed) == 0) {
+     return true;
+   }
+   return !imgui->GetInputCapture().WantsMouse();
+@@ -88,7 +88,13 @@ bool UISystem::State::IsHeldByOverlay(const InputEvent& event) const {
+ 
+ void UISystem::State::OnInputEvent(InputEvent& event) {
+   using Type = InputEvent::Type;
+-  if (!IsHeldByOverlay(event)) {
++  const bool captured = IsHeldByOverlay(event);
++  if (input && captured &&
++      ((event.type == Type::kKeyDown && !event.repeat) || event.type == Type::kButtonDown ||
++       (event.type == Type::kMotion && (event.dx != 0.0f || event.dy != 0.0f)))) {
++    input->NotifyKeyboardActivity();
++  }
++  if (!captured) {
+     std::lock_guard delivery(delivery_mutex);
+     std::vector<rex::ui::IUIEventListener*> snapshot;
+     {
+@@ -108,6 +114,9 @@ void UISystem::State::OnInputEvent(InputEvent& event) {
+       }
+     }
+   }
++  if (event.type == Type::kKeyDown && !event.handled) {
++    event.handled = binds.Process(event, /*global_only=*/true);
++  }
+   if (imgui) {
+     imgui->HandleEvent(event);
+   }
+diff --git a/src/ui/ui_state.h b/src/ui/ui_state.h
+index 5c8f44ea..8a5fa483 100644
+--- a/src/ui/ui_state.h
++++ b/src/ui/ui_state.h
+@@ -80,6 +80,7 @@ struct UISystem::State {
+   std::atomic<bool> stopping{false};
+   std::atomic<bool> stopped{false};
+   std::atomic<bool> quit{false};
++  std::atomic<bool> continuous_paint{false};
+   std::atomic<u32> dialog_count{0};
+   std::atomic<u32> overlay_visible_count{0};
+ 
+diff --git a/src/ui/ui_system.cpp b/src/ui/ui_system.cpp
+index d2012a78..5fd5a40b 100644
+--- a/src/ui/ui_system.cpp
++++ b/src/ui/ui_system.cpp
+@@ -361,6 +361,7 @@ void UISystem::State::CloseWindow() {
+   }
+   imgui.reset();
+   overlay_visible_count = 0;
++  continuous_paint.store(false, std::memory_order_relaxed);
+   window_open = false;
+   driver->CloseUIWindow();
+ }
+@@ -474,6 +475,11 @@ void UISystem::AddDialog(std::unique_ptr<ui::IDialog> dialog) {
+   }
+ }
+ 
++bool UISystem::NeedsContinuousPaint() const {
++  return state_->dialog_count.load(std::memory_order_relaxed) != 0 &&
++         state_->continuous_paint.load(std::memory_order_relaxed);
++}
++
+ bool UISystem::HasDialogs() const {
+   return state_->dialog_count.load(std::memory_order_relaxed) != 0;
+ }
+@@ -496,6 +502,8 @@ void UISystem::DrawOverlays(IOverlayRenderer& renderer) {
+     }
+     s.imgui->SetDisplay(s.window_width, s.window_height, s.content_scale);
+     data = s.imgui->BuildFrame();
++    s.continuous_paint.store(s.imgui->NeedsContinuousPaint(), std::memory_order_relaxed);
++    s.RefreshCapture();
+   });
+   if (data) {
+     renderer.RenderOverlays(*data);
+diff --git a/src/ui/ui_system.h b/src/ui/ui_system.h
+index f0be5b9a..9ad17185 100644
+--- a/src/ui/ui_system.h
++++ b/src/ui/ui_system.h
+@@ -74,6 +74,7 @@ class UISystem final : public rex::ui::IUISystem, public IUIControl, public IUIT
+   bool IsAnyOverlayVisible() const override;
+   [[nodiscard]] ScopeGuard AddDialog(ui::IDialog& dialog) override;
+   void AddDialog(std::unique_ptr<ui::IDialog> dialog) override;
++  bool NeedsContinuousPaint() const override;
+   bool HasDialogs() const override;
+   void DrawOverlays(IOverlayRenderer& renderer) override;
+   void ShowMessage(MessageType type, std::string_view heading, std::string_view body) override;
+diff --git a/include/rex/ui/ui_system.h b/include/rex/ui/ui_system.h
+index 61a64054..1d3f0c7f 100644
+--- a/include/rex/ui/ui_system.h
++++ b/include/rex/ui/ui_system.h
+@@ -113,6 +113,7 @@ struct OverlayConfig {
+   KeyChord default_key;  /**< Default toggle chord, kNone registers no hotkey. */
+   /** Creates the overlay. Called on the UI thread. */
+   std::unique_ptr<ui::IDialog> (*create)(IUISystem& ui);
++  bool global_hotkey = false; /**< Allow the chord to toggle while an overlay captures keys. */
+ };
+ 
+ class REX_UI_API UISettings final : public SettingOwner {
+@@ -151,7 +151,7 @@ class REX_UI_API UISettings final : public SettingOwner {
+  * Window, ImGui, overlay and dialog calls belong on the UI thread. Calls marked "any thread" are
+  * safe everywhere.
+  */
+-REX_DECLARE_INTERFACE(IUISystem, 2)
++REX_DECLARE_INTERFACE(IUISystem, 3)
+ /** Returns the player's UI settings. */
+   virtual UISettings& GetSettings() = 0;
+ 
+@@ -255,6 +255,9 @@ REX_DECLARE_INTERFACE(IUISystem, 2)
+    */
+   virtual void AddDialog(std::unique_ptr<ui::IDialog> dialog) = 0;
+ 
++  /** Reports whether a visible dialog needs frames while the guest is idle. Any thread. */
++  virtual bool NeedsContinuousPaint() const = 0;
++
+   /** Reports whether any dialog or prompt is open. Any thread. */
+   virtual bool HasDialogs() const = 0;
+ 
+diff --git a/src/gpu/graphics_system.cpp b/src/gpu/graphics_system.cpp
+index 5e9ea22a..a205e96d 100644
+--- a/src/gpu/graphics_system.cpp
++++ b/src/gpu/graphics_system.cpp
+@@ -172,9 +229,11 @@ void GraphicsSystem::DetachTitle() {
+   }
+ }
+ 
+-void GraphicsSystem::SetOverlayHook(MoveOnlyFunction<void(IOverlayRenderer&)> hook) {
++void GraphicsSystem::SetOverlayHook(MoveOnlyFunction<void(IOverlayRenderer&)> hook,
++                                    MoveOnlyFunction<bool()> continuous_paint) {
+   std::lock_guard lock(state_->hook_mutex);
+   state_->overlay_hook = std::move(hook);
++  state_->continuous_paint = std::move(continuous_paint);
+ }
+ 
+ void GraphicsSystem::OnSurfaceResized(u32 width, u32 height) {
+diff --git a/src/gpu/graphics_system.h b/src/gpu/graphics_system.h
+index e0c17a40..8777dea2 100644
+--- a/src/gpu/graphics_system.h
++++ b/src/gpu/graphics_system.h
+@@ -66,5 +70,6 @@ class GraphicsSystem final : public rex::gpu::IGraphicsSystem, public IGraphicsC
+    * @param hook Called on the present thread between BeginPresent and EndPresent.
+    */
+-  void SetOverlayHook(MoveOnlyFunction<void(IOverlayRenderer&)> hook);
++  void SetOverlayHook(MoveOnlyFunction<void(IOverlayRenderer&)> hook,
++                      MoveOnlyFunction<bool()> continuous_paint = {});
+ 
+   /** Reports whether the driver is a Xenos driver that receives the Vd calls. */
+diff --git a/cmake/rexglue_install.cmake b/cmake/rexglue_install.cmake
+index 24db2b54..4027b724 100644
+--- a/cmake/rexglue_install.cmake
++++ b/cmake/rexglue_install.cmake
+@@ -122,6 +127,8 @@ install(
+   FILES_MATCHING
+   PATTERN "*.h"
+ )
++install(FILES thirdparty/renderdoc/renderdoc_app.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
++
+ install(FILES thirdparty/imgui/imgui.h thirdparty/imgui/imconfig.h thirdparty/imgui/imgui_internal.h
+               thirdparty/imgui/imstb_rectpack.h thirdparty/imgui/imstb_textedit.h
+               thirdparty/imgui/imstb_truetype.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}

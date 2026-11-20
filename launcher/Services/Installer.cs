@@ -214,7 +214,7 @@ internal sealed class Installer {
     configure.AddRange(
         new[] { "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
                 "-DCMAKE_CXX_COMPILER=" + clangxx, "-DCMAKE_PREFIX_PATH=" + sdk,
-                "-Drexglue_DIR=" + Path.Combine(sdk, "lib/cmake/rexglue"),
+                "-Drexglue_DIR=" + Path.Combine(sdk, "lib/cmake/rexglue"), "-USDL3_DIR",
                 "-DLOLLIPOP_GAME_DIR=" + Game, "-DLOLLIPOP_GENERATED_DIR=" + generated,
                 "-DLOLLIPOP_MANIFEST=" + manifest, "-DBUILD_TESTING=OFF",
                 "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=" + GameUpdate.Stage(destination),

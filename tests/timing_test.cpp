@@ -5,18 +5,21 @@
 #include <string>
 #include <thread>
 
-#include <rex/cvar.h>
+#include "settings/runtime_settings.h"
+#include "settings_fixture.h"
 
 using lollipop::configure_frame_rate;
 using lollipop::set_settings_pause;
 
 int main(int argc, char **argv) {
+  lollipop::testing::settings_fixture fixture;
+  fixture.add("video_mode_refresh_rate", "60");
   if (argc == 2 && std::string_view(argv[1]).starts_with("--")) {
     const bool explicit_fps = std::string_view(argv[1]) == "--fps-cli";
-    rex::cvar::SetFlagFromCommandLine("lollipop_60fps", "false");
+    lollipop::settings::SetFlagFromCommandLine("lollipop_60fps", "false");
     if (explicit_fps) {
-      rex::cvar::SetFlagFromCommandLine("lollipop_fps", "120");
-      rex::cvar::SetFlagFromCommandLine("video_mode_refresh_rate", "75");
+      lollipop::settings::SetFlagFromCommandLine("lollipop_fps", "120");
+      lollipop::settings::SetFlagFromCommandLine("video_mode_refresh_rate", "75");
     }
     configure_frame_rate();
     PPCRegister interval{}, limit{};
@@ -25,7 +28,10 @@ int main(int argc, char **argv) {
     lollipop_present_interval(interval);
     lollipop_tick_limit(limit);
     return interval.u64 == (explicit_fps ? 1 : 2) && limit.f64 == (explicit_fps ? 120.0 : 24.0) &&
-        rex::cvar::Query<double>("video_mode_refresh_rate") == (explicit_fps ? 75.0 : 60.0) ? 0 : 14;
+                   lollipop::settings::Query<double>("video_mode_refresh_rate") ==
+                       (explicit_fps ? 75.0 : 60.0)
+               ? 0
+               : 14;
   }
   PPCRegister paused{};
   if (lollipop::is_engine_tick_thread()) return 15;
@@ -61,7 +67,8 @@ int main(int argc, char **argv) {
     return 1;
   }
   for (int fps : {30, 60, 90, 120}) {
-    if (!rex::cvar::SetFlagByName("lollipop_fps", std::to_string(fps))) return 10;
+    if (!lollipop::settings::SetFlagByName("lollipop_fps", std::to_string(fps)))
+      return 10;
     PPCRegister minimum{};
     minimum.f64 = 0.016f;
     lollipop_trail_minimum_step(minimum);
@@ -96,18 +103,21 @@ int main(int argc, char **argv) {
     lollipop_present_interval(interval);
     lollipop_tick_limit(limit);
     if (interval.u64 != (fps == 30 ? 2 : 1) || limit.f64 != double(fps) ||
-        rex::cvar::Query<double>("video_mode_refresh_rate") != double(fps > 60 ? fps : 60)) return 11;
+        lollipop::settings::Query<double>("video_mode_refresh_rate") != double(fps > 60 ? fps : 60))
+      return 11;
   }
   for (const char* invalid : {"0", "45", "121", "90.5", "nan"})
-    if (rex::cvar::SetFlagByName("lollipop_fps", invalid)) return 12;
+    if (lollipop::settings::SetFlagByName("lollipop_fps", invalid))
+      return 12;
   // Live changes update both timing hooks and the guest refresh rate together.
-  rex::cvar::SetFlagByName("lollipop_fps", "90");
+  lollipop::settings::SetFlagByName("lollipop_fps", "90");
   lollipop_tick_limit(limit);
   interval.u64 = 2;
   lollipop_present_interval(interval);
   if (limit.f64 != 90.0 || interval.u64 != 1 ||
-      rex::cvar::Query<double>("video_mode_refresh_rate") != 90.0) return 13;
-  rex::cvar::SetFlagFromCommandLine("lollipop_60fps", "false");
+      lollipop::settings::Query<double>("video_mode_refresh_rate") != 90.0)
+    return 13;
+  lollipop::settings::SetFlagFromCommandLine("lollipop_60fps", "false");
   configure_frame_rate();
   interval.u64 = 2;
   limit.f64 = 24.0;
@@ -115,8 +125,7 @@ int main(int argc, char **argv) {
   lollipop_tick_limit(limit);
   if (interval.u64 != 2 || limit.f64 != 24.0)
     return 3;
-  if (argc != 2 ||
-      !rex::cvar::SetFlagByName("lollipop_tick_trace_csv", argv[1]))
+  if (argc != 2 || !lollipop::settings::SetFlagByName("lollipop_tick_trace_csv", argv[1]))
     return 4;
 
   engine.u64 = 0x12345678;

@@ -8,9 +8,11 @@
 #include <vector>
 
 namespace rex {
-class Runtime;
+namespace kernel {
+class TitleRuntime;
+}
 namespace filesystem {
-class Device;
+class IFileSystem;
 }
 } // namespace rex
 
@@ -34,9 +36,10 @@ std::vector<uint8_t> pack_keyboard_prompts(std::span<const uint8_t> package,
                                            const std::filesystem::path& directory);
 bool cache_keyboard_prompts(std::span<const uint8_t> package,
                             const std::filesystem::path& directory);
-std::unique_ptr<rex::filesystem::Device>
-make_keyboard_game_device(const std::filesystem::path& game, const std::filesystem::path& cache);
-void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& game_root,
+void mount_game_ui_assets(rex::filesystem::IFileSystem& files, const std::filesystem::path& game,
+                          const std::filesystem::path& cache);
+void install_game_ui_assets(rex::kernel::TitleRuntime& runtime,
+                            const std::filesystem::path& game_root,
                             const std::filesystem::path& cache_root);
 
 } // namespace lollipop

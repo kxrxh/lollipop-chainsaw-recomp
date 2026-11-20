@@ -1,18 +1,15 @@
 #include "shadow_settings.h"
 
+#include "settings/runtime_settings.h"
 #include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cmath>
-#include <rex/cvar.h>
-#include <rex/logging.h>
-#include <rex/system/kernel_state.h>
-#include <rex/system/thread_state.h>
-
-REXCVAR_DEFINE_INT32(lollipop_shadow_resolution, 0, "Lollipop",
-                     "Character shadow resolution: 0 = original, 256, 512 or 1024")
-    .allowed({"0", "256", "512", "1024"})
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+#include <rex/kernel/function_dispatcher.h>
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/logging/log_category.h>
 
 namespace lollipop {
 namespace {
@@ -29,7 +26,9 @@ std::atomic<uint32_t> light_resolution_limit{0};
 bool update_shadow_settings(uint8_t* memory) {
   if (!original_resolution)
     return false;
-  const auto wanted = REXCVAR_GET(lollipop_shadow_resolution);
+  static const auto* shadow_resolution = static_cast<rex::Setting<int32_t>*>(
+      lollipop::settings::GetFlagInfo("lollipop_shadow_resolution"));
+  const auto wanted = shadow_resolution->Get();
   const auto resolution = wanted > original_resolution ? wanted : original_resolution;
   light_resolution_limit.store(uint32_t(resolution), std::memory_order_relaxed);
   // Always derive density from the native baseline, including when restoring Original.
@@ -70,16 +69,16 @@ void initialize_shadow_settings(uint8_t* memory) {
 
 void lollipop_initialize_shadows() {
   lollipop::initialize_shadow_settings(
-      rex::runtime::ThreadState::Get()->memory()->virtual_membase());
+      rex::kernel::ThreadState::Get()->GetAddressSpace()->GetVirtualMembase());
 }
 
 void lollipop_update_shadows() {
-  auto* thread = rex::runtime::ThreadState::Get();
-  if (!lollipop::update_shadow_settings(thread->memory()->virtual_membase()))
+  auto* thread = rex::kernel::ThreadState::Get();
+  if (!lollipop::update_shadow_settings(thread->GetAddressSpace()->GetVirtualMembase()))
     return;
   // FSystemSettings queues its snapshot to the render thread; never write that copy mid-frame.
   uint64_t args[] = {0};
-  rex::system::kernel_state()->function_dispatcher()->ExecuteTrap(thread, 0x823CD8C8, args, 1);
+  rex::kernel::GetCurrent().GetFunctionDispatcher().ExecuteTrap(thread, 0x823CD8C8, args, 1);
 }
 
 void lollipop_shadow_light_limit(PPCRegister& light) {

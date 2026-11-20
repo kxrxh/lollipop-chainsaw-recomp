@@ -1,11 +1,12 @@
 #include "game/cheats.h"
 #include "game/game_bridge.h"
 
+#include "settings/runtime_settings.h"
 #include <chrono>
 #include <iostream>
 #include <map>
-#include <rex/cvar.h>
-#include <rex/runtime.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/ppc/image.h>
 #include <stdexcept>
 #include <thread>
 
@@ -25,7 +26,7 @@ void check(bool value, const char* message) {
 
 // A small reflected-game fixture keeps tests independent of disc data and native saves.
 namespace lollipop {
-game_bridge::game_bridge(rex::Runtime& runtime, PPCContext& context)
+game_bridge::game_bridge(rex::kernel::TitleRuntime& runtime, PPCContext& context)
     : runtime_(runtime), context_(context), saved_(context), memory_(nullptr), scratch_(0) {}
 game_bridge::~game_bridge() = default;
 bool game_bridge::valid_address(uint32_t address, uint32_t size) {
@@ -86,7 +87,8 @@ uint32_t game_bridge::invoke(uint32_t, uint32_t function, uint32_t a, uint32_t) 
 } // namespace lollipop
 
 int main() try {
-  rex::Runtime runtime({});
+  const rex::ppc::PPCImage image{};
+  rex::kernel::TitleRuntime runtime(image);
   PPCContext context{};
   lollipop::game_bridge game(runtime, context);
   auto update = [&] {
@@ -94,7 +96,7 @@ int main() try {
     lollipop::update_game_cheats(game);
   };
   for (const auto& option : lollipop::cheat_options())
-    check(!rex::cvar::Query<bool>(option.flag), "Cheats must default off");
+    check(!lollipop::settings::Query<bool>(option.flag), "Cheats must default off");
   memory[player + 100] = pawn;
   memory[pawn + 52] = juliet + 256;
   memory[juliet + 256 + 64] = juliet; // Accept derived Juliet classes too.
@@ -106,7 +108,7 @@ int main() try {
   check(!god && memory[pawn + 104] == 25 && gold == 7 && platinum == 3,
         "Disabled cheats must leave gameplay untouched");
   for (const auto& option : lollipop::cheat_options())
-    rex::cvar::SetFlagByName(option.flag, "true");
+    lollipop::settings::SetFlagByName(option.flag, "true");
   update();
   check(god && memory[pawn + 104] == 100 && gold == 9999999 && platinum == 999 &&
             memory[pawn + 116] == 35,
@@ -121,13 +123,13 @@ int main() try {
   update();
   check(!god && gold == 9999999, "All off must restore damage without rewinding currency");
   god = true;
-  rex::cvar::SetFlagByName("lollipop_cheat_health", "true");
+  lollipop::settings::SetFlagByName("lollipop_cheat_health", "true");
   update();
   lollipop::disable_cheats();
   update();
   check(god, "Preserve native god mode that was already set before cheats");
   god = false;
-  rex::cvar::SetFlagByName("lollipop_cheat_health", "true");
+  lollipop::settings::SetFlagByName("lollipop_cheat_health", "true");
   update();
   has_world = false;
   update();
@@ -136,7 +138,7 @@ int main() try {
   update();
   check(!god, "Restore a surviving controller after a temporary world transition");
   memory[pawn + 52] = juliet + 512;
-  rex::cvar::SetFlagByName("lollipop_cheat_gold", "true");
+  lollipop::settings::SetFlagByName("lollipop_cheat_gold", "true");
   gold = 42;
   update();
   check(gold == 42, "Do not modify a menu pawn or another character");

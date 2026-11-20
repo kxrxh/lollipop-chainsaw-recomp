@@ -9,8 +9,8 @@
 #include <sstream>
 #include <windows.h>
 
-#include <rex/cvar.h>
-#include <rex/logging.h>
+#include "settings/runtime_settings.h"
+#include <rex/logging/log_category.h>
 
 namespace lollipop {
 
@@ -69,8 +69,8 @@ std::span<const pc_setting> pc_settings() {
 pc_values read_pc_settings() {
   pc_values values;
   for (const auto& setting : pc_settings())
-    values[setting.name] = rex::cvar::GetFlagByName(setting.name);
-  values["window_height"] = rex::cvar::GetFlagByName("window_height");
+    values[setting.name] = lollipop::settings::GetFlagByName(setting.name);
+  values["window_height"] = lollipop::settings::GetFlagByName("window_height");
   return values;
 }
 
@@ -142,6 +142,16 @@ bool save_pc_settings(const std::filesystem::path& path, const pc_values& values
 }
 
 void configure_pc_settings(const std::filesystem::path& path) {
+  using settings::Source;
+  auto set_from_layer = [](std::string_view name, std::string_view value, Source layer) {
+    (void)REX_SETTINGS().SetText(layer, settings::setting_name(name), value);
+  };
+  // Explicit per-axis settings take precedence over the old uniform scale at the same layer.
+  const auto* uniform = settings::GetFlagInfo("lollipop.resolution_scale");
+  for (auto axis : {"resolution_scale_x", "resolution_scale_y"}) {
+    if (settings::GetFlagSource(axis) < uniform->GetLayer())
+      set_from_layer(axis, uniform->GetText(), uniform->GetLayer());
+  }
   std::ifstream file(path);
   if (file) {
     auto values = read_pc_settings();
@@ -179,9 +189,13 @@ void configure_pc_settings(const std::filesystem::path& path) {
       values[name] = value;
     }
     if (valid && file.eof() && validate_pc_settings(values)) {
-      for (const auto& [name, value] : values)
-        if (provided.contains(name) && rex::cvar::GetFlagSource(name) <= rex::cvar::Source::kConfig)
-          rex::cvar::SetFlagByName(name, value);
+      for (const auto& name : provided) {
+        if (!values.contains(name))
+          continue;
+        set_from_layer(name, values.at(name), Source::kFile);
+        if (name == "resolution_scale")
+          set_from_layer("resolution_scale_y", values.at(name), Source::kFile);
+      }
     } else {
       REXLOG_WARN("Ignoring invalid PC settings profile: {}", path.string());
     }
@@ -189,13 +203,14 @@ void configure_pc_settings(const std::filesystem::path& path) {
   for (const auto& [name, value] : pc_values{{"window_width", "2560"},
                                              {"window_height", "1440"},
                                              {"resolution", "720p"},
-                                             {"resolution_scale", "2"},
+                                             {"resolution_scale_x", "2"},
+                                             {"resolution_scale_y", "2"},
                                              {"anisotropic_override", "5"},
                                              {"swap_post_effect", "none"},
                                              {"render_target_path_d3d12", "rov"},
                                              {"async_shader_compilation", "false"}}) {
-    if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault)
-      rex::cvar::SetFlagByName(name, value);
+    if (settings::GetFlagSource(name) == Source::kDefault)
+      set_from_layer(name, value, Source::kTitle);
   }
 }
 

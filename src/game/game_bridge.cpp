@@ -3,16 +3,20 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
-#include <rex/input/input_system.h>
-#include <rex/logging.h>
+#include <format>
+#include <rex/hid/input_system.h>
+#include <rex/kernel/function_dispatcher.h>
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/logging/log_category.h>
 #include <rex/memory.h>
-#include <rex/runtime.h>
-#include <rex/system/thread_state.h>
 #include <stdexcept>
 
 namespace lollipop {
-game_bridge::game_bridge(rex::Runtime& runtime, PPCContext& context)
-    : runtime_(runtime), context_(context), saved_(context), memory_(runtime.virtual_membase()) {
+game_bridge::game_bridge(rex::kernel::TitleRuntime& runtime, PPCContext& context)
+    : runtime_(runtime), context_(context), saved_(context),
+      memory_(runtime.GetMembase().GetBase()) {
   context_.r1.u64 -= 2048;
   write(context_.r1.u32, saved_.r1.u32);
   scratch_ = context_.r1.u32 + 128;
@@ -20,7 +24,7 @@ game_bridge::game_bridge(rex::Runtime& runtime, PPCContext& context)
 
 game_bridge::~game_bridge() {
   context_ = saved_;
-  context_.fpscr.restoreGuestBits(saved_.fpscr.csr);
+  context_.fpscr.RestoreGuestBits(saved_.fpscr.csr);
 }
 
 bool game_bridge::valid_address(uint32_t address, uint32_t size) {
@@ -56,8 +60,8 @@ uint32_t game_bridge::find(const std::string& name) {
   for (size_t i = 0; i <= name.size(); ++i)
     rex::memory::store_and_swap<uint16_t>(memory_ + text + i * 2, i == name.size() ? 0 : name[i]);
   uint64_t args[] = {0, 0, text, 0};
-  return uint32_t(runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                                              0x822AE758, args, 4));
+  return uint32_t(runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                                               0x822AE758, args, 4));
 }
 
 uint32_t game_bridge::invoke(uint32_t object, uint32_t function, uint32_t a, uint32_t b) {
@@ -90,15 +94,15 @@ uint32_t game_bridge::process(uint32_t object, uint32_t function) {
   // Reflected functions can live in the game's low-address static allocations.
   if (!valid_address(object) || !function)
     throw std::runtime_error(
-        fmt::format("Invalid native object {:08X} or function {:08X}", object, function));
+        std::format("Invalid native object {:08X} or function {:08X}", object, function));
   const auto size = rex::memory::load_and_swap<uint16_t>(memory_ + function + 138);
   assert(size <= 128);
   if (size > 128)
     return 0;
   const auto process_event = read(read(object) + 248);
   uint64_t args[] = {object, function, scratch_, 0};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), process_event, args,
-                                              4);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(), process_event, args,
+                                               4);
   const auto offset = rex::memory::load_and_swap<uint16_t>(memory_ + function + 140);
   return offset <= 124 ? read(scratch_ + offset) : 0;
 }
@@ -141,24 +145,24 @@ void game_bridge::set_text(uint32_t object, const std::string& property_name, co
   string(scratch_ + 32, scratch_ + 512, "_root._lollipopHostText");
   string(scratch_ + 44, scratch_ + 768, value);
   uint64_t set[] = {object, scratch_ + 32, scratch_ + 44};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(object) + 348), set, 3);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(object) + 348), set, 3);
   uint64_t get[] = {scratch_, object, scratch_ + 32};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(object) + 328), get, 3);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(object) + 328), get, 3);
   const auto data = read(scratch_), count = read(scratch_ + 4), capacity = read(scratch_ + 8);
   if (!valid_address(data, count * 2) || count != std::strlen(value) + 1 || capacity < count) {
     if (valid_address(data)) {
       uint64_t free[] = {data};
-      runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), 0x82252130,
-                                                  free, 1);
+      runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(), 0x82252130,
+                                                   free, 1);
     }
     throw std::runtime_error("Could not create native text");
   }
   if (const auto previous = read(target)) {
     uint64_t free[] = {previous};
-    runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), 0x82252130, free,
-                                                1);
+    runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(), 0x82252130, free,
+                                                 1);
   }
   // Transfer the getter's engine-owned FString to the dialog, which frees it normally.
   write(target, data);
@@ -186,8 +190,8 @@ std::u16string game_bridge::movie_string(uint32_t movie, const char* path) {
   std::memset(memory_ + scratch_, 0, 128);
   string(scratch_ + 32, scratch_ + 512, path);
   uint64_t args[] = {scratch_, movie, scratch_ + 32};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(movie) + 328), args, 3);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(movie) + 328), args, 3);
   const auto data = read(scratch_), count = read(scratch_ + 4);
   std::u16string result;
   if (count && count < 256 && valid_address(data, count * 2))
@@ -195,8 +199,8 @@ std::u16string game_bridge::movie_string(uint32_t movie, const char* path) {
       result += rex::memory::load_and_swap<uint16_t>(memory_ + data + i * 2);
   if (data) {
     uint64_t free[] = {data};
-    runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), 0x82252130, free,
-                                                1);
+    runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(), 0x82252130, free,
+                                                 1);
   }
   return result;
 }
@@ -204,16 +208,16 @@ std::u16string game_bridge::movie_string(uint32_t movie, const char* path) {
 void game_bridge::movie_bool(uint32_t movie, const char* path, bool value) {
   string(scratch_ + 32, scratch_ + 512, path);
   uint64_t args[] = {movie, scratch_ + 32, value};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(movie) + 340), args, 3);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(movie) + 340), args, 3);
 }
 
 void game_bridge::movie_call(uint32_t movie, const char* path) {
   std::memset(memory_ + scratch_, 0, 160);
   string(scratch_ + 32, scratch_ + 512, path);
   uint64_t args[] = {scratch_ + 128, movie, scratch_ + 32, scratch_ + 64};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(movie) + 396), args, 4);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(movie) + 396), args, 4);
 }
 
 bool game_bridge::movie_hit(uint32_t movie, const char* path, float x, float y) {
@@ -235,8 +239,8 @@ bool game_bridge::movie_hit(uint32_t movie, const char* path, float x, float y) 
     write(scratch_ + 96 + i * 24 + n, std::bit_cast<uint32_t>(i ? y : x));
   }
   uint64_t args[] = {scratch_ + 192, movie, scratch_ + 32, scratch_ + 64};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(movie) + 396), args, 4);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(movie) + 396), args, 4);
   return (read(scratch_ + 192 + b) & read(boolean + 116)) != 0;
 }
 
@@ -269,8 +273,8 @@ void game_bridge::console(uint32_t actor, const std::string& command) {
   const auto result = process(has_player ? player : actor, function);
   if (result) {
     uint64_t args[] = {result};
-    runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(), 0x82252130, args,
-                                                1);
+    runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(), 0x82252130, args,
+                                                 1);
   }
 }
 
@@ -278,8 +282,8 @@ void game_bridge::hide_legacy(uint32_t movie) {
   const auto header = scratch_ + 32, text = scratch_ + 512;
   string(header, text, "_root._visible");
   uint64_t hide[] = {movie, header, 0};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(movie) + 340), hide, 3);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(movie) + 340), hide, 3);
 }
 
 void game_bridge::close_legacy(uint32_t movie) {
@@ -301,8 +305,8 @@ void game_bridge::close_legacy(uint32_t movie) {
   memory_[argument + type_offset] = 2;                             // AS_Number.
   write(argument + number_offset, std::bit_cast<uint32_t>(17.0f)); // Original fsOptionClose action.
   uint64_t close[] = {result, movie, header, array};
-  runtime_.function_dispatcher()->ExecuteTrap(rex::runtime::ThreadState::Get(),
-                                              read(read(movie) + 396), close, 4);
+  runtime_.GetFunctionDispatcher().ExecuteTrap(rex::kernel::ThreadState::Get(),
+                                               read(read(movie) + 396), close, 4);
   REXLOG_DEBUG("Original Options close action requested");
 }
 
@@ -318,9 +322,9 @@ void game_bridge::string(uint32_t header, uint32_t text, const char* value) {
 }
 
 void game_bridge::consume_input() {
-  auto& input = *static_cast<rex::input::InputSystem*>(runtime_.input_system());
-  input.AddUIInputBlocker();
-  input.RemoveUIInputBlocker();
+  auto& input = *REX_INTERFACE(rex::hid::IInputSystem);
+  input.AcquireUIBlock();
+  input.ReleaseUIBlock();
 }
 std::string game_bridge::read_string(const unsigned char* memory, uint32_t address) {
   if (!memory || address < 0x40000000 || address > 0xBFFFFFF0)

@@ -1,10 +1,12 @@
 #pragma once
 
 namespace rex {
-class Runtime;
+namespace kernel {
+class TitleRuntime;
+}
 }
 
 namespace lollipop {
-void install_live_prompt_updates(rex::Runtime& runtime);
+void install_live_prompt_updates(rex::kernel::TitleRuntime& runtime);
 void stop_live_prompt_updates();
 } // namespace lollipop

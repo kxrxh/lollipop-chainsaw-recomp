@@ -5,8 +5,9 @@
 #include <new>
 #include <vector>
 
-#include <rex/system/lzx.h>
-#include <rex/system/thread_state.h>
+#include <rex/filesystem/xmem_lzx.h>
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
 
 namespace {
 constexpr size_t chunk_size = 128 * 1024;
@@ -40,8 +41,7 @@ bool lollipop::decode_package_lzx(std::span<const uint8_t> packed, std::span<uin
     remaining -= decoded;
     packed = packed.subspan(header + encoded);
   }
-  return !remaining && lzx_decompress_xmem(stream.data(), stream.size(), output.data(),
-                                           output.size(), chunk_size) == 0;
+  return !remaining && rex::filesystem::LZXDecompressXMem(stream, output, chunk_size) == 0;
 }
 
 bool lollipop_async_package_lzx(PPCRegister& flags, PPCRegister& destination, PPCRegister& size,
@@ -51,21 +51,21 @@ bool lollipop_async_package_lzx(PPCRegister& flags, PPCRegister& destination, PP
       (source.u32 < uint64_t(destination.u32) + size.u32 &&
        destination.u32 < uint64_t(source.u32) + packed_size.u32))
     return false;
-  auto* memory = rex::runtime::ThreadState::Get()->memory();
+  auto* memory = rex::kernel::ThreadState::Get()->GetAddressSpace();
   auto accessible = [&](uint32_t address, uint32_t length, uint32_t access) {
     auto* heap = memory->LookupHeap(address);
-    if (!heap || (heap->heap_type() != rex::memory::HeapType::kGuestVirtual &&
-                  !(access == rex::memory::kMemoryProtectWrite &&
-                    heap->heap_type() == rex::memory::HeapType::kGuestPhysical)))
+    if (!heap || (heap->GetHeapType() != rex::kernel::HeapType::kGuestVirtual &&
+                  !(access == rex::kernel::kMemoryProtectWrite &&
+                    heap->GetHeapType() == rex::kernel::HeapType::kGuestPhysical)))
       return false;
-    rex::memory::HeapAllocationInfo region{};
+    rex::kernel::HeapAllocation region{};
     // QueryRegionInfo counts whole pages, including the leading partial page.
     return heap->QueryRegionInfo(address, &region) &&
-           (region.state & rex::memory::kMemoryAllocationCommit) && (region.protect & access) &&
-           length + address % heap->page_size() <= region.region_size;
+           (region.state & rex::kernel::kMemoryAllocationCommit) && (region.protect & access) &&
+           length + address % heap->GetPageSize() <= region.region_size;
   };
-  if (!accessible(source.u32, packed_size.u32, rex::memory::kMemoryProtectRead) ||
-      !accessible(destination.u32, size.u32, rex::memory::kMemoryProtectWrite))
+  if (!accessible(source.u32, packed_size.u32, rex::kernel::kMemoryProtectRead) ||
+      !accessible(destination.u32, size.u32, rex::kernel::kMemoryProtectWrite))
     return false;
   const auto* input = memory->TranslateVirtual(source.u32);
   try {

@@ -1,6 +1,6 @@
 #requires -Version 5.1
 param(
-    [string]$SdkDirectory = (Join-Path $PSScriptRoot '../../out/sdk'),
+    [string]$SdkDirectory = (Join-Path $PSScriptRoot '../../out/sdk-0.11.0'),
     [Parameter(Mandatory)][string]$OutputFile
 )
 $ErrorActionPreference = 'Stop'
@@ -8,13 +8,17 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'scripts/sdk-package.ps1')
 $sdk = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SdkDirectory).TrimEnd('\', '/')
 $output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFile)
-$required = @('lollipop-sdk.id','bin/rexglue.exe','bin/rexruntime.dll','bin/rexgpu-xenos.dll',
+$runtime = @(Get-SdkRuntimeFiles)
+$required = @('lollipop-sdk.id','bin/rexglue.exe',
     'bin/msvcp140.dll','bin/msvcp140_atomic_wait.dll','bin/vcruntime140.dll','bin/vcruntime140_1.dll',
-    'include/rex/rex_app.h','lib/rexruntime.lib','lib/cmake/rexglue/rexglueConfig.cmake',
-    'lib/cmake/rexglue/rexglueTargets-release.cmake',
-    'share/rexglue/rex_app.cpp','licenses/rexglue/LICENSE','licenses/SOURCES.txt')
-$binaries = @('rexglue.exe','rexruntime.dll','rexgpu-xenos.dll','msvcp140.dll','msvcp140_1.dll',
-    'msvcp140_2.dll','msvcp140_atomic_wait.dll','msvcp140_codecvt_ids.dll','vcruntime140.dll',
+    'include/rex/app/title_app.h','include/renderdoc_app.h',
+    'lib/rexapp.lib','lib/rexfilesystem.lib','lib/rexgpu.lib','lib/rexhid.lib','lib/rexui.lib',
+    'lib/cmake/rexglue/rexglueConfig.cmake','lib/cmake/rexglue/rexglueTargets-release.cmake',
+    'lib/cmake/rexglue/rexglueModules-Release.cmake','cmake/SDL3Config.cmake',
+    'cmake/SDL3sharedTargets-release.cmake','licenses/rexglue/LICENSE','licenses/SOURCES.txt') +
+    @($runtime | ForEach-Object { "bin/$_" })
+$binaries = $runtime + @('rexglue.exe','msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll',
+    'msvcp140_atomic_wait.dll','msvcp140_codecvt_ids.dll','vcruntime140.dll',
     'vcruntime140_1.dll','vcruntime140_threads.dll','vccorlib140.dll','concrt140.dll')
 foreach ($name in $required) {
     if (-not [IO.File]::Exists((Join-Path $sdk $name))) {
@@ -22,7 +26,7 @@ foreach ($name in $required) {
     }
 }
 if ([IO.File]::ReadAllText((Join-Path $sdk 'lollipop-sdk.id')) -ne (Get-SdkIdentity -Root $root)) {
-    throw 'The SDK was built with different patches. Rebuild it with ./build-sdk.ps1 before packaging the launcher.'
+    throw 'The SDK was built with a different revision or patch set. Rebuild it with ./build-sdk.ps1 before packaging the launcher.'
 }
 $files = @(Get-ChildItem -LiteralPath $sdk -Recurse -File | Where-Object {
     $_.Name -notmatch '\.(pdb|ilk|exp|pc)$' -and $_.Name -notmatch '^SDL(_|3[-_])test'
@@ -54,17 +58,21 @@ try {
             $name = $file.FullName.Substring($sdk.Length + 1).Replace('\', '/')
             if ($file.Extension -eq '.cmake') {
                 $text = [IO.File]::ReadAllText($file.FullName)
-                $match = [Regex]::Match($text, 'file\(GLOB _cmake_config_files "\$\{CMAKE_CURRENT_LIST_DIR\}/([^"\r\n]+)"\)')
-                if ($match.Success) {
-                    # Generated glob imports misread brackets in the installation path.
-                    $configs = @(Get-ChildItem -LiteralPath $file.DirectoryName -File |
-                        Where-Object Name -Like $match.Groups[1].Value | Sort-Object Name |
-                        ForEach-Object { '"${CMAKE_CURRENT_LIST_DIR}/' + $_.Name + '"' })
-                    $text = $text.Remove($match.Index, $match.Length).Insert($match.Index, ('set(_cmake_config_files ' + ($configs -join ' ') + ')'))
+                # Generated glob imports misread brackets in the installation path.
+                $imports = [Regex]::Replace($text,
+                    'file\(GLOB (_cmake_config_files|_rexglue_module_files) "\$\{CMAKE_CURRENT_LIST_DIR\}/([^"\r\n]+)"\)',
+                    [Text.RegularExpressions.MatchEvaluator]{
+                        param($match)
+                        $configs = @(Get-ChildItem -LiteralPath $file.DirectoryName -File |
+                            Where-Object Name -Like $match.Groups[2].Value | Sort-Object Name |
+                            ForEach-Object { '"${CMAKE_CURRENT_LIST_DIR}/' + $_.Name + '"' })
+                        'set(' + $match.Groups[1].Value + ' ' + ($configs -join ' ') + ')'
+                    })
+                if ($imports -cne $text) {
                     $entry = $archive.CreateEntry($name)
                     $entry.LastWriteTime = $timestamp
                     $writer = [IO.StreamWriter]::new($entry.Open(), [Text.UTF8Encoding]::new($false))
-                    try { $writer.Write($text) } finally { $writer.Dispose() }
+                    try { $writer.Write($imports) } finally { $writer.Dispose() }
                     continue
                 }
             }

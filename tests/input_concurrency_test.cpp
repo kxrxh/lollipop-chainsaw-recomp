@@ -1,179 +1,108 @@
-#include <atomic>
-#include <memory>
-#include <string>
-#include <thread>
-#include <vector>
+#include "input_fixture.h"
 
-#include <rex/cvar.h>
-#include <rex/input/input_system.h>
+#include <iostream>
 
-using rex::X_RESULT;
-using rex::X_STATUS;
-
-class test_driver final : public rex::input::InputDriver {
- public:
-  test_driver() : InputDriver(nullptr, 0) {}
-  X_STATUS Setup() override { return X_STATUS_SUCCESS; }
-  void EnumerateDevices(std::vector<rex::input::DeviceInfo>& out) override {
-    if (inside_.fetch_add(1) != 0) {
-      concurrent.store(true);
-    }
-    std::this_thread::yield();
-    rex::input::DeviceInfo device;
-    device.id = static_cast<rex::input::DeviceId>(1);
-    device.name = std::string(160, 'x');
-    out.push_back(device);
-    inside_.fetch_sub(1);
-  }
-  X_RESULT GetDeviceState(rex::input::DeviceId, rex::input::X_INPUT_STATE* state) override {
-    *state = {};
-    if (is_active())
-      state->gamepad = gamepad;
-    return X_ERROR_SUCCESS;
-  }
-  X_RESULT GetDeviceStateForUI(rex::input::DeviceId, rex::input::X_INPUT_STATE* state) override {
-    if (release_on_ui_read) {
-      gamepad = {};
-      release_on_ui_read = false;
-    }
-    *state = {};
-    state->gamepad = gamepad;
-    return X_ERROR_SUCCESS;
-  }
-  rex::input::X_INPUT_GAMEPAD gamepad{};
-  bool release_on_ui_read = false;
-  X_RESULT GetDeviceCapabilities(rex::input::DeviceId, uint32_t,
-                                 rex::input::X_INPUT_CAPABILITIES* caps) override {
-    *caps = {};
-    caps->gamepad.thumb_lx = caps->gamepad.thumb_ly = 32767;
-    caps->gamepad.thumb_rx = caps->gamepad.thumb_ry = 32767;
-    return X_ERROR_SUCCESS;
-  }
-  X_RESULT SetDeviceVibration(rex::input::DeviceId,
-                              rex::input::X_INPUT_VIBRATION*) override {
-    return X_ERROR_SUCCESS;
-  }
-  X_RESULT GetDeviceKeystroke(rex::input::DeviceId, uint32_t,
-                              rex::input::X_INPUT_KEYSTROKE*) override {
-    return X_ERROR_EMPTY;
-  }
-  std::atomic<bool> concurrent{false};
-
- private:
-  std::atomic<int> inside_{0};
-};
-
-int main() {
-  rex::input::InputSystem input(nullptr);
-  auto driver = std::make_unique<test_driver>();
-  auto* observed = driver.get();
-  input.AddDriver(std::move(driver));
-  input.SetDeviceAssignment(std::make_unique<rex::input::SlotAssignment>());
-  observed->gamepad.buttons = 0x3010; // A, B and Start can close settings.
-  observed->gamepad.left_trigger = observed->gamepad.right_trigger = 255;
-  input.SetActiveCallback([] { return false; });
-  input.AddUIInputBlocker();
-  rex::input::X_INPUT_STATE guest{}, ui{};
-  if (input.GetState(0, &guest) != X_ERROR_SUCCESS || guest.gamepad.buttons != 0 ||
-      input.GetStateForUI(0, &ui) != X_ERROR_SUCCESS || ui.gamepad.buttons != 0x3010)
+int main() try {
+  input_fixture app("lollipop-input-test");
+  auto& input = app.GetInput();
+  auto* observed = &app.pad();
+  observed->set_connected(true);
+  observed->state.buttons = 0x3010; // A, B and Start can close settings.
+  observed->state.left_trigger = observed->state.right_trigger = 255;
+  input.AcquireUIBlock();
+  rex::hid::PadState guest{}, ui{};
+  if (input.GetState(0).value().state.buttons != 0 ||
+      input.GetStateForUI(0).value().buttons != 0x3010)
     return 2;
-  input.RemoveUIInputBlocker();
-  if (input.GetState(0, &guest) != X_ERROR_SUCCESS || guest.gamepad.buttons != 0)
+  input.ReleaseUIBlock();
+  if (input.GetState(0).value().state.buttons != 0)
     return 3;
-  input.SetActiveCallback([] { return true; });
-  if (input.GetState(0, &guest) != X_ERROR_SUCCESS || guest.gamepad.buttons != 0 ||
-      guest.gamepad.left_trigger != 0 || guest.gamepad.right_trigger != 0)
+  guest = input.GetState(0).value().state;
+  if (guest.buttons != 0 || guest.left_trigger != 0 || guest.right_trigger != 0)
     return 4;
   // New actions still work while the closing buttons remain held.
-  observed->gamepad.buttons = 0xB010;
-  input.GetState(0, &guest);
-  if (guest.gamepad.buttons != 0x8000)
+  observed->state.buttons = 0xB010;
+  guest = input.GetState(0).value().state;
+  if (guest.buttons != 0x8000)
     return 8;
-  observed->gamepad.buttons = 0x2010;
-  input.GetState(0, &guest);
-  if (guest.gamepad.buttons != 0)
+  observed->state.buttons = 0x2010;
+  guest = input.GetState(0).value().state;
+  if (guest.buttons != 0)
     return 9;
-  observed->gamepad.buttons = 0x3010;
-  input.GetState(0, &guest);
-  if (guest.gamepad.buttons != 0x1000)
+  observed->state.buttons = 0x3010;
+  guest = input.GetState(0).value().state;
+  if (guest.buttons != 0x1000)
     return 10;
   // A physical release under capture must also clear only that trigger's mask.
-  input.SetActiveCallback([] { return false; });
-  observed->gamepad.left_trigger = 0;
-  input.GetState(0, &guest);
-  observed->gamepad.left_trigger = 255;
-  input.SetActiveCallback([] { return true; });
-  input.GetState(0, &guest);
-  if (guest.gamepad.buttons != 0x1000 || guest.gamepad.left_trigger != 255 ||
-      guest.gamepad.right_trigger != 0)
+  observed->state.left_trigger = 0;
+  guest = input.GetState(0).value().state;
+  observed->state.left_trigger = 255;
+  guest = input.GetState(0).value().state;
+  if (guest.buttons != 0x1000 || guest.left_trigger != 255 || guest.right_trigger != 0)
     return 11;
-  input.SetActiveCallback([] { return false; });
-  observed->gamepad = {};
-  input.GetState(0, &guest);
-  observed->gamepad.buttons = 0x3010;
-  observed->gamepad.left_trigger = observed->gamepad.right_trigger = 255;
-  input.SetActiveCallback([] { return true; });
-  input.GetState(0, &guest);
-  if (guest.gamepad.buttons != 0x3010 || guest.gamepad.left_trigger != 255 ||
-      guest.gamepad.right_trigger != 255)
+  observed->state = {};
+  guest = input.GetState(0).value().state;
+  observed->state.buttons = 0x3010;
+  observed->state.left_trigger = observed->state.right_trigger = 255;
+  guest = input.GetState(0).value().state;
+  if (guest.buttons != 0x3010 || guest.left_trigger != 255 || guest.right_trigger != 255)
     return 12;
-  observed->gamepad = {};
-  observed->gamepad.buttons = 0x1000;
-  input.AddUIInputBlocker();
-  input.RemoveUIInputBlocker();
-  // SDL can pump a release while reading UI input; never unmask an older guest sample.
-  observed->release_on_ui_read = true;
-  input.GetState(0, &guest);
-  if (guest.gamepad.buttons != 0)
+  observed->state = {};
+  observed->state.buttons = 0x1000;
+  input.AcquireUIBlock();
+  input.ReleaseUIBlock();
+  observed->state = {};
+  if (input.GetState(0).value().state.buttons != 0)
     return 13;
-  rex::cvar::SetFlagByName("left_stick_deadzone_percentage", "0.25");
-  rex::cvar::SetFlagByName("right_stick_deadzone_percentage", "0.25");
+  (void)input.GetSettings().left_stick_deadzone.Set(0.25);
+  (void)input.GetSettings().right_stick_deadzone.Set(0.25);
   for (int16_t x : {-1, 0, 1}) {
     for (int16_t y : {-1, 0, 1}) {
       for (int16_t magnitude : {4000, 6000, 20000}) {
-        observed->gamepad.thumb_lx = observed->gamepad.thumb_rx = x * magnitude;
-        observed->gamepad.thumb_ly = observed->gamepad.thumb_ry = y * magnitude;
-        input.GetState(0, &guest);
-        input.GetStateForUI(0, &ui);
+        observed->state.thumb_lx = observed->state.thumb_rx = x * magnitude;
+        observed->state.thumb_ly = observed->state.thumb_ry = y * magnitude;
+        guest = input.GetState(0).value().state;
+        ui = input.GetStateForUI(0).value();
         const bool filtered = magnitude == 4000 || (magnitude == 6000 && (!x || !y));
         const int expected_x = filtered ? 0 : x * magnitude;
         const int expected_y = filtered ? 0 : y * magnitude;
         for (const auto& state : {guest, ui}) {
-          if (state.gamepad.thumb_lx != expected_x || state.gamepad.thumb_rx != expected_x ||
-              state.gamepad.thumb_ly != expected_y || state.gamepad.thumb_ry != expected_y)
+          if (state.thumb_lx != expected_x || state.thumb_rx != expected_x ||
+              state.thumb_ly != expected_y || state.thumb_ry != expected_y)
             return 7;
         }
       }
     }
   }
-  observed->gamepad.thumb_lx = -32768;
-  observed->gamepad.thumb_ly = 32767;
-  observed->gamepad.thumb_rx = 32767;
-  observed->gamepad.thumb_ry = -32768;
-  rex::cvar::SetFlagByName("left_stick_deadzone_percentage", "1");
-  rex::cvar::SetFlagByName("right_stick_deadzone_percentage", "0");
-  input.GetState(0, &guest);
-  if (guest.gamepad.thumb_lx != 0 || guest.gamepad.thumb_ly != 0 ||
-      guest.gamepad.thumb_rx != 32767 || guest.gamepad.thumb_ry != -32768)
+  observed->state.thumb_lx = -32768;
+  observed->state.thumb_ly = 32767;
+  observed->state.thumb_rx = 32767;
+  observed->state.thumb_ry = -32768;
+  (void)input.GetSettings().left_stick_deadzone.Set(1);
+  (void)input.GetSettings().right_stick_deadzone.Set(0);
+  guest = input.GetState(0).value().state;
+  if (guest.thumb_lx != 0 || guest.thumb_ly != 0 || guest.thumb_rx != 32767 ||
+      guest.thumb_ry != -32768)
     return 5;
-  rex::cvar::SetFlagByName("left_stick_deadzone_percentage", "0");
-  rex::cvar::SetFlagByName("right_stick_deadzone_percentage", "1");
-  input.GetStateForUI(0, &ui);
-  if (ui.gamepad.thumb_lx != -32768 || ui.gamepad.thumb_ly != 32767 || ui.gamepad.thumb_rx != 0 ||
-      ui.gamepad.thumb_ry != 0)
+  (void)input.GetSettings().left_stick_deadzone.Set(0);
+  (void)input.GetSettings().right_stick_deadzone.Set(1);
+  ui = input.GetStateForUI(0).value();
+  if (ui.thumb_lx != -32768 || ui.thumb_ly != 32767 || ui.thumb_rx != 0 || ui.thumb_ry != 0)
     return 6;
-  rex::cvar::SetFlagByName("right_stick_deadzone_percentage", "0");
+  (void)input.GetSettings().right_stick_deadzone.Set(0);
   std::vector<std::jthread> threads;
   for (int thread = 0; thread < 4; ++thread) {
     threads.emplace_back([&input] {
       for (int iteration = 0; iteration < 2000; ++iteration) {
-        rex::input::X_INPUT_STATE state{};
-        rex::input::X_INPUT_CAPABILITIES caps{};
-        input.GetState(0, &state);
-        input.GetCapabilities(0, 0, &caps);
+        (void)input.GetState(0);
+        (void)input.GetStateForUI(0);
+        (void)input.GetCapabilities(0);
       }
     });
   }
   threads.clear();
   return observed->concurrent.load() ? 1 : 0;
+} catch (const std::exception& error) {
+  std::cerr << error.what() << '\n';
+  return 100;
 }

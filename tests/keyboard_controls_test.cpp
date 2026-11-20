@@ -12,23 +12,16 @@
 #include <thread>
 #include <vector>
 
-#include <rex/cvar.h>
-#include <rex/filesystem/vfs.h>
-#include <rex/input/mnk/mnk_input_driver.h>
-#include <rex/input/state_merge.h>
-#include <rex/input/input_system.h>
-#include <rex/ui/ui_event.h>
+#include "input_fixture.h"
+#include "settings/runtime_settings.h"
+#include "settings_fixture.h"
 
-// The headless test does not load the GPU plugin that normally owns these flags.
-REXCVAR_DEFINE_BOOL(readback_memexport, true, "GPU", "Test GPU readback default");
-REXCVAR_DEFINE_BOOL(readback_memexport_fast, true, "GPU", "Test delayed readback default");
+#include <rex/filesystem/file_system_factory.h>
 
-using rex::X_RESULT;
-using rex::X_STATUS;
+namespace settings = lollipop::settings;
 
 using lollipop::cache_keyboard_prompts;
 using lollipop::configure_keyboard_controls;
-using lollipop::make_keyboard_game_device;
 using lollipop::make_keyboard_prompts;
 using lollipop::make_keyboard_title;
 using lollipop::make_prompt_variants;
@@ -57,96 +50,55 @@ int main(int argc, char** argv) try {
     check(!lollipop::decode_package_lzx(block, decoded), "Invalid LZX frame bounds or terminator");
     --block[i];
   }
+  input_fixture app("lollipop-keyboard-controls-test");
+  lollipop::testing::settings_fixture fixture;
+  fixture.add("readback_memexport", "true");
+  fixture.add("readback_memexport_fast", "true");
+  auto& input = app.GetInput();
   configure_keyboard_controls();
-  check(rex::cvar::Query<bool>("readback_memexport") &&
-            !rex::cvar::Query<bool>("readback_memexport_fast"),
+  check(settings::Query<bool>("readback_memexport") &&
+            !settings::Query<bool>("readback_memexport_fast"),
         "Native prompt switching reads current GPU icon copies");
-  check(rex::cvar::Query<double>("mnk_sensitivity") == 18.0,
+  check(settings::Query<double>("mnk_sensitivity") == 18.0,
         "Higher mouse camera sensitivity by default");
-  rex::input::ActiveDeviceTracker tracker;
-  const auto keyboard_id = static_cast<rex::input::DeviceId>(1);
-  const auto gamepad_id = static_cast<rex::input::DeviceId>(2);
-  rex::input::X_INPUT_GAMEPAD keyboard{}, gamepad{};
-  keyboard.thumb_rx = 7000;
-  tracker.Observe(0, keyboard_id, keyboard, true);
-  check(tracker.Active(0) == keyboard_id,
-        "Slow mouse movement selects keyboard hints");
-  gamepad.thumb_lx = 200;
-  tracker.Observe(0, gamepad_id, gamepad);
-  check(tracker.Active(0) == keyboard_id,
-        "Idle gamepad drift cannot steal hints");
-  gamepad.buttons = 4096;
-  tracker.Observe(0, gamepad_id, gamepad);
-  check(tracker.Active(0) == gamepad_id,
-        "Controller button selects gamepad hints");
-  tracker.Observe(0, keyboard_id, keyboard, true);
-  check(tracker.Active(0) == gamepad_id,
-        "Held keyboard state cannot steal hints back");
-  keyboard.buttons = 32768;
-  tracker.Observe(0, keyboard_id, keyboard, true);
-  tracker.Observe(0, gamepad_id, gamepad);
-  check(tracker.Active(0) == keyboard_id,
-        "New mouse press switches hints despite held pad button");
-  gamepad.buttons = 0;
-  gamepad.thumb_lx = 24000;
-  tracker.Observe(0, gamepad_id, gamepad);
-  check(tracker.Active(0) == gamepad_id,
-        "Controller stick movement selects gamepad hints");
-  gamepad.buttons = 4096;
-  tracker.Observe(0, gamepad_id, gamepad);
-  keyboard.buttons = 16384;
-  tracker.Observe(0, keyboard_id, keyboard, true);
-  gamepad.buttons = 0;
-  tracker.Observe(0, gamepad_id, gamepad);
-  check(tracker.Active(0) == keyboard_id,
-        "Releasing a button on a held stick does not take over hints");
-  gamepad.buttons = 4096;
-  tracker.Observe(0, gamepad_id, gamepad);
-  check(tracker.Active(0) == gamepad_id,
-        "Repressing a pad button takes over even while its stick remains held");
-  tracker.Forget(gamepad_id);
-  check(tracker.Active(0) == rex::input::DeviceId::kInvalid,
-        "Disconnect forgets active controller");
-  check(rex::cvar::GetFlagByName("keybind_y") == "LMB", "Chainsaw default");
-  rex::cvar::SetFlagByName("keybind_b", "Space,Backspace,J");
+  check(settings::GetFlagByName("keybind_y") == "LMB", "Chainsaw default");
+  settings::SetFlagByName("keybind_b", "Space,Backspace,J");
   configure_keyboard_controls();
-  check(rex::cvar::GetFlagByName("keybind_b") == "Space,Backspace,J",
-        "Preserve user bindings");
-  rex::cvar::SetFlagByName("readback_memexport_fast", "true");
-  rex::cvar::SetFlagByName("readback_memexport", "false");
+  check(settings::GetFlagByName("keybind_b") == "Space,Backspace,J", "Preserve user bindings");
+  settings::SetFlagByName("readback_memexport_fast", "true");
+  settings::SetFlagByName("readback_memexport", "false");
   configure_keyboard_controls();
-  check(rex::cvar::Query<bool>("readback_memexport_fast") &&
-            !rex::cvar::Query<bool>("readback_memexport"),
+  check(settings::Query<bool>("readback_memexport_fast") &&
+            !settings::Query<bool>("readback_memexport"),
         "Explicit renderer overrides are preserved");
 
-  rex::input::mnk::MnkInputDriver driver(nullptr, 0);
-  check(driver.Setup() == X_STATUS_SUCCESS, "Driver setup");
-  std::vector<rex::input::DeviceInfo> devices;
-  driver.EnumerateDevices(devices);
-  check(devices.size() == 1, "Keyboard device");
-  const auto id = devices[0].id;
-  auto key = [&](rex::ui::VirtualKey vk, bool down) {
-    rex::ui::KeyEvent event(nullptr, vk, 1, false, false, false, false, false);
-    if (down)
-      driver.OnKeyDown(event);
-    else
-      driver.OnKeyUp(event);
+  using rex::InputEvent;
+  using rex::VirtualKey;
+  using Button = rex::MouseButton;
+  auto key = [&](VirtualKey vk, bool down) {
+    InputEvent event{.type = down ? InputEvent::Type::kKeyDown : InputEvent::Type::kKeyUp,
+                     .key = vk};
+    input.OnInputEvent(event);
   };
-  auto mouse = [&](rex::ui::MouseEvent::Button button, bool down) {
-    rex::ui::MouseEvent event(nullptr, button, 0, 0);
-    if (down)
-      driver.OnMouseDown(event);
-    else
-      driver.OnMouseUp(event);
+  auto mouse = [&](Button button, bool down) {
+    InputEvent event{.type = down ? InputEvent::Type::kButtonDown : InputEvent::Type::kButtonUp,
+                     .button = button};
+    input.OnInputEvent(event);
   };
   auto state = [&] {
-    rex::input::X_INPUT_STATE value{};
-    check(driver.GetDeviceState(id, &value) == X_ERROR_SUCCESS,
-          "Read keyboard state");
-    return value.gamepad;
+    const auto value = input.GetState(0);
+    check(bool(value), "Read keyboard state");
+    return value->state;
   };
-  using rex::ui::VirtualKey;
-  using Button = rex::ui::MouseEvent::Button;
+  auto focus = [&](bool focused) {
+    InputEvent event{.type =
+                         focused ? InputEvent::Type::kFocusGained : InputEvent::Type::kFocusLost};
+    input.OnInputEvent(event);
+  };
+  auto move = [&](float x, float y) {
+    InputEvent event{.type = InputEvent::Type::kMotion, .x = x, .y = y, .dx = x, .dy = y};
+    input.OnInputEvent(event);
+  };
   key(VirtualKey::kW, true);
   mouse(Button::kLeft, true);
   check(state().thumb_ly > 0 && state().buttons == 0x8000,
@@ -172,74 +124,72 @@ int main(int argc, char** argv) try {
   key(VirtualKey::kSpace, true);
   check(state().buttons == 0x2000 && state().thumb_ly > 0,
         "Dodge while moving");
-  driver.set_is_active_callback([] { return false; });
+  input.SetInputCaptured(false);
   check(state().buttons == 0 && state().thumb_ly == 0,
         "SDK dialogs suppress keyboard gameplay input");
-  driver.set_is_active_callback([] { return true; });
-  rex::ui::UISetupEvent focus;
-  driver.OnLostFocus(focus);
-  check(state().buttons == 0 && state().thumb_ly == 0,
-        "Focus loss releases keys");
-  driver.OnGotFocus(focus);
-  check(state().buttons == 0 && state().thumb_ly == 0,
-        "Focus regain stays released");
-  rex::input::mnk::MnkInputDriver camera(nullptr, 0);
-  rex::input::mnk::MnkInputDriver sensitivity(nullptr, 0);
-  rex::ui::MouseEvent modest_motion(nullptr, Button::kLeft, 5, 0);
-  sensitivity.OnMouseMove(modest_motion);
-  rex::input::X_INPUT_STATE sensitive_mouse{};
-  sensitivity.GetDeviceState(id, &sensitive_mouse);
-  check(sensitive_mouse.gamepad.thumb_rx > 20000,
-        "A small mouse movement produces a useful camera turn at the new "
-        "default");
-  rex::ui::MouseEvent motion(nullptr, Button::kLeft, 1, -1);
-  camera.OnMouseMove(motion);
-  rex::input::X_INPUT_STATE first_mouse{}, repeated_mouse{};
-  camera.GetDeviceState(id, &first_mouse);
-  camera.GetDeviceState(id, &repeated_mouse);
-  check(first_mouse.gamepad.thumb_rx > 6553 &&
-            first_mouse.gamepad.thumb_ry > 6553,
+  input.SetInputCaptured(true);
+  focus(false);
+  check(state().buttons == 0 && state().thumb_ly == 0, "Focus loss releases keys");
+  focus(true);
+  check(state().buttons == 0 && state().thumb_ly == 0, "Focus regain stays released");
+  const auto sample = [&] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(18));
+    return state();
+  };
+  input.SetInputCaptured(false);
+  input.SetInputCaptured(true);
+  move(5, 0);
+  check(state().thumb_rx > 20000, "A small mouse movement produces a useful camera turn");
+  input.SetInputCaptured(false);
+  input.SetInputCaptured(true);
+  move(1, -1);
+  const auto first_mouse = state();
+  const auto repeated_mouse = input.GetStateForUI(0).value();
+  check(first_mouse.thumb_rx > 6553 && first_mouse.thumb_ry > 6553,
         "One-pixel mouse motion clears the game's 20 percent camera deadzone");
-  check(first_mouse.gamepad.thumb_rx == repeated_mouse.gamepad.thumb_rx &&
-            first_mouse.gamepad.thumb_ry == repeated_mouse.gamepad.thumb_ry,
+  check(first_mouse.thumb_rx == repeated_mouse.thumb_rx &&
+            first_mouse.thumb_ry == repeated_mouse.thumb_ry,
         "Repeated guest/UI polls retain the same mouse stick sample");
-  std::this_thread::sleep_for(std::chrono::milliseconds(25));
-  camera.GetDeviceState(id, &repeated_mouse);
-  check(repeated_mouse.gamepad.thumb_rx == 0 &&
-            repeated_mouse.gamepad.thumb_ry == 0,
-        "Camera stops when mouse motion stops");
-  rex::ui::MouseEvent fast_motion(nullptr, Button::kLeft, 1000000, 1000000);
-  camera.OnMouseMove(fast_motion);
-  std::this_thread::sleep_for(std::chrono::milliseconds(25));
-  camera.GetDeviceState(id, &repeated_mouse);
-  check(repeated_mouse.gamepad.thumb_rx == 32767 &&
-            repeated_mouse.gamepad.thumb_ry == -32767,
+  check(sample().thumb_rx == 0, "Camera stops when mouse motion stops");
+  move(1000000, 1000000);
+  auto fast = sample();
+  check(fast.thumb_rx == 32767 && fast.thumb_ry == -32767,
         "Fast mouse motion clamps to the controller stick range");
-  camera.OnLostFocus(focus);
-  camera.OnGotFocus(focus);
-  camera.GetDeviceState(id, &repeated_mouse);
-  check(repeated_mouse.gamepad.thumb_rx == 0 &&
-            repeated_mouse.gamepad.thumb_ry == 0,
-        "Focus changes discard cached mouse movement");
-  rex::input::InputSystem source_tracking(nullptr);
-  rex::input::NotifyInputActivity(false);
+  focus(false);
+  focus(true);
+  const auto reset = state();
+  check(reset.thumb_rx == 0 && reset.thumb_ry == 0, "Focus changes discard cached mouse movement");
+
+  auto& pad = app.pad();
+  pad.set_connected(true);
+  move(1, -1);
+  check(input.IsKeyboardActive(), "Real mouse motion selects keyboard hints without a state poll");
+  pad.state.thumb_lx = 200;
+  state();
+  check(input.IsKeyboardActive(), "Idle gamepad drift cannot steal hints");
+  pad.state.buttons = 4096;
+  state();
+  check(!input.IsKeyboardActive(), "Controller button selects gamepad hints");
   key(VirtualKey::kH, true);
-  check(source_tracking.IsKeyboardActive(),
-        "An unbound key selects keyboard hints without a state poll");
-  rex::input::NotifyInputActivity(false);
+  state();
+  check(input.IsKeyboardActive(),
+        "An unbound key selects keyboard despite a held controller button");
+  pad.state.thumb_lx = 24000;
+  state();
+  check(!input.IsKeyboardActive(), "Controller stick movement selects gamepad hints");
   key(VirtualKey::kH, true);
-  check(!source_tracking.IsKeyboardActive(),
-        "A held key repeat cannot steal hints from a gamepad");
+  check(!input.IsKeyboardActive(), "A held key repeat cannot steal hints from a gamepad");
   key(VirtualKey::kH, false);
-  rex::ui::MouseEvent moved_again(nullptr, Button::kLeft, 1000001, 1000000);
-  camera.OnMouseMove(moved_again);
-  camera.OnMouseMove(fast_motion);
-  check(source_tracking.IsKeyboardActive(),
-        "Real mouse motion changes hints without a state poll");
-  rex::cvar::SetFlagByName("mnk_mode", "false");
-  devices.clear();
-  driver.EnumerateDevices(devices);
-  check(devices.empty(), "Controller-only mode disables keyboard");
+  mouse(Button::kLeft, true);
+  pad.state.buttons = 0;
+  state();
+  check(input.IsKeyboardActive(), "Releasing a button on a held stick does not take over hints");
+  pad.state.buttons = 4096;
+  state();
+  check(!input.IsKeyboardActive(), "Repressing a pad button takes over while a stick stays held");
+  pad.set_connected(false);
+  settings::SetFlagByName("mnk_mode", "false");
+  check(state().buttons == 0, "Controller-only mode disables keyboard");
 
   unsigned localizations = 0;
   for (const auto &entry : std::filesystem::directory_iterator(
@@ -342,7 +292,7 @@ int main(int argc, char** argv) try {
         "Menu icons render at 128 pixels");
   check(artwork[a + 87] == 32 && artwork[a + 115] == 32,
         "Menu icons retain their original logical size");
-  rex::cvar::SetFlagByName("keybind_lstick_down", "J");
+  settings::SetFlagByName("keybind_lstick_down", "J");
   const auto remapped = make_keyboard_prompts(bytes);
   auto same_icon = [&](size_t offset) {
     return std::equal(artwork.begin() + offset + 325,
@@ -351,7 +301,7 @@ int main(int argc, char** argv) try {
   };
   check(!same_icon(0x14fa98), "Downward QTE uses the down binding");
   check(same_icon(0x157d5a), "Remapping down does not change the upward QTE");
-  rex::cvar::SetFlagByName("keybind_lstick_down", "S");
+  settings::SetFlagByName("keybind_lstick_down", "S");
   std::ofstream output(argv[2], std::ios::binary);
   output.write(reinterpret_cast<const char *>(artwork.data()), artwork.size());
   output.close();
@@ -404,33 +354,41 @@ int main(int argc, char** argv) try {
                         .parent_path()
                         .parent_path()
                         .lexically_normal();
-  auto device = make_keyboard_game_device(game, cache);
-  check(device->Initialize(), "Initialize keyboard game device");
-  rex::filesystem::VirtualFileSystem vfs;
-  vfs.RegisterDevice(std::move(device));
-  vfs.RegisterSymbolicLink("d:", "\\Device\\LollipopGame");
-  auto *parent = vfs.ResolvePath("d:\\AshGame\\CookedXbox360");
-  check(parent, "Resolve guest directory");
+  auto* factory = REX_INTERFACE(rex::filesystem::IFileSystemFactory);
+  check(factory, "Connect guest filesystem factory");
+  auto vfs = factory->Create();
+  const auto write_time = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+  std::filesystem::last_write_time(path, write_time);
+  lollipop::mount_game_ui_assets(*vfs, game, cache);
+  const rex::filesystem::MountEntry backing_mount{.path = "\\Device\\Artwork", .source = cache};
+  check(bool(vfs->Mount(backing_mount)),
+        "Mount generated artwork directly for metadata comparison");
+  const auto backing = vfs->Stat("\\Device\\Artwork\\Startup.xxx").value();
+  auto matches_backing = [&](const rex::filesystem::FileStat& info) {
+    return info.name == "Startup.xxx" && info.size == compressed.size() &&
+           info.size == backing.size && info.allocation_size == backing.allocation_size &&
+           info.create_time == backing.create_time && info.write_time == backing.write_time;
+  };
+  check(matches_backing(vfs->Stat("game:\\AshGame\\CookedXbox360\\Startup.xxx").value()),
+        "The game alias reports the replacement metadata");
+  auto parent = vfs->Open("d:\\AshGame\\CookedXbox360", {});
+  check(bool(parent), "Resolve guest directory");
+  auto listing = parent->file->List("Startup.xxx").value();
+  const auto listed = listing->Next();
+  check(listed && matches_backing(*listed) && !listing->Next(),
+        "The original directory lists the replacement metadata once");
   for (bool relative : {false, true}) {
-    rex::filesystem::File *file = nullptr;
-    rex::filesystem::FileAction action{};
-    check(vfs.OpenFile(relative ? parent : nullptr,
-                       relative ? "Startup.xxx"
-                                : "d:\\AshGame\\CookedXbox360\\Startup.xxx",
-                       rex::filesystem::FileDisposition::kOpen,
-                       rex::filesystem::FileAccess::kGenericRead, false, true,
-                       &file, &action) == X_STATUS_SUCCESS,
-          "Open keyboard artwork through the guest filesystem");
+    const rex::filesystem::OpenOptions options{.require_file = true};
+    auto open = relative ? vfs->OpenRelative(*parent->file, "Startup.xxx", options)
+                         : vfs->Open("d:\\AshGame\\CookedXbox360\\Startup.xxx", options);
+    check(bool(open), "Open keyboard artwork through the guest filesystem");
     std::array<uint8_t, 8> header{};
-    size_t read = 0;
-    const bool valid = file->entry()->size() == compressed.size() &&
-                       file->ReadSync(header, 0, &read) == X_STATUS_SUCCESS &&
-                       read == header.size() && header[4] == 0 &&
+    const bool valid = matches_backing(open->file->GetInfo()) &&
+                       open->file->Read(header, 0).value() == header.size() && header[4] == 0 &&
                        header[5] == 2 && header[6] == 0 && header[7] == 0;
-    file->Destroy();
     check(valid, "Guest reads the generated package and its actual file size");
   }
-  check(vfs.ResolvePath("d:\\default.xex")->size() == 20561920,
+  check(vfs->Stat("d:\\default.xex").value().size == 20561920,
         "Unmodified files still resolve from the disc dump");
   bytes[200] ^= 1;
   bool rejected = false;

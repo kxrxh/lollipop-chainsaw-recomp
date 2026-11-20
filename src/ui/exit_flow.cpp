@@ -3,16 +3,15 @@
 #include "game/timing_hooks.h"
 #include <atomic>
 #include <imgui.h>
-#include <rex/input/input_system.h>
+#include <rex/hid/input_system.h>
 
 namespace lollipop {
 namespace {
 std::atomic<bool> main_menu_pending{};
 
-bool released(rex::input::InputSystem& input, const ImGuiIO& io) {
-  rex::input::X_INPUT_STATE state{};
-  input.GetStateForUI(0, &state);
-  return !(state.gamepad.buttons & 0x3010) && !ImGui::IsKeyDown(ImGuiKey_Enter) &&
+bool released(rex::hid::IInputSystem& input, const ImGuiIO& io) {
+  const auto state = input.GetStateForUI(0).value_or(rex::hid::PadState{});
+  return !(state.buttons & 0x3010) && !ImGui::IsKeyDown(ImGuiKey_Enter) &&
          !ImGui::IsKeyDown(ImGuiKey_Escape) && !ImGui::IsKeyDown(ImGuiKey_Backspace) &&
          !ImGui::IsKeyDown(ImGuiKey_Space) && !io.MouseDown[0];
 }
@@ -20,12 +19,12 @@ bool released(rex::input::InputSystem& input, const ImGuiIO& io) {
 
 void request_main_menu_exit() { main_menu_pending.store(true); }
 
-exit_flow::exit_flow(rex::input::InputSystem& input, std::function<void()> quit)
+exit_flow::exit_flow(rex::hid::IInputSystem& input, std::function<void()> quit)
     : input_(input), quit_(std::move(quit)) {}
 
 exit_flow::~exit_flow() {
   if (pending_) {
-    input_.RemoveUIInputBlocker();
+    input_.ReleaseUIBlock();
     set_settings_pause(false);
   }
 }
@@ -36,7 +35,7 @@ bool exit_flow::request(std::function<void(bool)> resume_settings) {
   resume_settings_ = std::move(resume_settings);
   pending_ = true;
   previous_buttons_ = 0xFFFF;
-  input_.AddUIInputBlocker();
+  input_.AcquireUIBlock();
   set_settings_pause(true);
   return true;
 }
@@ -58,7 +57,7 @@ bool exit_flow::update(ImGuiIO& io) {
       resume_settings_(failed_);
     else
       set_settings_pause(false);
-    input_.RemoveUIInputBlocker();
+    input_.ReleaseUIBlock();
     pending_ = finishing_ = false;
     resume_settings_ = {};
   } else if (state == quit_dialog_state::idle) {
@@ -66,16 +65,15 @@ bool exit_flow::update(ImGuiIO& io) {
       dialog.request();
   } else if (state == quit_dialog_state::active) {
     // ImGui capture silences guest controller polling; read the UI path and keep gameplay blocked.
-    rex::input::X_INPUT_STATE controller{};
-    input_.GetStateForUI(0, &controller);
-    uint16_t buttons = controller.gamepad.buttons;
-    if (controller.gamepad.thumb_ly > 16000)
+    const auto controller = input_.GetStateForUI(0).value_or(rex::hid::PadState{});
+    uint16_t buttons = controller.buttons;
+    if (controller.thumb_ly > 16000)
       buttons |= 1;
-    if (controller.gamepad.thumb_ly < -16000)
+    if (controller.thumb_ly < -16000)
       buttons |= 2;
-    if (controller.gamepad.thumb_lx < -16000)
+    if (controller.thumb_lx < -16000)
       buttons |= 4;
-    if (controller.gamepad.thumb_lx > 16000)
+    if (controller.thumb_lx > 16000)
       buttons |= 8;
     const uint16_t pressed = buttons & ~previous_buttons_;
     previous_buttons_ = buttons;

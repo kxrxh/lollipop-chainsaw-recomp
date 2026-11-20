@@ -1,5 +1,7 @@
 #include "live_prompts.h"
 #include "game/game_menus.h"
+#include "settings/runtime_settings.h"
+#include <rex/kernel/function_dispatcher.h>
 
 #include <atomic>
 #include <cstring>
@@ -7,13 +9,14 @@
 #include <string>
 #include <unordered_map>
 
-#include <rex/input/input_system.h>
-#include <rex/logging.h>
-#include <rex/runtime.h>
-#include <rex/system/thread_state.h>
+#include <rex/hid/input_system.h>
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/logging/log_category.h>
 
 namespace {
-std::atomic<rex::Runtime*> prompt_runtime{nullptr};
+std::atomic<rex::kernel::TitleRuntime*> prompt_runtime{nullptr};
 PPCFunc* advance_original = nullptr;
 uint32_t advance_address = 0;
 struct movie_state {
@@ -36,7 +39,8 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
   if (!runtime) return;
   // Native settings can wait on guest threads that also need the runtime lock.
   lollipop::update_game_ui(*runtime, ctx);
-  if (!rex::cvar::Query<bool>("mnk_mode")) return;
+  if (!lollipop::settings::Query<bool>("mnk_mode"))
+    return;
   // Advance can unload its own movie; check ownership again before touching it.
   movie_state movie;
   {
@@ -47,18 +51,17 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
     ++found->second.frames;
   }
   if (!movie.title && movie.frames >= 4 && movie.frames % 60 != 0) return;
-  auto* memory = runtime->memory();
+  const auto memory = runtime->GetMembase();
   auto read = [&](uint32_t address) {
-    return rex::memory::load_and_swap<uint32_t>(
-        memory->TranslateVirtual(address));
+    return rex::memory::load_and_swap<uint32_t>(memory.TranslateVirtual(address));
   };
   const auto native_movie = read(movie.player + 60);
   if (native_movie < 65536 || (native_movie & 3) ||
       read(native_movie + 92) != movie.player ||
       read(native_movie + 52) != view)
     return;
-  auto* thread = rex::runtime::ThreadState::Get();
-  auto* dispatcher = runtime->function_dispatcher();
+  auto* thread = rex::kernel::ThreadState::Get();
+  auto* dispatcher = &runtime->GetFunctionDispatcher();
   const auto vtable = read(movie.player);
   const auto getter = read(vtable + 328), setter = read(vtable + 348);
   if (!dispatcher->GetFunction(getter) || !dispatcher->GetFunction(setter))
@@ -68,20 +71,18 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
   ctx.r1.u64 -= 512;
   const auto scratch = ctx.r1.u32 + 80;
   auto write = [&](uint32_t address, uint32_t value) {
-    rex::memory::store_and_swap<uint32_t>(memory->TranslateVirtual(address),
-                                          value);
+    rex::memory::store_and_swap<uint32_t>(memory.TranslateVirtual(address), value);
   };
   auto string = [&](uint32_t header, uint32_t data, std::u16string_view value) {
     write(header, data);
     write(header + 4, uint32_t(value.size() + 1));
     write(header + 8, uint32_t(value.size() + 1));
     for (size_t i = 0; i <= value.size(); ++i)
-      rex::memory::store_and_swap<uint16_t>(
-          memory->TranslateVirtual(data + uint32_t(i * 2)),
-          i == value.size() ? 0 : value[i]);
+      rex::memory::store_and_swap<uint16_t>(memory.TranslateVirtual(data + uint32_t(i * 2)),
+                                            i == value.size() ? 0 : value[i]);
   };
   write(ctx.r1.u32, saved.r1.u32);
-  std::memset(memory->TranslateVirtual(scratch), 0, 36);
+  std::memset(memory.TranslateVirtual(scratch), 0, 36);
   string(scratch + 12, scratch + 48, u"_root.GameStart.txstart.txt.str.text");
   uint64_t get_args[] = {scratch, movie.player, scratch + 12};
   dispatcher->ExecuteTrap(thread, getter, get_args, 3);
@@ -89,13 +90,11 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
   std::u16string value;
   if (data && count && count < 256) {
     for (uint32_t i = 0; i + 1 < count; ++i)
-      value.push_back(rex::memory::load_and_swap<uint16_t>(
-          memory->TranslateVirtual(data + i * 2)));
+      value.push_back(rex::memory::load_and_swap<uint16_t>(memory.TranslateVirtual(data + i * 2)));
   }
   const bool title = !value.empty();
   if (title) {
-    auto* input =
-        static_cast<rex::input::InputSystem*>(runtime->input_system());
+    auto* input = REX_INTERFACE(rex::hid::IInputSystem);
     const std::u16string_view wanted =
         input->IsKeyboardActive() ? u"$AshGame.StartTitle.TITLE_START"
                                   : u"$AshGame.StartTitle.TITLE_START_GAMEPAD";
@@ -117,13 +116,13 @@ void advance_movie(PPCContext& ctx, uint8_t* base) {
     dispatcher->ExecuteTrap(thread, 0x82252130, free_args, 1);
   }
   ctx = saved;
-  ctx.fpscr.restoreGuestBits(saved.fpscr.csr);
+  ctx.fpscr.RestoreGuestBits(saved.fpscr.csr);
 }
 }  // namespace
 
 namespace lollipop {
 
-void install_live_prompt_updates(rex::Runtime& runtime) {
+void install_live_prompt_updates(rex::kernel::TitleRuntime& runtime) {
   std::lock_guard lock(movie_mutex);
   movies.clear();
   advance_original = nullptr;
@@ -139,24 +138,23 @@ void lollipop_watch_movie(PPCRegister& player, PPCRegister& path) {
   lollipop::game_movie_loaded(player.u32, path.u32);
   auto* runtime = prompt_runtime.load();
   if (!runtime) return;
-  auto* memory = runtime->memory();
+  const auto memory = runtime->GetMembase();
   auto read = [&](uint32_t address) {
-    return rex::memory::load_and_swap<uint32_t>(
-        memory->TranslateVirtual(address));
+    return rex::memory::load_and_swap<uint32_t>(memory.TranslateVirtual(address));
   };
   const auto native_movie = read(player.u32 + 60);
   if (!native_movie) return;
   const auto view = read(native_movie + 52);
   if (!view) return;
   const auto function = read(read(view) + 148);
-  auto* dispatcher = runtime->function_dispatcher();
-  auto global_lock = rex::thread::global_critical_region::AcquireDirect();
+  auto* dispatcher = &runtime->GetFunctionDispatcher();
   std::lock_guard lock(movie_mutex);
   if (!advance_original) {
-    advance_original = dispatcher->GetFunction(function);
-    if (!advance_original) return;
+    auto* original = dispatcher->GetFunction(function);
+    if (!original || !dispatcher->SetFunction(function, advance_movie))
+      return;
+    advance_original = original;
     advance_address = function;
-    dispatcher->SetFunction(function, advance_movie);
     REXLOG_INFO("Watching live GFx advance {:08X}", function);
   }
   if (function == advance_address) movies[view] = {player.u32};
@@ -165,7 +163,6 @@ void lollipop_watch_movie(PPCRegister& player, PPCRegister& path) {
 void lollipop_unwatch_movie(PPCRegister& player, PPCRegister& unload) {
   if (unload.u32) lollipop::game_movie_unloaded(player.u32);
   if (!unload.u32 || !prompt_runtime.load()) return;
-  auto global_lock = rex::thread::global_critical_region::AcquireDirect();
   std::lock_guard lock(movie_mutex);
   std::erase_if(movies, [&](const auto& movie) {
     return movie.second.player == player.u32;

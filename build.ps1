@@ -1,7 +1,7 @@
 #requires -Version 7.2
 param(
     [string]$GameDirectory = (Join-Path $PSScriptRoot 'game'),
-    [string]$SdkDirectory = (Join-Path $PSScriptRoot 'out/sdk'),
+    [string]$SdkDirectory = (Join-Path $PSScriptRoot 'out/sdk-0.11.0'),
     [string]$GeneratedDirectory = (Join-Path $PSScriptRoot 'out/generated'),
     [string]$BuildDirectory = (Join-Path $PSScriptRoot 'out/build/win-amd64-release'),
     [string]$LlvmDirectory
@@ -32,7 +32,7 @@ if ([IO.File]::Exists($cache)) {
 }
 & $tools.CMake @configureArgs -S $PSScriptRoot -B $build -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
     "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-DCMAKE_PREFIX_PATH=$sdk" `
-    "-Drexglue_DIR=$sdk/lib/cmake/rexglue" "-DLOLLIPOP_GAME_DIR=$game" `
+    "-Drexglue_DIR=$sdk/lib/cmake/rexglue" -USDL3_DIR "-DLOLLIPOP_GAME_DIR=$game" `
     "-DLOLLIPOP_GENERATED_DIR=$generated" "-DLOLLIPOP_MANIFEST=$manifest" -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
 if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
 & $tools.CMake --build $build --parallel 6

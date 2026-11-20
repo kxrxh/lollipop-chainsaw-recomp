@@ -4,18 +4,16 @@
 #include <cmath>
 
 #include <imgui.h>
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 namespace lollipop {
 namespace {
-class shader_loading final : public rex::ui::ImGuiDialog {
+class shader_loading final : public rex::ui::DialogBase {
 public:
-  shader_loading(rex::ui::ImGuiDrawer& drawer, std::shared_ptr<shader_loading_state> state,
-                 std::function<void()> close)
-      : ImGuiDialog(&drawer), state_(std::move(state)), close_(std::move(close)) {}
+  shader_loading(std::shared_ptr<shader_loading_state> state, std::function<void()> close)
+      : state_(std::move(state)), close_(std::move(close)) {}
 
-private:
-  void OnDraw(ImGuiIO& io) override {
+  bool Draw(ImGuiIO& io) override {
     std::string stage, error;
     uint32_t completed, total;
     {
@@ -88,15 +86,17 @@ private:
     ImGui::EndGroup();
     ImGui::End();
     ImGui::PopStyleColor();
+    return true;
   }
+
+private:
   std::shared_ptr<shader_loading_state> state_;
   std::function<void()> close_;
 };
 } // namespace
 
-std::unique_ptr<rex::ui::ImGuiDialog>
-make_shader_loading(rex::ui::ImGuiDrawer& drawer, std::shared_ptr<shader_loading_state> state,
-                    std::function<void()> close) {
-  return std::make_unique<shader_loading>(drawer, std::move(state), std::move(close));
+std::unique_ptr<rex::ui::IDialog> make_shader_loading(std::shared_ptr<shader_loading_state> state,
+                                                      std::function<void()> close) {
+  return std::make_unique<shader_loading>(std::move(state), std::move(close));
 }
 } // namespace lollipop

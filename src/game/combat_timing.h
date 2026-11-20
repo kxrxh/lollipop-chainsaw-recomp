@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 
 namespace lollipop {
 void correct_finisher_multiply(uint8_t* memory, uint32_t frame, double tick_delta,

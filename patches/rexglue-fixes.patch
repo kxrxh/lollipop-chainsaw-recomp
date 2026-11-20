@@ -1,128 +1,19 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c9dfc17..d14b351 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -23,12 +23,13 @@ option(REXGLUE_ENABLE_SANITIZERS "Enable UndefinedBehaviorSanitizer" OFF)
- option(REXGLUE_ENABLE_FIDELITYFX "Enable optional AMD FidelityFX integration (experimental)" OFF)
- option(REXGLUE_ENABLE_TRACY                "Enable Tracy profiler integration" ON)
- option(REXGLUE_ENABLE_PERF_COUNTERS        "Enable lightweight perf counter registry and overlay" ON)
-+install(FILES thirdparty/renderdoc/renderdoc_app.h DESTINATION include)
- # Propagate profiling defines globally (compiled out in Release)
- if(REXGLUE_ENABLE_TRACY)
-     add_compile_definitions($<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PROFILING>)
- endif()
- if(REXGLUE_ENABLE_PERF_COUNTERS)
--    add_compile_definitions($<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PERF_COUNTERS>)
-+    add_compile_definitions(REXGLUE_ENABLE_PERF_COUNTERS)
- endif()
- 
- # Graphics backend selection
-diff --git a/include/rex/filesystem/devices/host_path_device.h b/include/rex/filesystem/devices/host_path_device.h
-index 48100be..7ca0903 100644
---- a/include/rex/filesystem/devices/host_path_device.h
-+++ b/include/rex/filesystem/devices/host_path_device.h
-@@ -36,6 +36,10 @@ class HostPathDevice : public Device {
-   // and read-only devices leave it off (see a5c3a963 ghost-file fix).
-   bool allow_share_delete() const { return allow_share_delete_; }
-   const std::filesystem::path& host_path() const { return host_path_; }
-+  // Redirect individual read-only assets while preserving directory and relative opens.
-+  virtual std::filesystem::path ResolveHostPath(const std::filesystem::path& path) const {
-+    return path;
-+  }
- 
-   const std::string& name() const override { return name_; }
-   uint32_t attributes() const override { return 0; }
-diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
-index 96d362b..9217aaa 100644
---- a/include/rex/graphics/d3d12/command_processor.h
-+++ b/include/rex/graphics/d3d12/command_processor.h
-@@ -52,6 +52,7 @@ class D3D12CommandProcessor : public CommandProcessor {
- 
-   void ClearCaches() override;
-   void InvalidateGpuMemory() override;
-+  static void LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason);
- 
-   void InitializeShaderStorage(const std::filesystem::path& cache_root, uint32_t title_id,
-                                bool blocking) override;
-@@ -310,7 +311,7 @@ class D3D12CommandProcessor : public CommandProcessor {
-   // Rechecks submission number and reclaims per-submission resources. Pass 0 as
-   // the submission to await to simply check status, or pass submission_current_
-   // to wait for all queue operations to be completed.
--  void CheckSubmissionFence(uint64_t await_submission);
-+  void CheckSubmissionFence(uint64_t await_submission, const char* reason = "queue drain");
-   // If is_guest_command is true, a new full frame - with full cleanup of
-   // resources and, if needed, starting capturing - is opened if pending (as
-   // opposed to simply resuming after mid-frame synchronization). Returns
-@@ -329,7 +330,6 @@ class D3D12CommandProcessor : public CommandProcessor {
-     CheckSubmissionFence(submission_current_);
-     return submission_completed_ + 1 >= submission_current_;
-   }
--  void LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason);
- 
-   void UpdateDebugMarkersEnabled();
-   void PushDebugMarker(const char* format, ...);
-diff --git a/include/rex/graphics/d3d12/graphics_system.h b/include/rex/graphics/d3d12/graphics_system.h
-index 3efe580..8a6cadb 100644
---- a/include/rex/graphics/d3d12/graphics_system.h
-+++ b/include/rex/graphics/d3d12/graphics_system.h
-@@ -27,6 +27,7 @@ class D3D12GraphicsSystem : public GraphicsSystem {
-   static bool IsAvailable();
- 
-   std::string name() const override;
-+  void OnHostGpuLossFromAnyThread(bool is_responsible) override;
- 
-  protected:
-   void CreateProvider(bool with_presentation) override;
-diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
-index ac6b056..52c2c10 100644
---- a/include/rex/graphics/graphics_system.h
-+++ b/include/rex/graphics/graphics_system.h
-@@ -66,7 +66,7 @@ class GraphicsSystem : public system::IGraphicsSystem {
- 
-   // May be called from any thread any number of times, even during recovery
-   // from a device loss.
--  void OnHostGpuLossFromAnyThread(bool is_responsible);
-+  virtual void OnHostGpuLossFromAnyThread(bool is_responsible);
- 
-   RegisterFile* register_file() { return &register_file_; }
-   CommandProcessor* command_processor() const { return command_processor_.get(); }
-diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
-index 4d85a2b..d8e2cbf 100644
---- a/include/rex/graphics/shared_memory.h
-+++ b/include/rex/graphics/shared_memory.h
-@@ -29,6 +29,7 @@ class SharedMemory {
-   static constexpr uint32_t kBufferSize = 1 << kBufferSizeLog2;
- 
-   virtual ~SharedMemory();
-+  memory::Memory& guest_memory() const { return memory_; }
-   // Call in the implementation-specific ClearCache.
-   virtual void ClearCache();
-   void SetSystemPageBlocksValidWithGpuDataWritten();
-@@ -94,6 +95,8 @@ class SharedMemory {
-   // the pages they touch, the CPU data is properly loaded to the unmodified
-   // regions in those pages.
-   void RangeWrittenByGpu(uint32_t start, uint32_t length);
-+  void MarkReadbackPagesCpuBacked(uint32_t start, uint32_t length);
-+  bool TryMirrorCpuBackedCopy(uint32_t source, uint32_t destination, uint32_t length);
- 
-  protected:
-   SharedMemory(memory::Memory& memory);
-diff --git a/include/rex/graphics/util/draw.h b/include/rex/graphics/util/draw.h
-index 3da182d..6268e1c 100644
---- a/include/rex/graphics/util/draw.h
-+++ b/include/rex/graphics/util/draw.h
-@@ -12,6 +12,7 @@
-
- #include <cmath>
- #include <cstdint>
+diff --git a/include/rex/gpu/copy_export.h b/include/rex/gpu/copy_export.h
+new file mode 100644
+index 00000000..dee1bfe7
+--- /dev/null
++++ b/include/rex/gpu/copy_export.h
+@@ -0,0 +1,53 @@
++#pragma once
++
++#include <cmath>
 +#include <optional>
- #include <utility>
- #include <vector>
-
-@@ -325,6 +326,48 @@ struct MemExportRange {
-       : base_address_dwords(base_address_dwords), size_bytes(size_bytes) {}
- };
- 
++#include <utility>
++
++#include <rex/xenos/register.h>
++
++namespace rex::gpu {
++
 +struct CpuCopyRange {
 +  uint32_t source;
 +  uint32_t destination;
@@ -130,26 +21,26 @@ index 3da182d..6268e1c 100644
 +};
 +
 +// This point-list shader copies 64 bytes per vertex, rebasing exports by c7.x.
-+inline std::optional<CpuCopyRange> GetLollipopCopyExport(const RegisterFile& regs, uint32_t count,
-+                                                         const MemExportRange& range) {
-+  const uint32_t first = regs.Get<reg::VGT_INDX_OFFSET>().indx_offset;
-+  const uint32_t c = XE_GPU_REG_SHADER_CONSTANT_000_X;
++inline std::optional<CpuCopyRange> GetLollipopCopyExport(const xenos::RegisterFile& regs, u32 count,
++                                                         u32 base_address_dwords, u32 size_bytes) {
++  const uint32_t first = regs.Get<xenos::reg::VGT_INDX_OFFSET>().indx_offset;
++  const uint32_t c = std::to_underlying(xenos::Register::SHADER_CONSTANT_000_X);
 +  const float export_base = regs.Get<float>(c + 7 * 4);
 +  if (!count || count > 0xFFFFFFu / 16 || first > 0xFFFFFFu - count ||
-+      regs.Get<reg::VGT_MIN_VTX_INDX>().min_indx > first ||
-+      regs.Get<reg::VGT_MAX_VTX_INDX>().max_indx < first + count - 1 ||
-+      regs.Get<reg::SQ_VS_CONST>().base != 0 || !std::isfinite(export_base) || export_base < 0 ||
-+      export_base > float(first) || std::floor(export_base) != export_base) {
++      regs.Get<xenos::reg::VGT_MIN_VTX_INDX>().min_indx > first ||
++      regs.Get<xenos::reg::VGT_MAX_VTX_INDX>().max_indx < first + count - 1 ||
++      regs.Get<xenos::reg::SQ_VS_CONST>().base != 0 || !std::isfinite(export_base) ||
++      export_base < 0 || export_base > float(first) || std::floor(export_base) != export_base) {
 +    return std::nullopt;
 +  }
 +  const auto source = regs.GetVertexFetch(95);
 +  const auto stream = regs.GetMemExportStream(6);
 +  const uint32_t destination_first = first - uint32_t(export_base);
 +  if (source.type != xenos::FetchConstantType::kVertex || source.endian != xenos::Endian::k8in32 ||
-+      source.size < (first + count) * 16 || stream.base_address != range.base_address_dwords ||
++      source.size < (first + count) * 16 || stream.base_address != base_address_dwords ||
 +      stream.const_0x1 != 1 || stream.dword_1 != 0x4b000000 || stream.dword_2 != 0x4b021a01 ||
 +      stream.const_0x96 != 0x96 || stream.index_count < (destination_first + count) * 8 ||
-+      range.size_bytes != stream.index_count * 8 || regs.Get<float>(c + 255 * 4) != 0.0f ||
++      size_bytes != stream.index_count * 8 || regs.Get<float>(c + 255 * 4) != 0.0f ||
 +      regs.Get<float>(c + 255 * 4 + 1) != 1.0f || regs.Get<float>(c + 255 * 4 + 2) != 4.0f ||
 +      regs.Get<float>(c + 255 * 4 + 3) != 8.0f) {
 +    return std::nullopt;
@@ -165,411 +56,492 @@ index 3da182d..6268e1c 100644
 +  return CpuCopyRange{uint32_t(source_address), uint32_t(destination), length};
 +}
 +
- // Gathers memory ranges involved in memexports in the shader with the float
- // constants from the registers, adding them to ranges_out.
- void AddMemExportRanges(const RegisterFile& regs, const Shader& shader,
-diff --git a/include/rex/input/input_driver.h b/include/rex/input/input_driver.h
-index 52116f1..e26caaa 100644
---- a/include/rex/input/input_driver.h
-+++ b/include/rex/input/input_driver.h
-@@ -27,6 +27,9 @@ namespace rex::input {
- 
- class InputSystem;
- 
-+// Record real input events without waiting for guest state polling.
-+void NotifyInputActivity(bool keyboard);
-+
- class InputDriver {
-  public:
-   virtual ~InputDriver() = default;
-@@ -38,6 +41,9 @@ class InputDriver {
-   virtual void EnumerateDevices(std::vector<DeviceInfo>& out) = 0;
- 
-   virtual X_RESULT GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) = 0;
-+  virtual X_RESULT GetDeviceStateForUI(DeviceId id, X_INPUT_STATE* out_state) {
-+    return GetDeviceState(id, out_state);
-+  }
-   virtual X_RESULT GetDeviceCapabilities(DeviceId id, uint32_t flags,
-                                          X_INPUT_CAPABILITIES* out_caps) = 0;
-   virtual X_RESULT SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) = 0;
-@@ -45,6 +51,7 @@ class InputDriver {
-                                       X_INPUT_KEYSTROKE* out_keystroke) = 0;
- 
-   virtual void OnWindowAvailable(rex::ui::Window* /*window*/) {}
-+  virtual bool ReportsInputActivity() const { return false; }
- 
-   void set_is_active_callback(std::function<bool()> is_active_callback) {
-     is_active_callback_ = is_active_callback;
-diff --git a/include/rex/input/input_system.h b/include/rex/input/input_system.h
-index 0c27eed..52de503 100644
---- a/include/rex/input/input_system.h
-+++ b/include/rex/input/input_system.h
-@@ -14,6 +14,7 @@
- #include <atomic>
- #include <bitset>
- #include <memory>
-+#include <mutex>
- #include <utility>
- #include <vector>
- 
-@@ -62,11 +63,19 @@ class InputSystem : public system::IInputSystem {
-   bool GetVibrationEnabled() const;
-   void ToggleVibration();
- 
--  std::bitset<kMaxGuestUsers> GetConnectedUsers() const { return connected_users_; }
-+  std::bitset<kMaxGuestUsers> GetConnectedUsers() const {
-+    std::lock_guard lock(devices_mutex_);
-+    return connected_users_;
-+  }
-   /// Guest user whose device most recently produced a button press.
--  uint32_t GetLastUsedUser() const { return last_used_user_; }
-+  uint32_t GetLastUsedUser() const {
-+    std::lock_guard lock(devices_mutex_);
-+    return last_used_user_;
-+  }
-+  bool IsKeyboardActive() const;
- 
-  private:
-+  X_RESULT ReadState(uint32_t user_index, X_INPUT_STATE* out_state, bool for_ui);
-   using JoystickValue = std::pair<uint16_t, uint16_t>;
-   /// Re-enumerates every driver and notifies the assignment when the set
-   /// changed.
-@@ -101,6 +110,10 @@ class InputSystem : public system::IInputSystem {
-   std::atomic<int> ui_input_blockers_{0};
-   // Masked out per user until the guest sees them released.
-   std::array<uint16_t, kMaxGuestUsers> consumed_buttons_ = {};
-+  std::array<bool, kMaxGuestUsers> consumed_left_trigger_ = {};
-+  std::array<bool, kMaxGuestUsers> consumed_right_trigger_ = {};
-+  // Guest pollers and UI dialogs share device tables; public input methods nest.
-+  mutable std::recursive_mutex devices_mutex_;
- };
- 
- /// Create a default InputSystem with SDL + MnK + NOP drivers.
-diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
-index 2d36faa..6ce61fc 100644
---- a/include/rex/input/mnk/mnk_input_driver.h
-+++ b/include/rex/input/mnk/mnk_input_driver.h
-@@ -15,6 +15,7 @@
- #include <rex/ui/window_listener.h>
- 
- #include <atomic>
-+#include <chrono>
- #include <cstdint>
- #include <mutex>
- #include <queue>
-@@ -33,6 +34,7 @@ class MnkInputDriver final : public InputDriver,
-   ~MnkInputDriver() override;
- 
-   X_STATUS Setup() override;
-+  bool ReportsInputActivity() const override { return true; }
- 
-   void EnumerateDevices(std::vector<DeviceInfo>& out) override;
-   X_RESULT GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) override;
-@@ -91,10 +93,14 @@ class MnkInputDriver final : public InputDriver,
-   // Filled on the UI thread, drained on the guest thread, hence the lock.
-   float mouse_dx_ = 0.0f;
-   float mouse_dy_ = 0.0f;
-+  std::chrono::steady_clock::time_point mouse_sample_time_{};
-+  int32_t mouse_stick_x_ = 0;
-+  int32_t mouse_stick_y_ = 0;
- 
-   // UI thread only.
-   int32_t prev_mouse_x_ = 0;
-   int32_t prev_mouse_y_ = 0;
-+  bool mouse_position_known_ = false;
-   bool mouse_captured_ = false;
-   // Whether the window has the pointer locked and is reporting relative motion.
-   bool relative_mouse_mode_ = false;
-diff --git a/include/rex/input/sdl/sdl_input_driver.h b/include/rex/input/sdl/sdl_input_driver.h
-index be1f9b8..efdbd30 100644
---- a/include/rex/input/sdl/sdl_input_driver.h
-+++ b/include/rex/input/sdl/sdl_input_driver.h
-@@ -17,6 +17,7 @@
- #include <vector>
- 
- #include <rex/input/input_driver.h>
-+#include <rex/input/state_merge.h>
- 
- #include <SDL3/SDL.h>
- 
-@@ -33,9 +34,11 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
-   ~SDLInputDriver() override;
- 
-   X_STATUS Setup() override;
-+  bool ReportsInputActivity() const override { return true; }
- 
-   void EnumerateDevices(std::vector<DeviceInfo>& out) override;
-   X_RESULT GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) override;
-+  X_RESULT GetDeviceStateForUI(DeviceId id, X_INPUT_STATE* out_state) override;
-   X_RESULT GetDeviceCapabilities(DeviceId id, uint32_t flags,
-                                  X_INPUT_CAPABILITIES* out_caps) override;
-   X_RESULT SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) override;
-@@ -44,6 +47,7 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
-   void OnWindowAvailable(rex::ui::Window* window) override;
- 
-  private:
-+  X_RESULT ReadState(DeviceId id, X_INPUT_STATE* out_state, bool active);
-   enum class RepeatState {
-     Idle,       // no buttons pressed or repeating has ended
-     Waiting,    // a button is held and the delay is awaited
-@@ -102,6 +106,7 @@ class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener
-   std::mutex controllers_mutex_;
-   std::mutex event_queue_mutex_;
-   std::vector<SDL_Event> pending_events_;
-+  ActiveDeviceTracker activity_axes_;
-   // Never rewound, so a handle held past a disconnect resolves to nothing.
-   uint64_t next_device_id_ = 1;
- };
-diff --git a/include/rex/input/state_merge.h b/include/rex/input/state_merge.h
-index 7f804b9..96c0d69 100644
---- a/include/rex/input/state_merge.h
-+++ b/include/rex/input/state_merge.h
-@@ -11,6 +11,7 @@
-  */
- 
- #include <array>
-+#include <unordered_map>
- 
- #include <rex/input/device.h>
- #include <rex/input/input.h>
-@@ -32,7 +33,9 @@ class ActiveDeviceTracker {
-  public:
-   /// Neutral gamepads never take over, so stick drift on an idle pad cannot
-   /// steal the slot.
--  void Observe(uint32_t user_index, DeviceId id, const X_INPUT_GAMEPAD& gamepad);
-+  // Returns true for a new press or deliberate analog motion.
-+  bool Observe(uint32_t user_index, DeviceId id, const X_INPUT_GAMEPAD& gamepad,
-+               bool synthetic = false);
- 
-   DeviceId Active(uint32_t user_index) const;
-   void Forget(DeviceId id);
-@@ -40,6 +43,7 @@ class ActiveDeviceTracker {
-  private:
-   // Zero-initialized, which is DeviceId::kInvalid.
-   std::array<DeviceId, kMaxGuestUsers> active_ = {};
-+  std::array<std::unordered_map<DeviceId, X_INPUT_GAMEPAD>, kMaxGuestUsers> previous_;
- };
- 
- }  // namespace rex::input
-diff --git a/include/rex/perf/counter.h b/include/rex/perf/counter.h
-index b3947e0..7bff159 100644
---- a/include/rex/perf/counter.h
-+++ b/include/rex/perf/counter.h
-@@ -49,6 +49,17 @@ enum class CounterId : uint16_t {
-   kPipelineCacheHits,
-   kPipelineCacheMisses,
- 
-+  kCommandBufferWaitUs,
-+  kTextureCacheMemoryMb,
-+  kTextureCacheEvictions,
-+  kDrawCallsSkippedNoEffect,
-+  kHostUs,
-+  kPromptCandidates,
-+  kPromptHashBytes,
-+  kPromptReplacements,
-+  kPromptMatchNs,
-+  kMemexportSyncUs,
-+
-   kCount  // sentinel -- must be last
- };
- 
-diff --git a/include/rex/system/gpu_plugin.h b/include/rex/system/gpu_plugin.h
-index 453c210..eee1297 100644
---- a/include/rex/system/gpu_plugin.h
-+++ b/include/rex/system/gpu_plugin.h
-@@ -15,7 +15,9 @@
++} // namespace rex::gpu
+diff --git a/include/rex/gpu/graphics_system.h b/include/rex/gpu/graphics_system.h
+index 3fb2a459..da4cb187 100644
+--- a/include/rex/gpu/graphics_system.h
++++ b/include/rex/gpu/graphics_system.h
+@@ -10,16 +10,42 @@
+
  #pragma once
- 
- #include <cstdint>
+
 +#include <functional>
- #include <memory>
 +#include <span>
- #include <string_view>
- 
- #include <rex/system/interfaces/graphics.h>
-@@ -26,8 +28,16 @@
- #define REX_GPU_PLUGIN_EXPORT __attribute__((visibility("default")))
- #endif
- 
-+namespace rex::memory { class Memory; }
+ #include <string>
++#include <vector>
+
+ #include <rex/module.h>
+ #include <rex/platform.h>
++#include <rex/result.h>
+ #include <rex/setting.h>
+ #include <rex/settings_registry.h>
+ #include <rex/types.h>
+
++namespace rex {
++class IPhysicalMemory;
++}
 +
- namespace rex::system {
- 
-+using TextureDataCallback = std::function<std::span<const uint8_t>(
-+    uint32_t width, uint32_t height, uint32_t format, std::span<const uint8_t> data)>;
-+void SetTextureDataCallback(TextureDataCallback callback);
-+bool UpdateTextureData(memory::Memory& memory, uint32_t address, uint32_t width,
-+                       uint32_t height, uint32_t format, uint32_t size);
+ namespace rex::gpu {
+
++enum class ShaderPrecompileStage { kShaders, kPipelines, kComplete };
++using ShaderPrecompileCallback = std::function<void(ShaderPrecompileStage, u32, u32, u32)>;
 +
- // Bump on any change to GpuCreateInfo or to the IGraphicsSystem interface.
- inline constexpr uint32_t kGpuPluginAbiVersion = 1;
- 
-diff --git a/include/rex/ui/imgui_dialog.h b/include/rex/ui/imgui_dialog.h
-index a7ab6b3..265c9a9 100644
---- a/include/rex/ui/imgui_dialog.h
-+++ b/include/rex/ui/imgui_dialog.h
-@@ -39,6 +39,9 @@ class ImGuiDialog {
-
-   void Draw();
-
-+  // Frame-driven dialogs update on guest paints without generating extra presents.
-+  virtual bool IsContinuousRepaintNeeded() const { return true; }
++REX_GPU_API void ReportShaderPrecompile(ShaderPrecompileStage stage, u32 completed, u32 total,
++                                        u32 failed);
 +
-  protected:
-   ImGuiDialog(ImGuiDrawer* imgui_drawer);
-
-diff --git a/include/rex/ui/overlay/achievement_toast.h b/include/rex/ui/overlay/achievement_toast.h
-index 7642601..0367f58 100644
---- a/include/rex/ui/overlay/achievement_toast.h
-+++ b/include/rex/ui/overlay/achievement_toast.h
-@@ -35,6 +35,8 @@ class AchievementToastDialog : public AchievementNotificationDialog {
-   // Thread-safe: safe to call from any thread, including guest threads.
-   void Push(const rex::system::AchievementEvent& event) override;
-
-+  bool IsContinuousRepaintNeeded() const override { return false; }
++using TextureDataCallback =
++    std::function<std::span<const u8>(u32 width, u32 height, u32 format, std::span<const u8> data)>;
++REX_GPU_API void SetTextureDataCallback(TextureDataCallback callback);
++REX_GPU_API bool UpdateTextureData(IPhysicalMemory& memory, u32 address, u32 width, u32 height,
++                                   u32 format, u32 size);
 +
-  protected:
-   void OnDraw(ImGuiIO& io) override;
-
-diff --git a/include/rex/ui/overlay/debug_overlay.h b/include/rex/ui/overlay/debug_overlay.h
-index e15e410..dff29c7 100644
---- a/include/rex/ui/overlay/debug_overlay.h
-+++ b/include/rex/ui/overlay/debug_overlay.h
-@@ -32,6 +32,8 @@ class DebugOverlayDialog : public ImGuiDialog {
-
-   void SetStatsProvider(FrameStatsProvider provider) { stats_provider_ = std::move(provider); }
-
-+  bool IsContinuousRepaintNeeded() const override { return false; }
++struct GuestFrame {
++  u32 width = 0;
++  u32 height = 0;
++  std::vector<u8> rgba;
++};
 +
-  protected:
-   void OnDraw(ImGuiIO& io) override;
+ struct FrameStats {
+   f64 frame_time_ms = 0.0; /**< Average time between title frames over the last second. */
+   f64 fps = 0.0;
+@@ -39,8 +65,8 @@ class REX_GPU_API GraphicsSettings final : public SettingOwner {
+   REX_SETTING(bool, vsync, true, "Wait for vertical blank when presenting");
+   REX_SETTING(f64, frame_limit, 0.0, "Most presents per second, 0 for no limit",
+               Range{0.0, 1000.0});
+-  REX_SETTING(i32, resolution_scale_x, 1, "Draw resolution scale X", Range{1, 8}, kRestart);
+-  REX_SETTING(i32, resolution_scale_y, 1, "Draw resolution scale Y", Range{1, 8}, kRestart);
++  REX_SETTING(i32, resolution_scale_x, 1, "Draw resolution scale X", Range{1, 8});
++  REX_SETTING(i32, resolution_scale_y, 1, "Draw resolution scale Y", Range{1, 8});
+   REX_SETTING(i32, anisotropic_override, 3,
+               "Anisotropic filtering, -1 for the title's choice, 0 for off, 1 to 5 for 1x to 16x",
+               Range{-1, 5});
+@@ -51,21 +77,34 @@ class REX_GPU_API GraphicsSettings final : public SettingOwner {
+  * Vd calls and GPU register accesses to a Xenos driver. With no driver a project that presents
+  * itself calls ReportFrame and UISystem::DrawOverlays from its own present.
+  */
+-REX_DECLARE_INTERFACE(IGraphicsSystem, 1)
+-  virtual GraphicsSettings& GetSettings() = 0;
++REX_DECLARE_INTERFACE(IGraphicsSystem, 2)
++virtual GraphicsSettings& GetSettings() = 0;
++
++virtual bool HasDriver() const = 0;
++
++/** Returns the name of the selected driver, with any resolved to d3d12 or vulkan, or none. */
++virtual std::string GetDriverName() const = 0;
++
++/**
++ * Counts one title frame, for a project that presents with its own renderer. Any thread.
++ */
++virtual void ReportFrame() = 0;
++
++/** Returns the frame counters. Any thread. The result is a snapshot. */
++virtual FrameStats GetFrameStats() const = 0;
 
-diff --git a/src/core/perf/counter.cpp b/src/core/perf/counter.cpp
-index 536009e..68ec6db 100644
---- a/src/core/perf/counter.cpp
-+++ b/src/core/perf/counter.cpp
-@@ -13,12 +13,17 @@
- #include <rex/cvar.h>
- #include <rex/filesystem.h>
- #include <rex/logging.h>
-+#include <rex/platform.h>
- 
- #include <array>
- #include <atomic>
- #include <cstdio>
- #include <cstring>
- 
-+#if REX_PLATFORM_WIN32
+-  virtual bool HasDriver() const = 0;
++/** Configure cache initialization before attaching a title. */
++virtual void SetShaderPrecompile(bool blocking, ShaderPrecompileCallback callback) = 0;
+
+-  /** Returns the name of the selected driver, with any resolved to d3d12 or vulkan, or none. */
+-  virtual std::string GetDriverName() const = 0;
++/** Complete deferred shader storage initialization after attaching the title. */
++[[nodiscard]] virtual Result<void> PrepareShaderStorage() = 0;
+
+-  /**
+-   * Counts one title frame, for a project that presents with its own renderer. Any thread.
+-   */
+-  virtual void ReportFrame() = 0;
++/** Captures the latest title image before scaling, dithering, and host overlays. Call on the UI
++ * thread. */
++[[nodiscard]] virtual Result<GuestFrame> CaptureGuestFrame() = 0;
+
+-  /** Returns the frame counters. Any thread. The result is a snapshot. */
+-  virtual FrameStats GetFrameStats() const = 0;
++/** Returns the dither configuration used by the presenter, if it has painted. */
++virtual bool GetAppliedDither() const = 0;
+ };
+
+ }  // namespace rex::gpu
+diff --git a/include/rex/gpu/xenos_graphics_driver.h b/include/rex/gpu/xenos_graphics_driver.h
+index e38eab6f..b34bae43 100644
+--- a/include/rex/gpu/xenos_graphics_driver.h
++++ b/include/rex/gpu/xenos_graphics_driver.h
+@@ -11,6 +11,7 @@
+ #pragma once
+
+ #include <rex/gpu/graphics_driver.h>
++#include <rex/gpu/graphics_system.h>
+ #include <rex/types.h>
+
+ namespace rex::gpu {
+@@ -38,6 +39,13 @@ class IXenosGraphicsDriver : public IGraphicsDriver {
+    */
+   virtual void EnableReadPointerWriteBack(u32 address, u32 block_size_log2) = 0;
+
++  virtual void SetBlockingShaderPrecompile(bool) {}
++  [[nodiscard]] virtual Result<void> PrepareShaderStorage() { return {}; }
++  [[nodiscard]] virtual Result<GuestFrame> CaptureGuestFrame() {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Guest frame capture is unavailable");
++  }
++  virtual bool GetAppliedDither() const { return false; }
++
+   /** Reads a GPU register for the guest. Any guest thread. */
+   virtual u32 ReadRegister(u32 index) = 0;
+
+diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
+index ada2fcf4..10cbf747 100644
+--- a/src/base/CMakeLists.txt
++++ b/src/base/CMakeLists.txt
+@@ -182,6 +182,6 @@ endif ()
+ if (REXGLUE_ENABLE_PERF_COUNTERS)
+   target_sources(rexbase PRIVATE perf/counter.cpp)
+   target_compile_definitions(
+-    rexbase PUBLIC $<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PERF_COUNTERS>
++    rexbase PUBLIC REXGLUE_ENABLE_PERF_COUNTERS
+   )
+ endif ()
+diff --git a/src/base/perf/counter.cpp b/src/base/perf/counter.cpp
+index 07b89de8..4382d90a 100644
+--- a/src/base/perf/counter.cpp
++++ b/src/base/perf/counter.cpp
+@@ -15,6 +15,10 @@
+ #include <fstream>
+ #include <mutex>
+
++#if defined(_MSC_VER)
 +#include <share.h>
 +#endif
 +
- REXCVAR_DEFINE_STRING(perf_log_csv, "", "Perf",
-                       "Path to write per-frame CSV log (empty = disabled)");
- 
-@@ -49,6 +54,16 @@ constexpr const char* kCounterNames[] = {
-     "texture_cache_misses",
-     "pipeline_cache_hits",
-     "pipeline_cache_misses",
-+    "command_buffer_wait_us",
-+    "texture_cache_memory_mb",
-+    "texture_cache_evictions",
-+    "draw_calls_skipped_no_effect",
-+    "host_us",
-+    "prompt_candidates",
-+    "prompt_hash_bytes",
-+    "prompt_replacements",
-+    "prompt_match_ns",
-+    "memexport_sync_us",
- };
- static_assert(std::size(kCounterNames) == kNumCounters, "kCounterNames must match CounterId enum");
- 
-@@ -72,6 +87,16 @@ constexpr bool kIsGauge[] = {
-     false,  // kTextureCacheMisses
-     false,  // kPipelineCacheHits
-     false,  // kPipelineCacheMisses
-+    false,  // kCommandBufferWaitUs
-+    true,   // kTextureCacheMemoryMb
-+    false,  // kTextureCacheEvictions
-+    false,  // kDrawCallsSkippedNoEffect
-+    false,  // kHostUs
-+    false,  // kPromptCandidates
-+    false,  // kPromptHashBytes
-+    false,  // kPromptReplacements
-+    false,  // kPromptMatchNs
-+    false,  // kMemexportSyncUs
- };
- static_assert(std::size(kIsGauge) == kNumCounters, "kIsGauge must match CounterId enum");
- 
-@@ -137,7 +162,12 @@ void SetCsvLogPath(const std::string& path) {
+ namespace rex {
+
+ PerfSettings& GetPerfSettings() {
+@@ -163,7 +167,12 @@ void SetCSVLogPath(const std::string& path) {
    if (path.empty())
      return;
- 
-+#if REX_PLATFORM_WIN32
-+  // Allow the frame log to be inspected while the title is running.
-+  g_csv_file = _wfsopen(rex::to_path(path).c_str(), L"w", _SH_DENYWR);
+
++#if defined(_MSC_VER)
++  // Other processes can inspect the log while the title owns the writer.
++  csv.open(rex::string::to_path(path), std::ios::out | std::ios::trunc, _SH_DENYWR);
 +#else
-   g_csv_file = rex::filesystem::OpenFile(rex::to_path(path), "w");
+   csv.open(rex::string::to_path(path), std::ios::out | std::ios::trunc);
 +#endif
-   if (!g_csv_file) {
-     REXLOG_WARN("perf: failed to open CSV log: {}", path);
-     g_csv_path.clear();
-diff --git a/src/filesystem/devices/host_path_entry.cpp b/src/filesystem/devices/host_path_entry.cpp
-index 6650400..32c9713 100644
---- a/src/filesystem/devices/host_path_entry.cpp
-+++ b/src/filesystem/devices/host_path_entry.cpp
-@@ -32,7 +32,9 @@ HostPathEntry* HostPathEntry::Create(Device* device, Entry* parent,
-                                      const std::filesystem::path& full_path,
-                                      rex::filesystem::FileInfo file_info) {
-   auto path = rex::string::utf8_join_guest_paths(parent->path(), rex::path_to_utf8(file_info.name));
--  auto entry = new HostPathEntry(device, parent, path, full_path);
-+  const auto host_path = static_cast<HostPathDevice*>(device)->ResolveHostPath(full_path);
-+  if (host_path != full_path && !rex::filesystem::GetInfo(host_path, &file_info)) return nullptr;
-+  auto entry = new HostPathEntry(device, parent, path, host_path);
- 
-   entry->create_timestamp_ = file_info.create_timestamp;
-   entry->access_timestamp_ = file_info.access_timestamp;
-diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
-index a744375..57f51e4 100644
---- a/src/graphics/command_processor.cpp
-+++ b/src/graphics/command_processor.cpp
-@@ -20,6 +20,7 @@
- #include <rex/cvar.h>
- #include <rex/dbg.h>
- #include <rex/perf/counter.h>
-+#include <chrono>
- #include <rex/chrono/clock.h>
- #include <rex/graphics/command_processor.h>
- #include <rex/graphics/flags.h>
-@@ -934,6 +935,8 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
-   {
-     static uint64_t last_frame_tick = 0;
-     uint64_t now = rex::chrono::Clock::QueryHostTickCount();
-+    PERF_counter_set(kHostUs, std::chrono::duration_cast<std::chrono::microseconds>(
-+        std::chrono::steady_clock::now().time_since_epoch()).count());
-     if (last_frame_tick) {
-       uint64_t freq = rex::chrono::Clock::QueryHostTickFrequency();
-       int64_t dt_us = static_cast<int64_t>((now - last_frame_tick) * 1000000 / freq);
-diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
-index 19874a5..5bdc3c7 100644
---- a/src/graphics/d3d12/command_processor.cpp
-+++ b/src/graphics/d3d12/command_processor.cpp
-@@ -10,6 +10,7 @@
-  */
- 
+   if (!csv) {
+     REXLOG_WARN("perf: failed to open CSV log at {}", path);
+     return;
+diff --git a/src/gpu/graphics_system.cpp b/src/gpu/graphics_system.cpp
+index 5e9ea22a..efed4504 100644
+--- a/src/gpu/graphics_system.cpp
++++ b/src/gpu/graphics_system.cpp
+@@ -1,6 +1,7 @@
+ #include "gpu/graphics_system.h"
+
  #include <algorithm>
++#include <atomic>
+
+ #include <rex/logging/log_category.h>
+ #include <rex/platform.h>
+@@ -14,10 +15,63 @@ namespace rex::gpu {
+
+ namespace {
+
++std::atomic<std::shared_ptr<const ShaderPrecompileCallback>> shader_precompile_callback;
++std::atomic<std::shared_ptr<const TextureDataCallback>> texture_data_callback;
++
+ constexpr auto kStatsWindow = std::chrono::seconds(1);
+
+ }  // namespace
+
++void SetTextureDataCallback(TextureDataCallback callback) {
++  texture_data_callback.store(
++      callback ? std::make_shared<const TextureDataCallback>(std::move(callback)) : nullptr);
++}
++
++bool UpdateTextureData(IPhysicalMemory& memory, u32 address, u32 width, u32 height, u32 format,
++                       u32 size) {
++  auto callback = texture_data_callback.load();
++  if (!callback || !size) {
++    return false;
++  }
++  const auto data = memory.GetReadOnlyPhysicalSpan({address, size});
++  if (!data) {
++    return false;
++  }
++  const auto replacement =
++      (*callback)(width, height, format, {reinterpret_cast<const u8*>(data->data()), size});
++  return replacement.size() == size && memory.CopyToPhysical(address, std::as_bytes(replacement));
++}
++
++void ReportShaderPrecompile(ShaderPrecompileStage stage, u32 completed, u32 total, u32 failed) {
++  if (auto callback = shader_precompile_callback.load()) {
++    (*callback)(stage, completed, total, failed);
++  }
++}
++
++void GraphicsSystem::SetShaderPrecompile(bool blocking, ShaderPrecompileCallback callback) {
++  blocking_shader_precompile_ = blocking;
++  shader_precompile_callback.store(
++      callback ? std::make_shared<const ShaderPrecompileCallback>(std::move(callback)) : nullptr);
++}
++
++Result<void> GraphicsSystem::PrepareShaderStorage() {
++  if (!state_->xenos) {
++    return Err(ErrorCategory::kRuntime, "Shader preparation needs an attached Xenos driver");
++  }
++  return state_->xenos->PrepareShaderStorage();
++}
++
++Result<GuestFrame> GraphicsSystem::CaptureGuestFrame() {
++  if (!state_->xenos) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Guest frame capture needs a Xenos driver");
++  }
++  return state_->xenos->CaptureGuestFrame();
++}
++
++bool GraphicsSystem::GetAppliedDither() const {
++  return state_->xenos && state_->xenos->GetAppliedDither();
++}
++
+ rex::gpu::GraphicsSettings::GraphicsSettings() : SettingOwner("gpu") {}
+
+ GraphicsSystem::GraphicsSystem() : state_(std::make_unique<State>(*this)) {}
+@@ -161,6 +215,9 @@ Result<void> GraphicsSystem::AttachTitle(const TitleInfo& info, IPhysicalMemory&
+     state_->memory = &memory;
+     return {};
+   }
++  if (state_->xenos) {
++    state_->xenos->SetBlockingShaderPrecompile(blocking_shader_precompile_);
++  }
+   return state_->driver->AttachTitle(info, memory, watch, interrupts);
+ }
+
+diff --git a/src/gpu/graphics_system.h b/src/gpu/graphics_system.h
+index e0c17a40..cbf9a139 100644
+--- a/src/gpu/graphics_system.h
++++ b/src/gpu/graphics_system.h
+@@ -38,6 +38,10 @@ class GraphicsSystem final : public rex::gpu::IGraphicsSystem, public IGraphicsC
+   std::string GetDriverName() const override;
+   void ReportFrame() override;
+   rex::gpu::FrameStats GetFrameStats() const override;
++  void SetShaderPrecompile(bool blocking, ShaderPrecompileCallback callback) override;
++  [[nodiscard]] Result<void> PrepareShaderStorage() override;
++  [[nodiscard]] Result<GuestFrame> CaptureGuestFrame() override;
++  bool GetAppliedDither() const override;
+
+   [[nodiscard]] Result<void> AttachTitle(const TitleInfo& info, IPhysicalMemory& memory,
+                                          IPhysicalWriteWatch& watch,
+@@ -72,6 +76,7 @@ class GraphicsSystem final : public rex::gpu::IGraphicsSystem, public IGraphicsC
+
+  private:
+   rex::gpu::GraphicsSettings settings_;
++  bool blocking_shader_precompile_ = false;
+   struct State;
+   std::unique_ptr<State> state_;
+ };
+diff --git a/src/gpu/xenos/d3d12/command_processor.cpp b/src/gpu/xenos/d3d12/command_processor.cpp
+index 4dd76dd5..2126ea57 100644
+--- a/src/gpu/xenos/d3d12/command_processor.cpp
++++ b/src/gpu/xenos/d3d12/command_processor.cpp
+@@ -9,12 +9,15 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+
+-#include <bit>
+ #include <algorithm>
++#include <bit>
 +#include <chrono>
  #include <cstdarg>
  #include <cstring>
++#include <rex/gpu/copy_export.h>
  #include <sstream>
-@@ -29,6 +30,7 @@
- #include <rex/kernel/xboxkrnl/video.h>
- #include <rex/logging.h>
- #include <rex/memory/utils.h>
-+#include <rex/string/utf8.h>
- #include <rex/ui/d3d12/d3d12_presenter.h>
- #include <rex/ui/d3d12/d3d12_util.h>
+ #include <utility>
++#include <wrl/client.h>
 
-@@ -1968,6 +1970,14 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
+ #include <rex/bit.h>
+ #include <rex/math.h>
+@@ -137,12 +140,15 @@ void D3D12CommandProcessor::InvalidateGPUMemory() {
+ void D3D12CommandProcessor::InitializeShaderStorage(const std::filesystem::path& cache_root,
+                                                     u32 title_id, bool blocking) {
+   CommandProcessor::InitializeShaderStorage(cache_root, title_id, blocking);
++  shader_storage_root_ = cache_root;
++  shader_storage_title_ = title_id;
+   pipeline_cache_->InitializeShaderStorage(cache_root, title_id, blocking);
+ }
+
+ bool D3D12CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader,
+                                                                u32 packet, u32 count) {
+-  if (!GetXenosSettings().occlusion_query_enable.Get() || !occlusion_query_resources_available_) {
++  if (GetD3D12Settings().pipeline_collection.Get() ||
++      !GetXenosSettings().occlusion_query_enable.Get() || !occlusion_query_resources_available_) {
+     return CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(reader, packet, count);
+   }
+
+@@ -856,6 +862,8 @@ bool D3D12CommandProcessor::SetupContext() {
+   bindless_resources_used_ = GetD3D12Settings().bindless.Get() &&
+                              provider.GetResourceBindingTier() >= D3D12_RESOURCE_BINDING_TIER_2;
+
++  draw_resolution_scale_config_ = {GetGraphicsDriver().GetResolutionScaleX(),
++                                   GetGraphicsDriver().GetResolutionScaleY()};
+   u32 draw_resolution_scale_x, draw_resolution_scale_y;
+   bool draw_resolution_scale_not_clamped = TextureCache::GetConfigDrawResolutionScale(
+       GetGraphicsDriver().GetResolutionScaleX(), GetGraphicsDriver().GetResolutionScaleY(),
+@@ -1478,36 +1486,7 @@ bool D3D12CommandProcessor::SetupContext() {
+             view_bindless_heap_cpu_start_,
+             std::to_underlying(SystemBindlessView::kSharedMemoryR32G32B32A32UintUAV)),
+         4);
+-    render_target_cache_->WriteEDRAMRawSRVDescriptor(provider.OffsetViewDescriptor(
+-        view_bindless_heap_cpu_start_, std::to_underlying(SystemBindlessView::kEDRAMRawSRV)));
+-    render_target_cache_->WriteEDRAMUintPow2SRVDescriptor(
+-        provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
+-                                      std::to_underlying(SystemBindlessView::kEDRAMR32UintSRV)),
+-        2);
+-    render_target_cache_->WriteEDRAMUintPow2SRVDescriptor(
+-        provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
+-                                      std::to_underlying(SystemBindlessView::kEDRAMR32G32UintSRV)),
+-        3);
+-    render_target_cache_->WriteEDRAMUintPow2SRVDescriptor(
+-        provider.OffsetViewDescriptor(
+-            view_bindless_heap_cpu_start_,
+-            std::to_underlying(SystemBindlessView::kEDRAMR32G32B32A32UintSRV)),
+-        4);
+-    render_target_cache_->WriteEDRAMRawUAVDescriptor(provider.OffsetViewDescriptor(
+-        view_bindless_heap_cpu_start_, std::to_underlying(SystemBindlessView::kEDRAMRawUAV)));
+-    render_target_cache_->WriteEDRAMUintPow2UAVDescriptor(
+-        provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
+-                                      std::to_underlying(SystemBindlessView::kEDRAMR32UintUAV)),
+-        2);
+-    render_target_cache_->WriteEDRAMUintPow2UAVDescriptor(
+-        provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
+-                                      std::to_underlying(SystemBindlessView::kEDRAMR32G32UintUAV)),
+-        3);
+-    render_target_cache_->WriteEDRAMUintPow2UAVDescriptor(
+-        provider.OffsetViewDescriptor(
+-            view_bindless_heap_cpu_start_,
+-            std::to_underlying(SystemBindlessView::kEDRAMR32G32B32A32UintUAV)),
+-        4);
++    WriteBindlessEDRAMDescriptors(provider);
+     WriteGammaRampSRV(false, provider.OffsetViewDescriptor(
+                                  view_bindless_heap_cpu_start_,
+                                  std::to_underlying(SystemBindlessView::kGammaRampTableSRV)));
+@@ -1523,6 +1502,119 @@ bool D3D12CommandProcessor::SetupContext() {
+   return true;
+ }
+
++void D3D12CommandProcessor::WriteBindlessEDRAMDescriptors(const D3D12Provider& provider) {
++  render_target_cache_->WriteEDRAMRawSRVDescriptor(provider.OffsetViewDescriptor(
++      view_bindless_heap_cpu_start_, std::to_underlying(SystemBindlessView::kEDRAMRawSRV)));
++  render_target_cache_->WriteEDRAMUintPow2SRVDescriptor(
++      provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
++                                    std::to_underlying(SystemBindlessView::kEDRAMR32UintSRV)),
++      2);
++  render_target_cache_->WriteEDRAMUintPow2SRVDescriptor(
++      provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
++                                    std::to_underlying(SystemBindlessView::kEDRAMR32G32UintSRV)),
++      3);
++  render_target_cache_->WriteEDRAMUintPow2SRVDescriptor(
++      provider.OffsetViewDescriptor(
++          view_bindless_heap_cpu_start_,
++          std::to_underlying(SystemBindlessView::kEDRAMR32G32B32A32UintSRV)),
++      4);
++  render_target_cache_->WriteEDRAMRawUAVDescriptor(provider.OffsetViewDescriptor(
++      view_bindless_heap_cpu_start_, std::to_underlying(SystemBindlessView::kEDRAMRawUAV)));
++  render_target_cache_->WriteEDRAMUintPow2UAVDescriptor(
++      provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
++                                    std::to_underlying(SystemBindlessView::kEDRAMR32UintUAV)),
++      2);
++  render_target_cache_->WriteEDRAMUintPow2UAVDescriptor(
++      provider.OffsetViewDescriptor(view_bindless_heap_cpu_start_,
++                                    std::to_underlying(SystemBindlessView::kEDRAMR32G32UintUAV)),
++      3);
++  render_target_cache_->WriteEDRAMUintPow2UAVDescriptor(
++      provider.OffsetViewDescriptor(
++          view_bindless_heap_cpu_start_,
++          std::to_underlying(SystemBindlessView::kEDRAMR32G32B32A32UintUAV)),
++      4);
++}
++
++void D3D12CommandProcessor::UpdateDrawResolutionScale() {
++  const std::array requested = {GetGraphicsDriver().GetResolutionScaleX(),
++                                GetGraphicsDriver().GetResolutionScaleY()};
++  if (requested == draw_resolution_scale_config_ || submission_open_ || frame_open_) {
++    return;
++  }
++  uint32_t scale_x, scale_y;
++  TextureCache::GetConfigDrawResolutionScale(requested[0], requested[1], scale_x, scale_y);
++  const auto& provider = GetD3D12Provider();
++  D3D12TextureCache::ClampDrawResolutionScaleToMaxSupported(scale_x, scale_y, provider);
++  if (scale_x == texture_cache_->GetDrawResolutionScaleX() &&
++      scale_y == texture_cache_->GetDrawResolutionScaleY()) {
++    draw_resolution_scale_config_ = requested;
++    return;
++  }
++  // Rebind only after all submitted commands have stopped referencing the old caches.
++  if (!AwaitAllQueueOperationsCompletion()) {
++    return;
++  }
++  auto rollback = [&] {
++    constexpr const char* flags[] = {"gpu.resolution_scale_x", "gpu.resolution_scale_y"};
++    for (size_t i = 0; i < requested.size(); ++i) {
++      if (auto result =
++              REX_SETTINGS().SetText(flags[i], std::to_string(draw_resolution_scale_config_[i]));
++          !result) {
++        REXGPU_WARN("Could not restore {}: {}", flags[i], result.error().message);
++      }
++    }
++    REXGPU_ERROR("Could not change draw resolution scale; keeping the previous resources");
++  };
++  auto targets = std::make_unique<D3D12RenderTargetCache>(*register_file_, GetXenosSettings(),
++                                                          physical_memory_, scale_x, scale_y, *this,
++                                                          bindless_resources_used_);
++  if (!targets->Initialize()) {
++    rollback();
++    return;
++  }
++  auto pipelines =
++      std::make_unique<PipelineCache>(*this, *register_file_, *targets, bindless_resources_used_);
++  if (!pipelines->Initialize()) {
++    rollback();
++    return;
++  }
++  auto textures = D3D12TextureCache::Create(*register_file_, GetXenosSettings(), *shared_memory_,
++                                            scale_x, scale_y, *this, bindless_resources_used_);
++  if (!textures) {
++    rollback();
++    return;
++  }
++  auto reload_shader = [&](Shader* shader) -> Shader* {
++    if (!shader) {
++      return nullptr;
++    }
++    auto ucode = shader->GetUcodeData();
++    for (auto& word : ucode) {
++      word = std::byteswap(word);
++    }
++    return pipelines->LoadShader(shader->GetType(), ucode.data(), uint32_t(ucode.size()));
++  };
++  active_vertex_shader_ = reload_shader(active_vertex_shader_);
++  active_pixel_shader_ = reload_shader(active_pixel_shader_);
++  pipeline_cache_->ShutdownShaderStorage();
++  texture_cache_ = std::move(textures);
++  pipeline_cache_ = std::move(pipelines);
++  render_target_cache_ = std::move(targets);
++  if (bindless_resources_used_) {
++    WriteBindlessEDRAMDescriptors(provider);
++  }
++  window_title_state_.store(kWindowTitleStateValid |
++                                static_cast<u32>(render_target_cache_->GetPath()) | (scale_x << 8) |
++                                (scale_y << 16),
++                            std::memory_order_release);
++  InvalidateAllVertexBufferResidency();
++  draw_resolution_scale_config_ = requested;
++  if (!shader_storage_root_.empty()) {
++    pipeline_cache_->InitializeShaderStorage(shader_storage_root_, shader_storage_title_, false);
++  }
++  REXGPU_INFO("Live draw resolution scale applied: {}x{}", scale_x, scale_y);
++}
++
+ void D3D12CommandProcessor::ShutdownContext() {
+   window_title_state_.store(0, std::memory_order_release);
+   AwaitAllQueueOperationsCompletion();
+@@ -1861,6 +1953,14 @@ void D3D12CommandProcessor::IssueSwap([[maybe_unused]] u32 frontbuffer_ptr, u32
    bool swap_source_scaled = frontbuffer_width_unscaled && frontbuffer_height_unscaled &&
                              (source_width_scaled != frontbuffer_width_unscaled ||
                               source_height_scaled != frontbuffer_height_unscaled);
@@ -584,147 +556,178 @@ index 19874a5..5bdc3c7 100644
    if (texture_cache_->IsDrawResolutionScaled() && !swap_source_scaled) {
      static bool draw_scale_swap_unscaled_logged = false;
      if (!draw_scale_swap_unscaled_logged) {
-@@ -2327,10 +2337,22 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
-   bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
+@@ -2127,6 +2227,7 @@ void D3D12CommandProcessor::IssueSwap([[maybe_unused]] u32 frontbuffer_ptr, u32
+
+   // End the frame even without presenting, to prevent leaking per frame resources.
+   EndSubmission(true);
++  UpdateDrawResolutionScale();
+ }
+
+ void D3D12CommandProcessor::OnPrimaryBufferEnd() {
+@@ -2202,10 +2303,24 @@ bool D3D12CommandProcessor::IssueDraw([[maybe_unused]] xenos::PrimitiveType prim
+   }
    bool memexport_used = memexport_used_vertex || memexport_used_pixel;
- 
-+  reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+
++  xenos::reg::RB_DEPTHCONTROL normalized_depth_control =
++      draw_state::GetNormalizedDepthControl(regs);
 +  uint32_t normalized_color_mask =
-+      pixel_shader ? draw_util::GetNormalizedColorMask(regs, pixel_shader->writes_color_targets())
++      pixel_shader ? draw_state::GetNormalizedColorMask(regs, pixel_shader->GetWritesColorTargets())
 +                   : 0;
    if (!BeginSubmission(true)) {
      return false;
    }
- 
+
 +  // Guest flush loops can issue thousands of draws that cannot modify any output.
 +  if (!memexport_used && !normalized_color_mask &&
 +      !(normalized_depth_control.z_enable && normalized_depth_control.z_write_enable) &&
 +      !normalized_depth_control.stencil_enable && !active_occlusion_query_.valid) {
-+    PERF_counter_inc(kDrawCallsSkippedNoEffect);
++    REX_PERF_INC("draw_calls_skipped_no_effect");
 +    return true;
 +  }
 +
-   // Process primitives.
++  // Process primitives.
    PrimitiveProcessor::ProcessingResult primitive_processing_result;
    if (!primitive_processor_->Process(primitive_processing_result)) {
-@@ -2341,8 +2363,6 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     return false;
+@@ -2214,9 +2329,6 @@ bool D3D12CommandProcessor::IssueDraw([[maybe_unused]] xenos::PrimitiveType prim
      return true;
    }
- 
--  reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+
+-  xenos::reg::RB_DEPTHCONTROL normalized_depth_control =
+-      draw_state::GetNormalizedDepthControl(regs);
 -
-   // Shader modifications.
-   uint32_t ps_param_gen_pos = UINT32_MAX;
-   uint32_t interpolator_mask =
-@@ -2361,9 +2381,6 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
-           : DxbcShaderTranslator::Modification(0);
- 
-   // Set up the render targets - this may perform dispatches and draws.
--  uint32_t normalized_color_mask =
--      pixel_shader ? draw_util::GetNormalizedColorMask(regs, pixel_shader->writes_color_targets())
+   u32 ps_param_gen_pos = UINT32_MAX;
+   u32 interpolator_mask = pixel_shader
+                               ? (vertex_shader->GetWritesInterpolators() &
+@@ -2233,9 +2345,6 @@ bool D3D12CommandProcessor::IssueDraw([[maybe_unused]] xenos::PrimitiveType prim
+                 *pixel_shader, interpolator_mask, ps_param_gen_pos, normalized_depth_control)
+           : DXBCShaderTranslator::Modification(0);
+
+-  u32 normalized_color_mask =
+-      pixel_shader ? draw_state::GetNormalizedColorMask(regs, pixel_shader->GetWritesColorTargets())
 -                   : 0;
    if (!render_target_cache_->Update(is_rasterization_done, normalized_depth_control,
                                      normalized_color_mask, *vertex_shader)) {
      return false;
-@@ -2617,6 +2634,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+@@ -2465,6 +2574,19 @@ bool D3D12CommandProcessor::IssueDraw([[maybe_unused]] xenos::PrimitiveType prim
    SetPrimitiveTopology(primitive_topology);
-   // Must not call anything that may change the primitive topology from now on!
+   // Must not call anything that may change the primitive topology from now on.
 
++  // Preserve pipeline discovery and guest-visible exports during offline collection.
++  if (GetD3D12Settings().pipeline_collection.Get() && !memexport_used) {
++    return true;
++  }
++
 +  InsertDebugMarker(
 +      "Guest draw frame %llu VS %016llX PS %016llX vertices %u memexport %u",
 +      static_cast<unsigned long long>(frame_current_),
-+      static_cast<unsigned long long>(vertex_shader->ucode_data_hash()),
-+      static_cast<unsigned long long>(pixel_shader ? pixel_shader->ucode_data_hash() : 0),
++      static_cast<unsigned long long>(vertex_shader->GetUcodeDataHash()),
++      static_cast<unsigned long long>(pixel_shader ? pixel_shader->GetUcodeDataHash() : 0),
 +      primitive_processing_result.host_draw_vertex_count, unsigned(memexport_used));
 +
-   // Draw.
++  // Draw.
    if (primitive_processing_result.index_buffer_type ==
        PrimitiveProcessor::ProcessedIndexBufferType::kNone) {
-@@ -2694,14 +2718,41 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     if (memexport_used) {
+@@ -2539,24 +2661,56 @@ bool D3D12CommandProcessor::IssueDraw([[maybe_unused]] xenos::PrimitiveType prim
      }
    }
- 
-+  const int64_t frame_draws = rex::perf::GetCounter(rex::perf::CounterId::kDrawCalls);
+
++  const int64_t frame_draws = rex::platform::GetCounter(
++      rex::platform::FindCounter("draw_calls")
++          .value_or(static_cast<rex::platform::CounterID>(rex::platform::kMaxCounters)));
 +  if (frame_draws >= 4096 && (frame_draws % 4096) == 0) {
 +    REXGPU_INFO("Heavy draw frame {}: {} draws, VS {:016X}, PS {:016X}, vertices {}, memexport {}",
-+                frame_current_, frame_draws, vertex_shader->ucode_data_hash(),
-+                pixel_shader ? pixel_shader->ucode_data_hash() : 0,
++                frame_current_, frame_draws, vertex_shader->GetUcodeDataHash(),
++                pixel_shader ? pixel_shader->GetUcodeDataHash() : 0,
 +                primitive_processing_result.host_draw_vertex_count, memexport_used);
 +  }
 +
    if (memexport_used) {
-     // Make sure this memexporting draw is ordered with other work using shared
-     // memory as a UAV.
-     // TODO(Triang3l): Find some PM4 command that can be used for indication of
-     // when memexports should be awaited?
      shared_memory_->MarkUAVWritesCommitNeeded();
-+    const bool readback_enabled = IsReadbackMemexportEnabled(REXCVAR_GET(d3d12_readback_memexport));
-+    std::optional<draw_util::CpuCopyRange> copy;
-+    if (readback_enabled && vertex_shader->ucode_data_hash() == 0x896985CCFAF3C47Aull &&
+-    if (!memexport_ranges_.empty()) {
++    const bool readback_enabled = IsReadbackMemexportEnabled();
++    std::optional<CpuCopyRange> copy;
++    if (readback_enabled && vertex_shader->GetUcodeDataHash() == 0x896985CCFAF3C47Aull &&
 +        !pixel_shader && !index_buffer_info && primitive_type == xenos::PrimitiveType::kPointList &&
 +        primitive_processing_result.index_buffer_type ==
 +            PrimitiveProcessor::ProcessedIndexBufferType::kNone &&
 +        primitive_processing_result.host_draw_vertex_count == index_count &&
 +        pipeline_cache_->GetD3D12PipelineByHandle(pipeline_handle) != nullptr &&
 +        memexport_ranges_.size() == 1) {
-+      copy = draw_util::GetLollipopCopyExport(regs, index_count, memexport_ranges_.front());
++      const auto& range = memexport_ranges_.front();
++      copy = GetLollipopCopyExport(regs, index_count, range.base_address_dwords, range.size_bytes);
 +    }
 +    // Check the source before marking the destination: both can share an allocation or page.
 +    const bool mirrored = copy && shared_memory_->TryMirrorCpuBackedCopy(
 +                                      copy->source, copy->destination, copy->length);
-     // Invalidate textures in memexported memory and watch for changes.
--    if (!memexport_ranges_.empty()) {
++    // Invalidate textures in memexported memory and watch for changes.
 +    if (copy) {
-+      shared_memory_->RangeWrittenByGpu(copy->destination, copy->length);
++      shared_memory_->RangeWrittenByGPU(copy->destination, copy->length);
 +      if (mirrored) {
 +        shared_memory_->MarkReadbackPagesCpuBacked(copy->destination, copy->length);
 +      }
 +    } else if (!memexport_ranges_.empty()) {
-       for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
-         shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,
+       for (const draw_state::MemExportRange& memexport_range : memexport_ranges_) {
+         shared_memory_->RangeWrittenByGPU(memexport_range.base_address_dwords << 2,
                                            memexport_range.size_bytes);
-@@ -2711,8 +2762,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
-       // be unknown. Keep invalidation conservative in this case.
-       shared_memory_->RangeWrittenByGpu(0, SharedMemory::kBufferSize);
+       }
+     } else {
+-      // Stream constants can be invalid or dynamic, so destinations may be unknown.
++      // Stream constants can be invalid or dynamic, so exact destinations may
++      // be unknown. Keep invalidation conservative in this case.
+       shared_memory_->RangeWrittenByGPU(0, SharedMemory::kBufferSize);
      }
--    if (IsReadbackMemexportEnabled(REXCVAR_GET(d3d12_readback_memexport)) &&
--        !memexport_ranges_.empty()) {
+-    if (IsReadbackMemexportEnabled() && !memexport_ranges_.empty()) {
+-      u32 memexport_total_size = 0;
 +    if (readback_enabled && !mirrored && !memexport_ranges_.empty()) {
-       uint32_t memexport_total_size = 0;
-       for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++      uint32_t memexport_total_size = 0;
+       for (const draw_state::MemExportRange& memexport_range : memexport_ranges_) {
          memexport_total_size += memexport_range.size_bytes;
-@@ -2751,7 +2801,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
+       }
+       if (memexport_total_size != 0) {
+-        if (GetXenosSettings().readback_memexport_fast.Get()) {
++        if (!copy && GetXenosSettings().readback_memexport_fast.Get()) {
+           IssueDrawMemexportReadbackFastPath(memexport_total_size);
+         } else {
+           IssueDrawMemexportReadbackFullPath(memexport_total_size);
+@@ -2589,7 +2743,16 @@ bool D3D12CommandProcessor::IssueDrawMemexportReadbackFullPath(u32 total_size) {
      readback_buffer_offset += memexport_range.size_bytes;
    }
- 
+
 -  if (!AwaitAllQueueOperationsCompletion()) {
-+  const auto wait_before = rex::perf::GetCounter(rex::perf::CounterId::kCommandBufferWaitUs);
++  const auto wait_before = rex::platform::GetCounter(
++      rex::platform::FindCounter("command_buffer_wait_us")
++          .value_or(static_cast<rex::platform::CounterID>(rex::platform::kMaxCounters)));
 +  const bool completed = AwaitAllQueueOperationsCompletion();
-+  PERF_counter_add(kMemexportSyncUs,
-+                   rex::perf::GetCounter(rex::perf::CounterId::kCommandBufferWaitUs) - wait_before);
++  REX_PERF_ADD("memexport_sync_us",
++               rex::platform::GetCounter(rex::platform::FindCounter("command_buffer_wait_us")
++                                             .value_or(static_cast<rex::platform::CounterID>(
++                                                 rex::platform::kMaxCounters))) -
++                   wait_before);
 +  if (!completed) {
      return true;
    }
- 
-@@ -2767,6 +2821,8 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
-   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
-     std::memcpy(memory_->TranslatePhysical(memexport_range.base_address_dwords << 2),
-                 readback_bytes, memexport_range.size_bytes);
-+    shared_memory_->MarkReadbackPagesCpuBacked(memexport_range.base_address_dwords << 2,
-+                                              memexport_range.size_bytes);
+
+@@ -2607,6 +2770,8 @@ bool D3D12CommandProcessor::IssueDrawMemexportReadbackFullPath(u32 total_size) {
+             GetPhysicalForWrite(physical_memory_, memexport_range.base_address_dwords << 2,
+                                 memexport_range.size_bytes)) {
+       std::memcpy(memexport_destination, readback_bytes, memexport_range.size_bytes);
++      shared_memory_->MarkReadbackPagesCpuBacked(memexport_range.base_address_dwords << 2,
++                                                 memexport_range.size_bytes);
+     }
      readback_bytes += memexport_range.size_bytes;
    }
- 
-@@ -3102,7 +3158,7 @@ bool D3D12CommandProcessor::IssueCopy_ReadbackResolvePath() {
+@@ -2950,7 +3115,7 @@ bool D3D12CommandProcessor::IssueCopyReadbackResolvePath() {
    return true;
  }
- 
--void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
-+void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission, const char* reason) {
+
+-void D3D12CommandProcessor::CheckSubmissionFence(u64 await_submission) {
++void D3D12CommandProcessor::CheckSubmissionFence(u64 await_submission, const char* reason) {
    if (await_submission >= submission_current_) {
      if (submission_open_) {
        EndSubmission(false);
-@@ -3114,11 +3170,18 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
+@@ -2959,11 +3124,19 @@ void D3D12CommandProcessor::CheckSubmissionFence(u64 await_submission) {
      if (queue_operations_done_since_submission_signal_) {
        UINT64 fence_value = ++queue_operations_since_submission_fence_last_;
        ID3D12CommandQueue* direct_queue = GetD3D12Provider().GetDirectQueue();
@@ -734,42 +737,37 @@ index 19874a5..5bdc3c7 100644
 +      if (SUCCEEDED(direct_queue->Signal(queue_operations_since_submission_fence_, fence_value)) &&
 +          SUCCEEDED(queue_operations_since_submission_fence_->SetEventOnCompletion(
 +              fence_value, fence_completion_event_))) {
-         PROFILE_CMD_BUFFER_STALL();
+         REX_PERF_INC("command_buffer_stalls");
 +        const auto wait_start = std::chrono::steady_clock::now();
          WaitForSingleObject(fence_completion_event_, INFINITE);
 +        const auto wait_us = std::chrono::duration_cast<std::chrono::microseconds>(
-+                                 std::chrono::steady_clock::now() - wait_start).count();
-+        PERF_counter_add(kCommandBufferWaitUs, wait_us);
++                                 std::chrono::steady_clock::now() - wait_start)
++                                 .count();
++        REX_PERF_ADD("command_buffer_wait_us", wait_us);
 +        if (wait_us > 25000) {
 +          REXGPU_INFO("GPU fence wait: {} us, out-of-submission operations, {}", wait_us, reason);
 +        }
          queue_operations_done_since_submission_signal_ = false;
        } else {
          REXGPU_ERROR(
-@@ -3137,13 +3200,22 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
+@@ -2981,7 +3154,16 @@ void D3D12CommandProcessor::CheckSubmissionFence(u64 await_submission) {
      if (SUCCEEDED(
              submission_fence_->SetEventOnCompletion(await_submission, fence_completion_event_))) {
-       PROFILE_CMD_BUFFER_STALL();
+       REX_PERF_INC("command_buffer_stalls");
 +      const auto wait_start = std::chrono::steady_clock::now();
        WaitForSingleObject(fence_completion_event_, INFINITE);
 +      const auto wait_us = std::chrono::duration_cast<std::chrono::microseconds>(
-+                               std::chrono::steady_clock::now() - wait_start).count();
-+      PERF_counter_add(kCommandBufferWaitUs, wait_us);
++                               std::chrono::steady_clock::now() - wait_start)
++                               .count();
++      REX_PERF_ADD("command_buffer_wait_us", wait_us);
 +      if (wait_us > 25000) {
-+        REXGPU_INFO("GPU fence wait: {} us, {}, submission {}, current {}, frame {}",
-+                    wait_us, reason, await_submission, submission_current_, frame_current_);
++        REXGPU_INFO("GPU fence wait: {} us, {}, submission {}, current {}, frame {}", wait_us,
++                    reason, await_submission, submission_current_, frame_current_);
 +      }
        submission_completed_ = submission_fence_->GetCompletedValue();
      }
    }
-   if (submission_completed_ < await_submission) {
-     REXGPU_ERROR("Failed to await a submission completion Direct3D 12 fence");
-   }
-+
-   if (submission_completed_ <= submission_completed_before) {
-     // Not updated - no need to reclaim or download things.
-     return;
-@@ -3191,6 +3263,11 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
+@@ -3031,6 +3213,11 @@ void D3D12CommandProcessor::CheckSubmissionFence(u64 await_submission) {
 
    primitive_processor_->CompletedSubmissionUpdated();
 
@@ -781,7 +779,7 @@ index 19874a5..5bdc3c7 100644
    texture_cache_->CompletedSubmissionUpdated(submission_completed_);
  }
 
-@@ -3241,6 +3318,40 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
+@@ -3083,6 +3270,39 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
      }
    }
 
@@ -811,8 +809,7 @@ index 19874a5..5bdc3c7 100644
 +      }
 +      if (nearest) {
 +        const std::wstring_view text(nearest->pContextString);
-+        REXGPU_ERROR("DRED context [{}]: {}", nearest->BreadcrumbIndex,
-+                     rex::string::to_utf8(std::u16string(text.begin(), text.end())));
++        REXGPU_ERROR("DRED context [{}]: {}", nearest->BreadcrumbIndex, rex::string::ToUTF8(text));
 +      }
 +    }
 +  } else {
@@ -822,92 +819,165 @@ index 19874a5..5bdc3c7 100644
    D3D12_DRED_PAGE_FAULT_OUTPUT page_fault = {};
    if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&page_fault)) && page_fault.PageFaultVA != 0) {
      REXGPU_ERROR("DRED page fault at VA 0x{:016X}", page_fault.PageFaultVA);
-@@ -3266,7 +3377,6 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -3107,7 +3327,6 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
    HRESULT device_removed_reason = device->GetDeviceRemovedReason();
    if (FAILED(device_removed_reason)) {
      device_removed_ = true;
 -    LogDeviceRemovalDiagnostics(device, device_removed_reason);
      if (graphics_system_) {
-       graphics_system_->OnHostGpuLossFromAnyThread(device_removed_reason !=
+       graphics_system_->OnHostGPULossFromAnyThread(device_removed_reason !=
                                                     DXGI_ERROR_DEVICE_REMOVED);
-@@ -3278,7 +3388,7 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
-   // resources early) and specifically for frames (not to queue too many), and
-   // await the availability of the current frame.
+@@ -3116,7 +3335,8 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+   }
+
    CheckSubmissionFence(is_opening_frame ? closed_frame_submissions_[frame_current_ % kQueueFrames]
 -                                        : 0);
-+                                        : 0, is_opening_frame ? "frame queue" : "submission poll");
-   // TODO(Triang3l): If failed to await (completed submission < awaited frame
-   // submission), do something like dropping the draw command that wanted to
-   // open the frame.
-@@ -3497,7 +3607,8 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
++                                        : 0,
++                       is_opening_frame ? "frame queue" : "submission poll");
+   if (is_opening_frame) {
+     frame_completed_ = std::max(frame_current_, static_cast<u64>(kQueueFrames)) - kQueueFrames;
+     for (u64 frame = frame_completed_ + 1; frame < frame_current_; ++frame) {
+@@ -3311,7 +3531,8 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
  }
- 
+
  bool D3D12CommandProcessor::CanEndSubmissionImmediately() const {
 -  return !submission_open_ || !pipeline_cache_->IsCreatingPipelines();
-+  return !submission_open_ || REXCVAR_GET(async_shader_compilation) ||
++  return !submission_open_ || GetXenosSettings().async_shader_compilation.Get() ||
 +         !pipeline_cache_->IsCreatingPipelines();
  }
- 
+
  void D3D12CommandProcessor::ClearCommandAllocatorCache() {
-@@ -4944,7 +5055,7 @@ bool D3D12CommandProcessor::EndGuestOcclusionQuery(
+@@ -4645,7 +4866,7 @@ bool D3D12CommandProcessor::EndGuestOcclusionQuery(xenos::DepthSampleCounts* sam
    }
- 
-   uint64_t query_submission = submission_current_ ? submission_current_ - 1 : 0;
+
+   u64 query_submission = submission_current_ ? submission_current_ - 1 : 0;
 -  CheckSubmissionFence(query_submission);
 +  CheckSubmissionFence(query_submission, "occlusion readback");
    if (submission_completed_ < query_submission) {
      return false;
    }
-diff --git a/src/graphics/d3d12/graphics_system.cpp b/src/graphics/d3d12/graphics_system.cpp
-index caa77cf..5f87a6b 100644
---- a/src/graphics/d3d12/graphics_system.cpp
-+++ b/src/graphics/d3d12/graphics_system.cpp
-@@ -43,6 +43,14 @@ void D3D12GraphicsSystem::CreateProvider(bool /*with_presentation*/) {
-   provider_ = rex::ui::d3d12::D3D12Provider::Create();
+diff --git a/src/gpu/xenos/d3d12/command_processor.h b/src/gpu/xenos/d3d12/command_processor.h
+index e979b9d4..ae3f4ba5 100644
+--- a/src/gpu/xenos/d3d12/command_processor.h
++++ b/src/gpu/xenos/d3d12/command_processor.h
+@@ -54,6 +54,7 @@ class D3D12CommandProcessor : public CommandProcessor {
+
+   void ClearCaches() override;
+   void InvalidateGPUMemory() override;
++  static void LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason);
+
+   void InitializeShaderStorage(const std::filesystem::path& cache_root, u32 title_id,
+                                bool blocking) override;
+@@ -216,27 +217,33 @@ class D3D12CommandProcessor : public CommandProcessor {
+   std::string GetWindowTitleText() const;
+
+  protected:
+-  bool SetupContext() override;
+-  void ShutdownContext() override;
++   void UpdateDrawResolutionScale();
++   void WriteBindlessEDRAMDescriptors(const D3D12Provider& provider);
++   std::array<u32, 2> draw_resolution_scale_config_{};
++   std::filesystem::path shader_storage_root_;
++   u32 shader_storage_title_ = 0;
+
+-  void WriteRegister(u32 index, u32 value) override;
+-  void WriteRegistersFromMem(u32 start_index, u32* base, u32 num_registers) override;
+-  bool ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader, u32 packet,
+-                                          u32 count) override;
++   bool SetupContext() override;
++   void ShutdownContext() override;
+
+-  void OnGammaRamp256EntryTableValueWritten() override;
+-  void OnGammaRampPWLValueWritten() override;
++   void WriteRegister(u32 index, u32 value) override;
++   void WriteRegistersFromMem(u32 start_index, u32* base, u32 num_registers) override;
++   bool ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader, u32 packet,
++                                           u32 count) override;
+
+-  void IssueSwap(u32 frontbuffer_ptr, u32 frontbuffer_width, u32 frontbuffer_height) override;
++   void OnGammaRamp256EntryTableValueWritten() override;
++   void OnGammaRampPWLValueWritten() override;
+
+-  void OnPrimaryBufferEnd() override;
++   void IssueSwap(u32 frontbuffer_ptr, u32 frontbuffer_width, u32 frontbuffer_height) override;
+
+-  Shader* LoadShader(xenos::ShaderType shader_type, u32 guest_address, const u32* host_address,
+-                     u32 dword_count) override;
++   void OnPrimaryBufferEnd() override;
+
+-  bool IssueDraw(xenos::PrimitiveType primitive_type, u32 index_count, IndexBuffer* index_buffer,
+-                 bool major_mode_explicit) override;
+-  bool IssueCopy() override;
++   Shader* LoadShader(xenos::ShaderType shader_type, u32 guest_address, const u32* host_address,
++                      u32 dword_count) override;
++
++   bool IssueDraw(xenos::PrimitiveType primitive_type, u32 index_count, IndexBuffer* index_buffer,
++                  bool major_mode_explicit) override;
++   bool IssueCopy() override;
+
+  private:
+   static constexpr u32 kQueueFrames = 3;
+@@ -319,7 +326,7 @@ class D3D12CommandProcessor : public CommandProcessor {
+    * @param await_submission The submission to wait for, 0 to check the status, or
+    * submission_current_ to wait for all queue operations.
+    */
+-  void CheckSubmissionFence(u64 await_submission);
++  void CheckSubmissionFence(u64 await_submission, const char* reason = "queue drain");
+   /**
+    * Begins a submission, promoting an open non frame submission to a frame when is_guest_command
+    * is true. Submission boundaries are implicit full UAV and aliasing barriers and cause common
+@@ -344,7 +351,6 @@ class D3D12CommandProcessor : public CommandProcessor {
+     CheckSubmissionFence(submission_current_);
+     return submission_completed_ + 1 >= submission_current_;
+   }
+-  void LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason);
+
+   void UpdateDebugMarkersEnabled();
+   void PushDebugMarker(const char* format, ...);
+diff --git a/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.cpp b/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.cpp
+index ded11d7b..4717a493 100644
+--- a/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.cpp
++++ b/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.cpp
+@@ -59,6 +59,11 @@ void D3D12XenosGraphicsDriver::CreateProvider(bool /*with_presentation*/) {
+       rex::gpu::d3d12::D3D12Provider::Create(d3d12_settings_.adapter.Get(), d3d12_settings_);
  }
- 
-+void D3D12GraphicsSystem::OnHostGpuLossFromAnyThread(bool is_responsible) {
-+  auto* device = static_cast<ui::d3d12::D3D12Provider*>(provider())->GetDevice();
-+  // The presenter may detect device loss before the command processor does.
+
++void D3D12XenosGraphicsDriver::LogDeviceLoss() {
++  auto* device = static_cast<D3D12Provider*>(GetProvider())->GetDevice();
 +  D3D12CommandProcessor::LogDeviceRemovalDiagnostics(device, device->GetDeviceRemovedReason());
-+  rex::FlushLogging();
-+  GraphicsSystem::OnHostGpuLossFromAnyThread(is_responsible);
 +}
 +
- std::unique_ptr<CommandProcessor> D3D12GraphicsSystem::CreateCommandProcessor() {
-   return std::unique_ptr<CommandProcessor>(new D3D12CommandProcessor(this, kernel_state_));
- }
-diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
-index 8e6b854..b5c29fc 100644
---- a/src/graphics/d3d12/pipeline_cache.cpp
-+++ b/src/graphics/d3d12/pipeline_cache.cpp
-@@ -762,7 +762,7 @@ void PipelineCache::EndSubmission() {
-     shader_storage_file_flush_needed_ = false;
-     pipeline_storage_file_flush_needed_ = false;
-   }
--  if (!creation_threads_.empty()) {
-+  if (!creation_threads_.empty() && !REXCVAR_GET(async_shader_compilation)) {
-     CreateQueuedPipelinesOnProcessorThread();
-     // Await creation of all queued pipelines.
-     bool await_creation_completion_event;
-@@ -3144,7 +3144,9 @@ bool PipelineCache::PrepareRuntimeDescriptionForQueuedCreation(
-     if (!translation->is_translated()) {
-       std::lock_guard<std::mutex> lock(translation_request_lock_);
-       if (!translation->is_translated()) {
--        translation->shader().AnalyzeUcode(ucode_disasm_buffer_);
-+        // Each worker owns its scratch storage; the processor analyzes other shaders concurrently.
-+        thread_local string::StringBuffer worker_disasm_buffer;
-+        translation->shader().AnalyzeUcode(worker_disasm_buffer);
-         if (!TranslateAnalyzedShader(*shader_translator_, *translation, dxbc_converter_, dxc_utils_,
-                                      dxc_compiler_)) {
-           REXGPU_ERROR("Failed to translate queued {} shader", shader_type);
-diff --git a/src/graphics/d3d12/texture_cache.cpp b/src/graphics/d3d12/texture_cache.cpp
-index 2be0e8e..9b3ca32 100644
---- a/src/graphics/d3d12/texture_cache.cpp
-+++ b/src/graphics/d3d12/texture_cache.cpp
-@@ -1920,6 +1920,22 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
-                      host_block_height);
-       source_box.back = source_box.front + std::max(depth >> level, uint32_t(1));
+ std::unique_ptr<CommandProcessor> D3D12XenosGraphicsDriver::CreateCommandProcessor() {
+   return std::make_unique<D3D12CommandProcessor>(this, title_info_, *physical_memory_,
+                                                  *write_watch_, *guest_interrupts_);
+diff --git a/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.h b/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.h
+index 3ee18d5d..f3c420b4 100644
+--- a/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.h
++++ b/src/gpu/xenos/d3d12/d3d12_xenos_graphics_driver.h
+@@ -34,11 +34,12 @@ class D3D12XenosGraphicsDriver : public XenosGraphicsDriverBase {
+   std::string_view GetName() const override { return "d3d12"; }
+
+  protected:
+-  void CreateProvider(bool with_presentation) override;
+-  std::unique_ptr<CommandProcessor> CreateCommandProcessor() override;
++   void LogDeviceLoss() override;
++   void CreateProvider(bool with_presentation) override;
++   std::unique_ptr<CommandProcessor> CreateCommandProcessor() override;
+
+-  D3D12Settings d3d12_settings_;
+-  ISettingsRegistry* d3d12_registry_ = nullptr;
++   D3D12Settings d3d12_settings_;
++   ISettingsRegistry* d3d12_registry_ = nullptr;
+ };
+
+ }  // namespace rex::gpu::d3d12
+diff --git a/src/gpu/xenos/d3d12/texture_cache.cpp b/src/gpu/xenos/d3d12/texture_cache.cpp
+index c0da0ccb..b3f65dfa 100644
+--- a/src/gpu/xenos/d3d12/texture_cache.cpp
++++ b/src/gpu/xenos/d3d12/texture_cache.cpp
+@@ -1783,6 +1783,22 @@ bool D3D12TextureCache::LoadHostTextureDataFromResidentMemory(Texture& texture,
+                                             host_block_height);
+       source_box.back = source_box.front + std::max(depth >> level, static_cast<u32>(1));
        source_box_ptr = &source_box;
 +    } else if (level && (texture_resolution_scale_x > 1 || texture_resolution_scale_y > 1)) {
 +      // Small scaled mip footprints may exceed the destination's rounded-down mip.
@@ -915,56 +985,704 @@ index 2be0e8e..9b3ca32 100644
 +      source_box = {};
 +      source_box.right = std::min(
 +          footprint.Width,
-+          rex::align(std::max((width * texture_resolution_scale_x) >> level, uint32_t(1)),
-+                     host_block_width));
++          rex::RoundUpPow2(std::max((width * texture_resolution_scale_x) >> level, uint32_t(1)),
++                           host_block_width));
 +      source_box.bottom = std::min(
 +          footprint.Height,
-+          rex::align(std::max((height * texture_resolution_scale_y) >> level, uint32_t(1)),
-+                     host_block_height));
++          rex::RoundUpPow2(std::max((height * texture_resolution_scale_y) >> level, uint32_t(1)),
++                           host_block_height));
 +      source_box.back = footprint.Depth;
-+      assert_true(source_box.right && source_box.right <= footprint.Width);
-+      assert_true(source_box.bottom && source_box.bottom <= footprint.Height);
++      REX_ASSERT(source_box.right && source_box.right <= footprint.Width);
++      REX_ASSERT(source_box.bottom && source_box.bottom <= footprint.Height);
 +      source_box_ptr = &source_box;
      } else {
        source_box_ptr = nullptr;
      }
-@@ -1995,6 +2011,11 @@ ID3D12Resource* D3D12TextureCache::D3D12Texture::GetOrCreate3DAs2DResource(
+@@ -1859,6 +1875,11 @@ ID3D12Resource* D3D12TextureCache::D3D12Texture::GetOrCreate3DAs2DResource(
    desc.Alignment = 0;
-   desc.Width = key().GetWidth();
-   desc.Height = key().GetHeight();
+   desc.Width = GetKey().GetWidth();
+   desc.Height = GetKey().GetHeight();
 +  // This wrapper is loaded with the same scale as its source texture.
-+  if (key().scaled_resolve) {
-+    desc.Width *= d3d12_cache.draw_resolution_scale_x();
-+    desc.Height *= d3d12_cache.draw_resolution_scale_y();
++  if (GetKey().scaled_resolve) {
++    desc.Width *= d3d12_cache.GetDrawResolutionScaleX();
++    desc.Height *= d3d12_cache.GetDrawResolutionScaleY();
 +  }
    desc.DepthOrArraySize = 1;
    desc.MipLevels = 1;
-   desc.Format = d3d12_cache.GetDXGIResourceFormat(key());
-diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 76f5600..99560a6 100644
---- a/src/graphics/pipeline/texture/cache.cpp
-+++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -25,6 +25,8 @@
- #include <rex/graphics/xenos.h>
- #include <rex/logging.h>
- #include <rex/math.h>
-+#include <rex/perf/counter.h>
-+#include <rex/system/gpu_plugin.h>
- 
- REXCVAR_DEFINE_INT32(texture_cache_memory_limit_render_to_texture, 24, "GPU",
-                      "Texture cache memory limit for render-to-texture (MB)")
-@@ -297,6 +299,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
-     if (found_texture_it != textures_.end()) {
-       assert_true(found_texture_it->second.get() == texture);
-       textures_.erase(found_texture_it);
-+      PERF_counter_inc(kTextureCacheEvictions);
-       // `texture` is invalid now.
+   desc.Format = d3d12_cache.GetDXGIResourceFormat(GetKey());
+diff --git a/src/gpu/xenos/host/d3d12/d3d12_presenter.cpp b/src/gpu/xenos/host/d3d12/d3d12_presenter.cpp
+index 5d8983cd..829c1a91 100644
+--- a/src/gpu/xenos/host/d3d12/d3d12_presenter.cpp
++++ b/src/gpu/xenos/host/d3d12/d3d12_presenter.cpp
+@@ -34,12 +34,120 @@ namespace shaders {
+ #include "gpu/xenos/host/shaders/bytecode/d3d12_5_1/guest_output_triangle_strip_rect_vs.h"
+ }  // namespace shaders
+
++struct D3D12Presenter::GuestOutputCapture {
++  Microsoft::WRL::ComPtr<ID3D12Resource> output;
++  Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
++  Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
++  Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> list;
++  D3D12SubmissionTracker submission;
++};
++
++D3D12Presenter::D3D12Presenter(Key, HostGPULossCallback host_gpu_loss_callback,
++                               const XenosGraphicsDriverBase& driver, const D3D12Provider& provider)
++    : Presenter(std::move(host_gpu_loss_callback), driver), provider_(provider) {}
++
+ D3D12Presenter::~D3D12Presenter() {
++  pending_capture_.reset();
+   paint_context_.AwaitSwapChainUsageCompletion();
+   guest_output_resource_refresher_submission_tracker_.Shutdown();
+   ui_submission_tracker_.Shutdown();
+ }
+
++Result<GuestFrame> D3D12Presenter::CaptureGuestFrame() {
++  constexpr DWORD kTimeoutMs = 1500;
++  if (pending_capture_) {
++    if (!pending_capture_->submission.AwaitAllSubmissionsCompletion(kTimeoutMs)) {
++      return Err<GuestFrame>(ErrorCategory::kRuntime,
++                             "The previous guest output copy is still pending");
++    }
++    pending_capture_.reset();
++  }
++
++  auto capture = std::make_unique<GuestOutputCapture>();
++  {
++    u32 mailbox;
++    auto consumer_lock = ConsumeGuestOutput(mailbox, nullptr, nullptr);
++    if (mailbox != UINT32_MAX) {
++      capture->output = guest_output_resources_[mailbox].second;
++    }
++  }
++  if (!capture->output) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "No guest output frame is available");
++  }
++
++  auto* device = provider_.GetDevice();
++  auto* queue = provider_.GetDirectQueue();
++  const auto texture = capture->output->GetDesc();
++  D3D12_TEXTURE_COPY_LOCATION destination{};
++  destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++  UINT64 size = 0;
++  device->GetCopyableFootprints(&texture, 0, 1, 0, &destination.PlacedFootprint, nullptr, nullptr,
++                                &size);
++  D3D12_RESOURCE_DESC buffer_desc;
++  objects::FillBufferResourceDesc(buffer_desc, size, D3D12_RESOURCE_FLAG_NONE);
++
++  if (FAILED(device->CreateCommittedResource(
++          &objects::kHeapPropertiesReadback, D3D12_HEAP_FLAG_NONE, &buffer_desc,
++          D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&capture->buffer))) ||
++      FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
++                                            IID_PPV_ARGS(&capture->allocator))) ||
++      FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, capture->allocator.Get(),
++                                       nullptr, IID_PPV_ARGS(&capture->list))) ||
++      !capture->submission.Initialize(device, queue)) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not allocate guest output readback");
++  }
++
++  D3D12_RESOURCE_BARRIER barrier{};
++  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++  barrier.Transition = {capture->output.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
++                        kGuestOutputInternalState, D3D12_RESOURCE_STATE_COPY_SOURCE};
++  capture->list->ResourceBarrier(1, &barrier);
++  destination.pResource = capture->buffer.Get();
++  D3D12_TEXTURE_COPY_LOCATION source{};
++  source.pResource = capture->output.Get();
++  source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++  capture->list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
++  std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
++  capture->list->ResourceBarrier(1, &barrier);
++  if (FAILED(capture->list->Close())) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not record guest output readback");
++  }
++
++  ID3D12CommandList* list = capture->list.Get();
++  queue->ExecuteCommandLists(1, &list);
++  if (!capture->submission.NextSubmission() ||
++      !capture->submission.AwaitAllSubmissionsCompletion(kTimeoutMs)) {
++    // The queue still owns the recorded copy even if the request stops waiting.
++    pending_capture_ = std::move(capture);
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not complete guest output readback");
++  }
++  if (FAILED(device->GetDeviceRemovedReason())) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime,
++                           "Graphics device lost during guest output readback");
++  }
++
++  GuestFrame frame{static_cast<u32>(texture.Width), texture.Height, {}};
++  frame.rgba.resize(size_t(frame.width) * frame.height * 4);
++  const auto& footprint = destination.PlacedFootprint;
++  const D3D12_RANGE read_range{size_t(footprint.Offset), size_t(size)};
++  void* data = nullptr;
++  if (FAILED(capture->buffer->Map(0, &read_range, &data))) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not map guest output readback");
++  }
++  const auto* bytes = static_cast<const u8*>(data) + footprint.Offset;
++  for (u32 y = 0; y < frame.height; ++y) {
++    const auto* source_row =
++        reinterpret_cast<const u32*>(bytes + size_t(y) * footprint.Footprint.RowPitch);
++    auto* destination_row = frame.rgba.data() + size_t(y) * frame.width * 4;
++    for (u32 x = 0; x < frame.width; ++x) {
++      ConvertGuestPixel(source_row[x], destination_row + size_t(x) * 4);
++    }
++  }
++  const D3D12_RANGE written_range{0, 0};
++  capture->buffer->Unmap(0, &written_range);
++  return frame;
++}
++
+ gpu::Surface::TypeFlags D3D12Presenter::GetSupportedSurfaceTypes() const {
+   gpu::Surface::TypeFlags types = 0;
+ #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP | WINAPI_PARTITION_GAMES)
+diff --git a/src/gpu/xenos/host/d3d12/d3d12_presenter.h b/src/gpu/xenos/host/d3d12/d3d12_presenter.h
+index f6953799..c746dcdd 100644
+--- a/src/gpu/xenos/host/d3d12/d3d12_presenter.h
++++ b/src/gpu/xenos/host/d3d12/d3d12_presenter.h
+@@ -49,19 +49,18 @@ class D3D12Presenter final : public Presenter {
+   struct Key {};
+
+  public:
+-  explicit D3D12Presenter(Key, HostGPULossCallback host_gpu_loss_callback,
+-                          const XenosGraphicsDriverBase& driver, const D3D12Provider& provider)
+-      : Presenter(std::move(host_gpu_loss_callback), driver), provider_(provider) {}
++   explicit D3D12Presenter(Key, HostGPULossCallback host_gpu_loss_callback,
++                           const XenosGraphicsDriverBase& driver, const D3D12Provider& provider);
+
+-  static constexpr DXGI_FORMAT kGuestOutputFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
+-  static constexpr D3D12_RESOURCE_STATES kGuestOutputInternalState =
+-      D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++   static constexpr DXGI_FORMAT kGuestOutputFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
++   static constexpr D3D12_RESOURCE_STATES kGuestOutputInternalState =
++       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+-  /** Format used internally by Windows composition. */
+-  static constexpr DXGI_FORMAT kSwapChainFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
++   /** Format used internally by Windows composition. */
++   static constexpr DXGI_FORMAT kSwapChainFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+
+-  /** Refresh context whose callback must use the main direct queue of the provider. */
+-  class D3D12GuestOutputRefreshContext final : public GuestOutputRefreshContext {
++   /** Refresh context whose callback must use the main direct queue of the provider. */
++   class D3D12GuestOutputRefreshContext final : public GuestOutputRefreshContext {
+    public:
+     D3D12GuestOutputRefreshContext(bool& is_8bpc_out_ref, ID3D12Resource* resource)
+         : GuestOutputRefreshContext(is_8bpc_out_ref), resource_(resource) {}
+@@ -90,6 +89,7 @@ class D3D12Presenter final : public Presenter {
+   }
+
+   ~D3D12Presenter();
++  [[nodiscard]] Result<GuestFrame> CaptureGuestFrame() override;
+
+   const D3D12Provider& GetProvider() const { return provider_; }
+
+@@ -113,21 +113,24 @@ class D3D12Presenter final : public Presenter {
+   PaintResult DriverPaintAndPresent(bool execute_ui_drawers) override;
+
+  private:
+-  struct GuestOutputPaintRectangleConstants {
+-    union {
+-      struct {
+-        f32 x;
+-        f32 y;
+-      };
+-      f32 offset[2];
+-    };
+-    union {
+-      struct {
+-        f32 width;
+-        f32 height;
+-      };
+-      f32 size[2];
+-    };
++   struct GuestOutputCapture;
++   std::unique_ptr<GuestOutputCapture> pending_capture_;
++
++   struct GuestOutputPaintRectangleConstants {
++     union {
++       struct {
++         f32 x;
++         f32 y;
++       };
++       f32 offset[2];
++     };
++     union {
++       struct {
++         f32 width;
++         f32 height;
++       };
++       f32 size[2];
++     };
+   };
+
+   enum class GuestOutputPaintRootParameter : u8 {
+diff --git a/src/gpu/xenos/host/d3d12/d3d12_provider.cpp b/src/gpu/xenos/host/d3d12/d3d12_provider.cpp
+index d834fe72..5d8b8931 100644
+--- a/src/gpu/xenos/host/d3d12/d3d12_provider.cpp
++++ b/src/gpu/xenos/host/d3d12/d3d12_provider.cpp
+@@ -206,6 +206,11 @@ bool D3D12Provider::Initialize(i32 adapter_index_wanted) {
+       if (SUCCEEDED(pfn_d3d12_get_debug_interface_(IID_PPV_ARGS(&dred_settings)))) {
+         dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+         dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
++        ID3D12DeviceRemovedExtendedDataSettings1* context_settings = nullptr;
++        if (SUCCEEDED(dred_settings->QueryInterface(IID_PPV_ARGS(&context_settings)))) {
++          context_settings->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
++          context_settings->Release();
++        }
+         REXUI_INFO("DRED (Device Removed Extended Data) enabled");
+       } else {
+         REXUI_WARN(
+diff --git a/src/gpu/xenos/host/d3d12/d3d12_settings.h b/src/gpu/xenos/host/d3d12/d3d12_settings.h
+index a8d3aeae..88e87182 100644
+--- a/src/gpu/xenos/host/d3d12/d3d12_settings.h
++++ b/src/gpu/xenos/host/d3d12/d3d12_settings.h
+@@ -28,6 +28,8 @@ class D3D12Settings : public SettingOwner {
+   REX_SETTING(bool, debug_markers, false,
+               "Insert debug markers into GPU command streams for tools like PIX and RenderDoc. "
+               "Turns on when RenderDoc is detected");
++  REX_SETTING(bool, pipeline_collection, false,
++              "Diagnostic pipeline collection without color/depth draws", kStartupOnly);
+   REX_SETTING(bool, bindless, true, "Use bindless resources where available", kRestart);
+   REX_SETTING(bool, readback_memexport, false,
+               "Read data written by memory export in shaders on the CPU");
+diff --git a/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.cpp b/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.cpp
+index 00d319b6..ad107605 100644
+--- a/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.cpp
++++ b/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.cpp
+@@ -44,7 +44,7 @@ void D3D12SubmissionTracker::Shutdown() {
+   }
+ }
+
+-bool D3D12SubmissionTracker::AwaitSubmissionCompletion(UINT64 submission_index) {
++bool D3D12SubmissionTracker::AwaitSubmissionCompletion(UINT64 submission_index, DWORD timeout_ms) {
+   if (!fence_ || !fence_completion_event_) {
+     return false;
+   }
+@@ -58,7 +58,7 @@ bool D3D12SubmissionTracker::AwaitSubmissionCompletion(UINT64 submission_index)
+     if (FAILED(fence_->SetEventOnCompletion(fence_value, fence_completion_event_))) {
+       return false;
+     }
+-    if (WaitForSingleObject(fence_completion_event_, INFINITE) != WAIT_OBJECT_0) {
++    if (WaitForSingleObject(fence_completion_event_, timeout_ms) != WAIT_OBJECT_0) {
+       return false;
      }
    }
-@@ -453,6 +456,29 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
- void TextureCache::RequestTextures(uint32_t used_texture_mask) {
-   const auto& regs = register_file();
- 
+diff --git a/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.h b/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.h
+index 08de7d04..31b4acc5 100644
+--- a/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.h
++++ b/src/gpu/xenos/host/d3d12/d3d12_submission_tracker.h
+@@ -55,9 +55,9 @@ class D3D12SubmissionTracker : public rex::NonCopyable {
+    *
+    * @param submission_index Submission to wait for, at most the current submission.
+    */
+-  bool AwaitSubmissionCompletion(UINT64 submission_index);
+-  bool AwaitAllSubmissionsCompletion() {
+-    return AwaitSubmissionCompletion(GetCurrentSubmission() - 1);
++  bool AwaitSubmissionCompletion(UINT64 submission_index, DWORD timeout_ms = INFINITE);
++  bool AwaitAllSubmissionsCompletion(DWORD timeout_ms = INFINITE) {
++    return AwaitSubmissionCompletion(GetCurrentSubmission() - 1, timeout_ms);
+   }
+
+   /**
+diff --git a/src/gpu/xenos/host/presenter.cpp b/src/gpu/xenos/host/presenter.cpp
+index 939c8fdd..efeb4ea9 100644
+--- a/src/gpu/xenos/host/presenter.cpp
++++ b/src/gpu/xenos/host/presenter.cpp
+@@ -12,6 +12,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <cctype>
++#include <chrono>
+ #include <utility>
+
+ #include <rex/assert.h>
+@@ -363,11 +364,17 @@ bool Presenter::InitializeCommonSurfaceIndependent() {
+   return true;
+ }
+
++bool Presenter::GetAppliedDither() const {
++  std::lock_guard lock(guest_output_paint_config_mutex_);
++  return guest_output_paint_config_.GetDither();
++}
++
+ std::unique_lock<std::mutex> Presenter::ConsumeGuestOutput(
+     u32& mailbox_index_or_max_if_inactive_out, GuestOutputProperties* properties_out,
+     GuestOutputPaintConfig* paint_config_out) {
+   if (paint_config_out) {
+     std::unique_lock<std::mutex> config_lock(guest_output_paint_config_mutex_);
++    guest_output_paint_config_ = BuildGuestOutputPaintConfig(driver_);
+     *paint_config_out = guest_output_paint_config_;
+   }
+
+@@ -838,6 +845,7 @@ void Presenter::WaitForUITickFromUIThread() {
+   }
+   std::unique_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
+   u64 last_vblank_before_wait = dxgi_ui_tick_last_vblank_;
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+   while (true) {
+     if (dxgi_ui_tick_force_requested_) {
+       dxgi_ui_tick_force_requested_ = false;
+@@ -851,7 +859,11 @@ void Presenter::WaitForUITickFromUIThread() {
+           std::min(last_vblank_before_wait + static_cast<u64>(1), dxgi_ui_tick_last_vblank_);
+       return;
+     }
+-    dxgi_ui_tick_signal_condition_.wait(dxgi_ui_tick_lock);
++    // Keep the UI responsive if the display stops delivering vblanks.
++    if (dxgi_ui_tick_signal_condition_.wait_until(dxgi_ui_tick_lock, deadline) ==
++        std::cv_status::timeout) {
++      return;
++    }
+   }
+ #endif  // REX_PLATFORM_WIN32
+ }
+@@ -860,6 +872,7 @@ void Presenter::ForceUIThreadPaintTick() {
+ #if REX_PLATFORM_WIN32
+   std::scoped_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
+   dxgi_ui_tick_force_requested_ = true;
++  dxgi_ui_tick_signal_condition_.notify_all();
+ #endif  // REX_PLATFORM_WIN32
+ }
+
+@@ -897,7 +910,7 @@ void Presenter::DXGIUITickThread() {
+     {
+       Microsoft::WRL::ComPtr<IDXGIOutput> dxgi_output = dxgi_ui_tick_output_;
+       dxgi_ui_tick_lock.unlock();
+-      wait_succeeded = SUCCEEDED(dxgi_ui_tick_output_->WaitForVBlank());
++      wait_succeeded = SUCCEEDED(dxgi_output->WaitForVBlank());
+     }
+     dxgi_ui_tick_lock.lock();
+     if (wait_succeeded) {
+diff --git a/src/gpu/xenos/host/presenter.h b/src/gpu/xenos/host/presenter.h
+index b7474260..b5c16308 100644
+--- a/src/gpu/xenos/host/presenter.h
++++ b/src/gpu/xenos/host/presenter.h
+@@ -11,6 +11,8 @@
+
+ #pragma once
+
++#include <rex/gpu/graphics_system.h>
++
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
+@@ -100,6 +102,12 @@ class REX_GPU_XENOS_API Presenter : public gpu::IPresenter {
+     bool& is_8bpc_out_ref_;
+   };
+
++  [[nodiscard]] virtual Result<GuestFrame> CaptureGuestFrame() {
++    return Err<GuestFrame>(ErrorCategory::kRuntime,
++                           "Guest output readback is unavailable for this backend");
++  }
++  bool GetAppliedDither() const;
++
+   class GuestOutputPaintConfig {
+    public:
+     bool GetAllowOverscanCutoff() const { return allow_overscan_cutoff_; }
+@@ -314,6 +322,14 @@ class REX_GPU_XENOS_API Presenter : public gpu::IPresenter {
+    * @param paint_config_out Receives a copy of the paint configuration.
+    * @return The consumer lock, with an inactive image reported as UINT32_MAX.
+    */
++  // The guest frontbuffer stores R10G10B10A2. Match its unorm to RGBA8 without dithering.
++  static void ConvertGuestPixel(u32 rgb10, u8* rgba) {
++    for (u32 channel = 0; channel < 3; ++channel) {
++      rgba[channel] = static_cast<u8>((((rgb10 >> (channel * 10)) & 0x3FF) * 255 + 511) / 1023);
++    }
++    rgba[3] = 255;
++  }
++
+   [[nodiscard]] std::unique_lock<std::mutex> ConsumeGuestOutput(
+       u32& mailbox_index_or_max_if_inactive_out, GuestOutputProperties* properties_out,
+       GuestOutputPaintConfig* paint_config_out);
+@@ -566,7 +582,7 @@ class REX_GPU_XENOS_API Presenter : public gpu::IPresenter {
+   /** UI thread only. Start of the previous paint, which spaces overlay only paints. */
+   std::chrono::steady_clock::time_point last_ui_thread_paint_start_;
+
+-  std::mutex guest_output_paint_config_mutex_;
++  mutable std::mutex guest_output_paint_config_mutex_;
+   /** Writable by the UI thread, read only for the guest output thread. */
+   GuestOutputPaintConfig guest_output_paint_config_;
+
+diff --git a/src/gpu/xenos/host/vulkan/vulkan_presenter.cpp b/src/gpu/xenos/host/vulkan/vulkan_presenter.cpp
+index 5645de16..191848c7 100644
+--- a/src/gpu/xenos/host/vulkan/vulkan_presenter.cpp
++++ b/src/gpu/xenos/host/vulkan/vulkan_presenter.cpp
+@@ -110,7 +110,43 @@ bool VulkanPresenter::PaintContext::Submission::Initialize() {
+   return true;
+ }
+
++struct VulkanPresenter::GuestOutputCapture {
++  explicit GuestOutputCapture(const VulkanDevice& gpu_device) : gpu_device(gpu_device) {}
++  ~GuestOutputCapture() {
++    const auto& funcs = gpu_device.GetFunctions();
++    const auto device = gpu_device.GetDevice();
++    if (submitted) {
++      funcs.vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
++    }
++    objects::DestroyAndNullHandle(funcs.vkDestroyFence, device, fence);
++    objects::DestroyAndNullHandle(funcs.vkDestroyCommandPool, device, pool);
++    objects::DestroyAndNullHandle(funcs.vkDestroyBuffer, device, buffer);
++    objects::DestroyAndNullHandle(funcs.vkFreeMemory, device, memory);
++  }
++
++  const VulkanDevice& gpu_device;
++  std::shared_ptr<GuestOutputImage> image;
++  VkCommandPool pool = VK_NULL_HANDLE;
++  VkBuffer buffer = VK_NULL_HANDLE;
++  VkDeviceMemory memory = VK_NULL_HANDLE;
++  VkFence fence = VK_NULL_HANDLE;
++  bool submitted = false;
++};
++
++VulkanPresenter::VulkanPresenter(Key, HostGPULossCallback host_gpu_loss_callback,
++                                 const XenosGraphicsDriverBase& driver,
++                                 const VulkanSettings& settings, const VulkanDevice* vulkan_device,
++                                 const UISamplerSet* ui_samplers)
++    : Presenter(std::move(host_gpu_loss_callback), driver), settings_(settings),
++      vulkan_device_(vulkan_device), ui_samplers_(ui_samplers),
++      guest_output_image_refresher_submission_tracker_(vulkan_device),
++      ui_submission_tracker_(vulkan_device), paint_context_(vulkan_device) {
++  REX_ASSERT(vulkan_device != nullptr);
++  REX_ASSERT(ui_samplers != nullptr);
++}
++
+ VulkanPresenter::~VulkanPresenter() {
++  pending_capture_.reset();
+   paint_context_.DestroySwapchainAndVulkanSurface();
+
+   ui_submission_tracker_.Shutdown();
+@@ -147,6 +183,134 @@ VulkanPresenter::~VulkanPresenter() {
+                                 guest_output_paint_image_descriptor_set_layout_);
+ }
+
++Result<GuestFrame> VulkanPresenter::CaptureGuestFrame() {
++  const auto& funcs = vulkan_device_->GetFunctions();
++  const auto device = vulkan_device_->GetDevice();
++  constexpr u64 kTimeoutNs = 1'500'000'000;
++  if (pending_capture_) {
++    const auto status =
++        funcs.vkWaitForFences(device, 1, &pending_capture_->fence, VK_TRUE, kTimeoutNs);
++    if (status != VK_SUCCESS && status != VK_ERROR_DEVICE_LOST) {
++      return Err<GuestFrame>(ErrorCategory::kRuntime,
++                             "The previous guest output copy is still pending");
++    }
++    pending_capture_->submitted = false;
++    pending_capture_.reset();
++  }
++
++  auto capture = std::make_unique<GuestOutputCapture>(*vulkan_device_);
++  {
++    u32 mailbox;
++    auto consumer_lock = ConsumeGuestOutput(mailbox, nullptr, nullptr);
++    if (mailbox != UINT32_MAX) {
++      capture->image = guest_output_images_[mailbox].image;
++    }
++  }
++  if (!capture->image) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "No guest output frame is available");
++  }
++
++  const auto extent = capture->image->GetExtent();
++  const size_t pixels = size_t(extent.width) * extent.height;
++  const u32 family = vulkan_device_->GetQueueFamilyGraphicsCompute();
++  VkCommandPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, nullptr,
++                                    VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, family};
++  if (!objects::CreateDedicatedAllocationBuffer(
++          vulkan_device_, pixels * sizeof(u32), VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++          objects::MemoryPurpose::kReadback, capture->buffer, capture->memory) ||
++      funcs.vkCreateCommandPool(device, &pool_info, nullptr, &capture->pool) != VK_SUCCESS) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not allocate guest output readback");
++  }
++
++  VkCommandBuffer commands;
++  VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr,
++                                         capture->pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1};
++  VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
++                                 VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr};
++  if (funcs.vkAllocateCommandBuffers(device, &allocation, &commands) != VK_SUCCESS ||
++      funcs.vkBeginCommandBuffer(commands, &begin) != VK_SUCCESS) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not begin guest output readback");
++  }
++
++  const VkImage image = capture->image->GetImage();
++  VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
++                               nullptr,
++                               kGuestOutputInternalAccessMask,
++                               VK_ACCESS_TRANSFER_READ_BIT,
++                               kGuestOutputInternalLayout,
++                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                               VK_QUEUE_FAMILY_IGNORED,
++                               VK_QUEUE_FAMILY_IGNORED,
++                               image,
++                               {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
++  funcs.vkCmdPipelineBarrier(commands, kGuestOutputInternalStageMask,
++                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
++                             &barrier);
++  VkBufferImageCopy region{};
++  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++  region.imageExtent = {extent.width, extent.height, 1};
++  funcs.vkCmdCopyImageToBuffer(commands, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                               capture->buffer, 1, &region);
++  const VkBufferMemoryBarrier host_read{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
++                                        nullptr,
++                                        VK_ACCESS_TRANSFER_WRITE_BIT,
++                                        VK_ACCESS_HOST_READ_BIT,
++                                        VK_QUEUE_FAMILY_IGNORED,
++                                        VK_QUEUE_FAMILY_IGNORED,
++                                        capture->buffer,
++                                        0,
++                                        VK_WHOLE_SIZE};
++  std::swap(barrier.oldLayout, barrier.newLayout);
++  std::swap(barrier.srcAccessMask, barrier.dstAccessMask);
++  funcs.vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                             VK_PIPELINE_STAGE_HOST_BIT | kGuestOutputInternalStageMask, 0, 0,
++                             nullptr, 1, &host_read, 1, &barrier);
++
++  const VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0};
++  if (funcs.vkEndCommandBuffer(commands) != VK_SUCCESS ||
++      funcs.vkCreateFence(device, &fence_info, nullptr, &capture->fence) != VK_SUCCESS) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not record guest output readback");
++  }
++  VkSubmitInfo submit{};
++  submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
++  submit.commandBufferCount = 1;
++  submit.pCommandBuffers = &commands;
++  {
++    const auto queue = vulkan_device_->AcquireQueue(family, 0);
++    if (funcs.vkQueueSubmit(queue.GetQueue(), 1, &submit, capture->fence) != VK_SUCCESS) {
++      return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not submit guest output readback");
++    }
++  }
++  const auto status = funcs.vkWaitForFences(device, 1, &capture->fence, VK_TRUE, kTimeoutNs);
++  if (status != VK_SUCCESS) {
++    if (status != VK_ERROR_DEVICE_LOST) {
++      capture->submitted = true;
++      pending_capture_ = std::move(capture);
++    }
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not complete guest output readback");
++  }
++
++  GuestFrame frame{extent.width, extent.height, {}};
++  frame.rgba.resize(pixels * 4);
++  void* mapping = nullptr;
++  if (funcs.vkMapMemory(device, capture->memory, 0, VK_WHOLE_SIZE, 0, &mapping) != VK_SUCCESS) {
++    return Err<GuestFrame>(ErrorCategory::kRuntime, "Could not map guest output readback");
++  }
++  const VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, capture->memory,
++                                  0, VK_WHOLE_SIZE};
++  if (funcs.vkInvalidateMappedMemoryRanges(device, 1, &range) != VK_SUCCESS) {
++    funcs.vkUnmapMemory(device, capture->memory);
++    return Err<GuestFrame>(ErrorCategory::kRuntime,
++                           "Could not invalidate guest output readback cache");
++  }
++  const auto* values = static_cast<const u32*>(mapping);
++  for (size_t i = 0; i < pixels; ++i) {
++    ConvertGuestPixel(values[i], frame.rgba.data() + i * 4);
++  }
++  funcs.vkUnmapMemory(device, capture->memory);
++  return frame;
++}
++
+ gpu::Surface::TypeFlags VulkanPresenter::GetSurfaceTypesSupportedByInstance(
+     const VulkanInstance::Extensions& instance_extensions) {
+   if (!instance_extensions.ext_KHR_surface) {
+diff --git a/src/gpu/xenos/host/vulkan/vulkan_presenter.h b/src/gpu/xenos/host/vulkan/vulkan_presenter.h
+index 1b438d57..cf829901 100644
+--- a/src/gpu/xenos/host/vulkan/vulkan_presenter.h
++++ b/src/gpu/xenos/host/vulkan/vulkan_presenter.h
+@@ -65,33 +65,23 @@ class VulkanPresenter final : public Presenter {
+   struct Key {};
+
+  public:
+-  explicit VulkanPresenter(Key, HostGPULossCallback host_gpu_loss_callback,
+-                           const XenosGraphicsDriverBase& driver, const VulkanSettings& settings,
+-                           const VulkanDevice* vulkan_device, const UISamplerSet* ui_samplers)
+-      : Presenter(std::move(host_gpu_loss_callback), driver),
+-        settings_(settings),
+-        vulkan_device_(vulkan_device),
+-        ui_samplers_(ui_samplers),
+-        guest_output_image_refresher_submission_tracker_(vulkan_device),
+-        ui_submission_tracker_(vulkan_device),
+-        paint_context_(vulkan_device) {
+-    REX_ASSERT(vulkan_device != nullptr);
+-    REX_ASSERT(ui_samplers != nullptr);
+-  }
+-
+-  /** Maximum number of guest output image versions alive at once. */
+-  static constexpr size_t kMaxActiveGuestOutputImageVersions = kGuestOutputMailboxSize;
+-
+-  static constexpr VkFormat kGuestOutputFormat = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+-  /** Stage, access and layout in which the refresher acquires and releases the guest output. */
+-  static constexpr VkPipelineStageFlagBits kGuestOutputInternalStageMask =
+-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+-  static constexpr VkAccessFlags kGuestOutputInternalAccessMask = VK_ACCESS_SHADER_READ_BIT;
+-  static constexpr VkImageLayout kGuestOutputInternalLayout =
+-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+-
+-  /** The refresher callback must use the graphics and compute queue 0 of the device. */
+-  class VulkanGuestOutputRefreshContext final : public GuestOutputRefreshContext {
++   explicit VulkanPresenter(Key, HostGPULossCallback host_gpu_loss_callback,
++                            const XenosGraphicsDriverBase& driver, const VulkanSettings& settings,
++                            const VulkanDevice* vulkan_device, const UISamplerSet* ui_samplers);
++
++   /** Maximum number of guest output image versions alive at once. */
++   static constexpr size_t kMaxActiveGuestOutputImageVersions = kGuestOutputMailboxSize;
++
++   static constexpr VkFormat kGuestOutputFormat = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
++   /** Stage, access and layout in which the refresher acquires and releases the guest output. */
++   static constexpr VkPipelineStageFlagBits kGuestOutputInternalStageMask =
++       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
++   static constexpr VkAccessFlags kGuestOutputInternalAccessMask = VK_ACCESS_SHADER_READ_BIT;
++   static constexpr VkImageLayout kGuestOutputInternalLayout =
++       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++
++   /** The refresher callback must use the graphics and compute queue 0 of the device. */
++   class VulkanGuestOutputRefreshContext final : public GuestOutputRefreshContext {
+    public:
+     VulkanGuestOutputRefreshContext(bool& is_8bpc_out, VkImage image, VkImageView image_view,
+                                     u64 image_version, bool image_ever_written_previously)
+@@ -136,6 +126,7 @@ class VulkanPresenter final : public Presenter {
+    * vkQueuePresentKHR waits on.
+    */
+   ~VulkanPresenter();
++  [[nodiscard]] Result<GuestFrame> CaptureGuestFrame() override;
+
+   const VulkanDevice* GetVulkanDevice() const { return vulkan_device_; }
+
+@@ -427,6 +418,9 @@ class VulkanPresenter final : public Presenter {
+
+   /** Increases whenever a new guest output image is initialized, as a reused handle may differ. */
+   u64 guest_output_image_next_version_ = 0;
++  struct GuestOutputCapture;
++  std::unique_ptr<GuestOutputCapture> pending_capture_;
++
+   std::array<GuestOutputImageInstance, kGuestOutputMailboxSize> guest_output_images_;
+   VulkanSubmissionTracker guest_output_image_refresher_submission_tracker_;
+
+diff --git a/src/gpu/xenos/pipeline/texture/cache.cpp b/src/gpu/xenos/pipeline/texture/cache.cpp
+index 1afb4bc7..f6a49c72 100644
+--- a/src/gpu/xenos/pipeline/texture/cache.cpp
++++ b/src/gpu/xenos/pipeline/texture/cache.cpp
+@@ -24,6 +24,8 @@
+ #include <rex/logging/log_category.h>
+ #include <rex/math.h>
+ #include <rex/bit.h>
++#include <rex/gpu/graphics_system.h>
++#include <rex/platform/perf.h>
+
+ namespace rex::gpu {
+
+@@ -117,6 +119,7 @@ void TextureCache::CompletedSubmissionUpdated(u64 completed_submission_index) {
+     if (found_texture_it != textures_.end()) {
+       REX_ASSERT(found_texture_it->second.get() == texture);
+       textures_.erase(found_texture_it);
++      REX_PERF_INC("texture_cache_evictions");
+     }
+   }
+   if (destroyed_any) {
+@@ -261,6 +264,30 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+ void TextureCache::RequestTextures(u32 used_texture_mask) {
+   const auto& regs = GetRegisterFile();
+
 +  // Check resident UI textures too: changing the input device must refresh a cached binding.
 +  uint32_t replacement_mask = used_texture_mask, replacement_index;
 +  while (rex::bit_scan_forward(replacement_mask, &replacement_index)) {
@@ -973,34 +1691,43 @@ index 76f5600..99560a6 100644
 +    if (fetch.type != xenos::FetchConstantType::kTexture ||
 +        fetch.format != xenos::TextureFormat::k_DXT4_5 || !fetch.tiled) continue;
 +    TextureKey key;
-+    BindingInfoFromFetchConstant(fetch, key, nullptr);
++    GetTextureKeyFromFetchConstant(fetch, key, nullptr);
 +    if (key.is_valid && key.base_page && key.tiled &&
 +        key.format == xenos::TextureFormat::k_DXT4_5 &&
 +        key.GetWidth() == key.GetHeight() &&
 +        (key.GetWidth() == 128 || key.GetWidth() == 256)) {
-+      const auto address = key.base_page << 12;
++      const u32 address = u32(key.base_page) << 12;
 +      const auto size = key.GetGuestLayout().base.level_data_extent_bytes;
 +      // Host replacements need a GPU invalidation even when no CPU page watch is armed.
-+      if (system::UpdateTextureData(shared_memory().guest_memory(), address,
-+          key.GetWidth(), key.GetHeight(), uint32_t(key.format),
-+          size))
-+        shared_memory().MemoryInvalidationCallback(address, size, true);
++      if (UpdateTextureData(GetSharedMemory().GetMemory(), address,
++                            key.GetWidth(), key.GetHeight(), u32(key.format), size)) {
++        auto watch_lock = GetSharedMemory().AcquireLock();
++        GetSharedMemory().OnPhysicalWrite({address, size}, true);
++      }
 +    }
 +  }
 +
    if (texture_became_outdated_.exchange(false, std::memory_order_acquire)) {
-     // A texture has become outdated - make sure whether textures are outdated
-     // is rechecked in this draw and in subsequent ones to reload the new data
-@@ -663,6 +689,8 @@ TextureCache::Texture::Texture(TextureCache& texture_cache, const TextureKey& ke
+     ResetTextureBindings();
+   }
+@@ -451,11 +478,14 @@ TextureCache::Texture::Texture(TextureCache& texture_cache, const TextureKey& ke
  }
 
  TextureCache::Texture::~Texture() {
 +  // CPU invalidation callbacks can clear and recycle these watch handles.
-+  auto global_lock = texture_cache_.global_critical_region_.Acquire();
++  auto& memory = GetTextureCache().GetSharedMemory();
++  auto global_lock = memory.AcquireLock();
    if (mips_watch_handle_) {
-     texture_cache().shared_memory().UnwatchMemoryRange(mips_watch_handle_);
+-    GetTextureCache().GetSharedMemory().UnwatchMemoryRange(mips_watch_handle_);
++    memory.UnwatchMemoryRange(global_lock, mips_watch_handle_);
    }
-@@ -911,6 +939,10 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
+   if (base_watch_handle_) {
+-    GetTextureCache().GetSharedMemory().UnwatchMemoryRange(base_watch_handle_);
++    memory.UnwatchMemoryRange(global_lock, base_watch_handle_);
+   }
+
+   if (in_usage_list_) {
+@@ -689,6 +719,10 @@ void TextureCache::GetTextureKeyFromFetchConstant(const xenos::TextureFetch& fet
      case xenos::FetchConstantType::kTexture:
        break;
      case xenos::FetchConstantType::kInvalidTexture:
@@ -1008,33 +1735,43 @@ index 76f5600..99560a6 100644
 +      if (!fetch.base_address && !fetch.mip_address) {
 +        return;
 +      }
-       if (REXCVAR_GET(gpu_allow_invalid_fetch_constants)) {
+       if (settings_.allow_invalid_fetch_constants.Get()) {
          break;
        }
-@@ -1009,6 +1041,8 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
- 
- void TextureCache::UpdateTexturesTotalHostMemoryUsage(uint64_t add, uint64_t subtract) {
+@@ -785,6 +819,8 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
+
+ void TextureCache::UpdateTexturesTotalHostMemoryUsage(u64 add, u64 subtract) {
    textures_total_host_memory_usage_ = textures_total_host_memory_usage_ - subtract + add;
-+  PERF_counter_set(kTextureCacheMemoryMb,
++  REX_PERF_SET("texture_cache_memory_mb",
 +                   (textures_total_host_memory_usage_ + ((UINT32_C(1) << 20) - 1)) >> 20);
-   COUNT_profile_set(
+   REX_PROFILE_PLOT(
        "gpu/texture_cache/total_host_memory_usage_mb",
-       uint32_t((textures_total_host_memory_usage_ + ((UINT32_C(1) << 20) - 1)) >> 20));
-diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
-index ec0df7c..c787a72 100644
---- a/src/graphics/shared_memory.cpp
-+++ b/src/graphics/shared_memory.cpp
-@@ -254,6 +254,42 @@ void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool inv
+       static_cast<u32>((textures_total_host_memory_usage_ + ((UINT32_C(1) << 20) - 1)) >> 20));
+diff --git a/src/gpu/xenos/shared_memory.cpp b/src/gpu/xenos/shared_memory.cpp
+index 7db4abed..467ec297 100644
+--- a/src/gpu/xenos/shared_memory.cpp
++++ b/src/gpu/xenos/shared_memory.cpp
+@@ -206,8 +206,7 @@ SharedMemory::WatchHandle SharedMemory::WatchMemoryRange(const ScopeGuard&, u32
+   return reinterpret_cast<WatchHandle>(range);
+ }
+
+-void SharedMemory::UnwatchMemoryRange(WatchHandle handle) {
+-  auto lock = AcquireLock();
++void SharedMemory::UnwatchMemoryRange(const ScopeGuard&, WatchHandle handle) {
+   UnlinkWatchRange(reinterpret_cast<WatchRange*>(handle));
+ }
+
+@@ -242,6 +241,43 @@ void SharedMemory::FireWatchesLocked(u32 page_first, u32 page_last, bool invalid
    }
  }
- 
+
 +// A completely read-back page can be reconstructed from guest memory after invalidation.
 +void SharedMemory::MarkReadbackPagesCpuBacked(uint32_t start, uint32_t length) {
 +  if (start >= kBufferSize || length > kBufferSize - start) {
 +    return;
 +  }
 +  const uint32_t page_mask = (1u << page_size_log2_) - 1;
-+  auto lock = global_critical_region_.Acquire();
++  auto lock = AcquireLock();
 +  for (uint32_t page = (start + page_mask) >> page_size_log2_;
 +       page < (start + length) >> page_size_log2_; ++page) {
 +    system_page_flags_valid_and_gpu_written_[page >> 6] &= ~(uint64_t(1) << (page & 63));
@@ -1047,10 +1784,7 @@ index ec0df7c..c787a72 100644
 +      (source < destination + length && destination < source + length)) {
 +    return false;
 +  }
-+  if (!memory_invalidation_callback_handle_) {
-+    return false;
-+  }
-+  auto lock = global_critical_region_.Acquire();
++  auto lock = AcquireLock();
 +  for (uint32_t page = source >> page_size_log2_; page <= (source + length - 1) >> page_size_log2_;
 +       ++page) {
 +    const auto mask = uint64_t(1) << (page & 63);
@@ -1059,718 +1793,245 @@ index ec0df7c..c787a72 100644
 +      return false;
 +    }
 +  }
-+  std::memcpy(memory().TranslatePhysical(destination), memory().TranslatePhysical(source), length);
-+  MarkReadbackPagesCpuBacked(destination, length);
++  auto src = physical_memory_.GetReadOnlyPhysicalSpan({source, length});
++  auto dst = physical_memory_.GetWritablePhysicalSpan({destination, length});
++  if (!src || !dst) {
++    return false;
++  }
++  std::memcpy(dst->data(), src->data(), length);
 +  return true;
 +}
 +
- void SharedMemory::RangeWrittenByGpu(uint32_t start, uint32_t length) {
+ void SharedMemory::RangeWrittenByGPU(u32 start, u32 length) {
    if (length == 0 || start >= kBufferSize) {
      return;
-diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
-index 40740ee..867eb1f 100644
---- a/src/input/input_system.cpp
-+++ b/src/input/input_system.cpp
-@@ -47,12 +47,17 @@ namespace {
- // a real pad off guest user 0. SlotAssignment routes them by their synthetic
- // flag and never reads this value.
- constexpr uint32_t kSyntheticOrdinal = UINT32_MAX;
-+std::atomic<int> active_input_source{-1};
- 
- // XN_SYS_INPUTDEVICESCHANGED
- constexpr uint32_t kXNotificationSystemInputDevicesChanged = 0x00000012;
- 
- }  // namespace
- 
-+void NotifyInputActivity(bool keyboard) {
-+  active_input_source.store(keyboard ? 1 : 0, std::memory_order_relaxed);
-+}
+diff --git a/src/gpu/xenos/shared_memory.h b/src/gpu/xenos/shared_memory.h
+index 7ff20e23..f94026eb 100644
+--- a/src/gpu/xenos/shared_memory.h
++++ b/src/gpu/xenos/shared_memory.h
+@@ -76,8 +76,10 @@ class REX_GPU_XENOS_API SharedMemory : public rex::NonCopyable, public IPhysical
+    * Takes the memory watch lock that guards page validity, watches and the texture state that
+    * watch callbacks update.
+    */
 +
- InputSystem::InputSystem(rex::ui::Window* window) : window_(window) {}
- 
- InputSystem::~InputSystem() = default;
-@@ -62,6 +67,7 @@ X_STATUS InputSystem::Setup() {
- }
- 
- void InputSystem::Shutdown() {
-+  std::lock_guard lock(devices_mutex_);
-   // device_owners_ holds raw driver pointers.
-   devices_.clear();
-   device_owners_.clear();
-@@ -69,10 +75,12 @@ void InputSystem::Shutdown() {
- }
- 
- void InputSystem::AddDriver(std::unique_ptr<InputDriver> driver) {
-+  std::lock_guard lock(devices_mutex_);
-   drivers_.push_back(std::move(driver));
- }
- 
- void InputSystem::AttachWindow(rex::ui::Window* window) {
-+  std::lock_guard lock(devices_mutex_);
-   window_ = window;
-   for (auto& driver : drivers_) {
-     driver->OnWindowAvailable(window);
-@@ -80,12 +88,14 @@ void InputSystem::AttachWindow(rex::ui::Window* window) {
- }
- 
- void InputSystem::SetActiveCallback(std::function<bool()> callback) {
-+  std::lock_guard lock(devices_mutex_);
-   for (auto& driver : drivers_) {
-     driver->set_is_active_callback(callback);
-   }
- }
- 
- void InputSystem::SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignment) {
-+  std::lock_guard lock(devices_mutex_);
-   assignment_ = std::move(assignment);
-   if (assignment_) {
-     assignment_->OnDevicesChanged(devices_);
-@@ -218,6 +228,7 @@ DeviceId InputSystem::ChooseDeviceForUser(uint32_t user_index) const {
- 
- X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
-                                       X_INPUT_CAPABILITIES* out_caps) {
-+  std::lock_guard lock(devices_mutex_);
-   SCOPE_profile_cpu_f("hid");
-   if (!out_caps || !assignment_) {
-     return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -252,6 +263,8 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
-   if (!connected) {
-     user_max_joystick_value_[user_index] = {};
-     consumed_buttons_[user_index] = 0;
-+    consumed_left_trigger_[user_index] = false;
-+    consumed_right_trigger_[user_index] = false;
-     return;
-   }
+   ScopeGuard AcquireLock() const { return write_watch_.LockWriteWatches(); }
+-  void UnwatchMemoryRange(WatchHandle handle);
++  void UnwatchMemoryRange(const ScopeGuard& lock, WatchHandle handle);
++  IPhysicalMemory& GetMemory() const { return physical_memory_; }
 
-@@ -270,6 +283,7 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
- }
- 
- X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
-+  std::lock_guard lock(devices_mutex_);
-   SCOPE_profile_cpu_f("hid");
- 
-   // A dialog owns the controller.
-@@ -280,20 +294,38 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
-     return X_ERROR_SUCCESS;
-   }
- 
--  X_RESULT result = GetStateForUI(user_index, out_state);
-+  if (out_state && user_index < kMaxGuestUsers &&
-+      (consumed_buttons_[user_index] || consumed_left_trigger_[user_index] ||
-+       consumed_right_trigger_[user_index])) {
-+    X_INPUT_STATE state = {};
-+    // Confirm physical releases before reading the guest sample, which capture may mute.
-+    if (GetStateForUI(user_index, &state) == X_ERROR_SUCCESS) {
-+      consumed_buttons_[user_index] &= static_cast<uint16_t>(state.gamepad.buttons);
-+      consumed_left_trigger_[user_index] &= state.gamepad.left_trigger >= kTriggerThreshold;
-+      consumed_right_trigger_[user_index] &= state.gamepad.right_trigger >= kTriggerThreshold;
-+    }
-+  }
-+
-+  X_RESULT result = ReadState(user_index, out_state, false);
- 
--  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers &&
--      consumed_buttons_[user_index] != 0) {
-+  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers) {
-     const uint16_t buttons = out_state->gamepad.buttons;
--    // Each button leaves the mask once the player lets go of it.
--    consumed_buttons_[user_index] &= buttons;
-     out_state->gamepad.buttons = static_cast<uint16_t>(buttons & ~consumed_buttons_[user_index]);
-+    if (consumed_left_trigger_[user_index])
-+      out_state->gamepad.left_trigger = 0;
-+    if (consumed_right_trigger_[user_index])
-+      out_state->gamepad.right_trigger = 0;
-   }
+   /**
+    * Uploads new data for ranges that changed and makes the host GPU memory backing them resident.
+@@ -104,6 +106,8 @@ class REX_GPU_XENOS_API SharedMemory : public rex::NonCopyable, public IPhysical
+    * loaded into the parts of touched pages that the writes leave intact.
+    */
+   void RangeWrittenByGPU(u32 start, u32 length);
++  void MarkReadbackPagesCpuBacked(uint32_t start, uint32_t length);
++  bool TryMirrorCpuBackedCopy(uint32_t source, uint32_t destination, uint32_t length);
 
-   return result;
- }
- 
- X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_state) {
-+  return ReadState(user_index, out_state, true);
-+}
-+
-+X_RESULT InputSystem::ReadState(uint32_t user_index, X_INPUT_STATE* out_state, bool for_ui) {
-+  std::lock_guard lock(devices_mutex_);
-   SCOPE_profile_cpu_f("hid");
-   if (!assignment_) {
-     return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -311,10 +343,16 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
-       continue;
-     }
-     X_INPUT_STATE state = {};
--    if (driver->GetDeviceState(id, &state) != X_ERROR_SUCCESS) {
-+    const auto result = for_ui ? driver->GetDeviceStateForUI(id, &state)
-+                               : driver->GetDeviceState(id, &state);
-+    if (result != X_ERROR_SUCCESS) {
-       continue;
-     }
--    active_devices_.Observe(user_index, id, state.gamepad);
-+    const auto* info = DeviceInfoFor(id);
-+    const bool synthetic = info && info->synthetic;
-+    if (active_devices_.Observe(user_index, id, state.gamepad, synthetic) &&
-+        !driver->ReportsInputActivity())
-+      NotifyInputActivity(synthetic);
-     if (!any) {
-       merged = state;
-       any = true;
-@@ -338,17 +376,25 @@ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_stat
-   return X_ERROR_SUCCESS;
- }
- 
-+bool InputSystem::IsKeyboardActive() const {
-+  const int source = active_input_source.load(std::memory_order_relaxed);
-+  return source < 0 ? rex::cvar::Query<bool>("mnk_mode") : source != 0;
-+}
-+
- void InputSystem::AddUIInputBlocker() {
-   ui_input_blockers_.fetch_add(1);
- }
- 
- void InputSystem::RemoveUIInputBlocker() {
-+  std::lock_guard lock(devices_mutex_);
-   // Whatever is held right now stays masked until released, so the press that
-   // dismissed the dialog is not also read as a press in the game.
-   X_INPUT_STATE state = {};
-   for (uint32_t user_index = 0; user_index < kMaxGuestUsers; user_index++) {
-     if (GetStateForUI(user_index, &state) == X_ERROR_SUCCESS) {
-       consumed_buttons_[user_index] |= static_cast<uint16_t>(state.gamepad.buttons);
-+      consumed_left_trigger_[user_index] |= state.gamepad.left_trigger >= kTriggerThreshold;
-+      consumed_right_trigger_[user_index] |= state.gamepad.right_trigger >= kTriggerThreshold;
-     }
-   }
+  protected:
+   SharedMemory(IPhysicalMemory& memory, IPhysicalWriteWatch& watch);
+@@ -117,8 +121,6 @@ class REX_GPU_XENOS_API SharedMemory : public rex::NonCopyable, public IPhysical
+   static constexpr u32 kHostGPUMemoryOptimalSparseAllocationLog2 = 22;
+   static_assert(kHostGPUMemoryOptimalSparseAllocationLog2 <= kBufferSizeLog2);
 
-@@ -360,6 +406,7 @@ bool InputSystem::GetVibrationEnabled() const {
- }
- 
- void InputSystem::ToggleVibration() {
-+  std::lock_guard lock(devices_mutex_);
-   REXCVAR_SET(vibration, !REXCVAR_GET(vibration));
-   // The guest's next SetState may never come while a motor is running.
-   X_INPUT_VIBRATION silence = {};
-@@ -376,14 +423,18 @@ void InputSystem::AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gam
-   // Radial: the cutoff follows the stick's angle, so a diagonal is not held to
-   // a larger displacement than a cardinal push.
-   auto apply = [](double percentage, const JoystickValue& max, int16_t& axis_x, int16_t& axis_y) {
--    if (percentage <= 0.0 || percentage >= 1.0) {
-+    if (percentage <= 0.0) {
-+      return;
-+    }
-+    if (percentage >= 1.0) {
-+      axis_x = axis_y = 0;
-       return;
-     }
-     const double deadzone_x = max.first * percentage;
-     const double deadzone_y = max.second * percentage;
-     const double theta = std::atan2(static_cast<double>(axis_y), static_cast<double>(axis_x));
--    const double cutoff_x = std::cos(theta) * deadzone_x;
--    const double cutoff_y = std::sin(theta) * deadzone_y;
-+    const double cutoff_x = std::abs(std::cos(theta) * deadzone_x);
-+    const double cutoff_y = std::abs(std::sin(theta) * deadzone_y);
-     if (axis_x > -cutoff_x && axis_x < cutoff_x) {
-       axis_x = 0;
-     }
-@@ -416,6 +467,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
- }
- 
- X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
-+  std::lock_guard lock(devices_mutex_);
-   SCOPE_profile_cpu_f("hid");
-   if (!assignment_ || !vibration) {
-     return X_ERROR_DEVICE_NOT_CONNECTED;
-@@ -461,6 +513,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
- 
- X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
-                                    X_INPUT_KEYSTROKE* out_keystroke) {
-+  std::lock_guard lock(devices_mutex_);
-   SCOPE_profile_cpu_f("hid");
-   if (!assignment_) {
-     return X_ERROR_DEVICE_NOT_CONNECTED;
-diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
-index 3d2c378..32e60a9 100644
---- a/src/input/mnk/mnk_input_driver.cpp
-+++ b/src/input/mnk/mnk_input_driver.cpp
-@@ -27,8 +27,13 @@ REXCVAR_DEFINE_BOOL(mnk_mode, false, "Input", "Enable keyboard/mouse controller
- REXCVAR_DEFINE_BOOL(mnk_mouse, false, "Input",
-                     "Use the mouse for the right stick. Off means the right stick comes "
-                     "from the keybind_rstick_* keys only");
-+REXCVAR_DEFINE_BOOL(mnk_gameplay_modifiers, false, "Input",
-+                    "Keep movement active with modifiers and prefer explicit key chords");
- REXCVAR_DEFINE_DOUBLE(mnk_sensitivity, 1.0, "Input", "Mouse sensitivity for right stick")
--    .range(0.01, 10.0);
-+    .range(0.01, 50.0);
-+REXCVAR_DEFINE_DOUBLE(mnk_mouse_deadzone, 0.0, "Input",
-+                      "Mouse-only compensation for the game's stick deadzone")
-+    .range(0.0, 0.95);
- 
- REXCVAR_DEFINE_STRING(keybind_a, "Semicolon,Space", "Input/Keybinds/Controller", "A button");
- REXCVAR_DEFINE_STRING(keybind_b, "Quote,Backspace", "Input/Keybinds/Controller", "B button");
-@@ -77,9 +82,8 @@ constexpr size_t kMaxQueuedKeystrokes = 256;
- // Bind values are a comma-separated list of alternatives, each optionally
- // carrying modifier prefixes: "Q,I" or "Shift+W". Modifier matching is exact,
- // so "Up" stays silent while Shift is held and "Shift+Up" stays silent without
--// it. That is what lets the D-pad share the arrow keys. A consequence is
--// that binding a bare modifier name ("Shift") can never fire, since holding it
--// makes the live mask non-zero while the bind wants zero.
-+// it. Gameplay modifier mode instead keeps unrelated bare keys active and
-+// reserves keys with matching explicit chords for the chord's action.
- constexpr uint8_t kModShift = 1u << 0;
- constexpr uint8_t kModCtrl = 1u << 1;
- constexpr uint8_t kModAlt = 1u << 2;
-@@ -131,18 +135,7 @@ std::string_view TrimSpaces(std::string_view s) {
-   return s;
- }
- 
--bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
--  uint8_t want = TakeModifiers(token);
--  if (want != live_mods) {
--    return false;
--  }
--  rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
--  if (vk == rex::ui::VirtualKey::kNone) {
--    return false;
--  }
--  uint16_t idx = static_cast<uint16_t>(vk);
--  return idx < 256 && key_down[idx];
--}
-+bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods);
- 
- std::atomic<bool> mouse_look_active{true};
- 
-@@ -297,6 +290,30 @@ std::array<PadBind, 24> PadBinds() {
-   }};
- }
- 
-+bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
-+  const uint8_t want = TakeModifiers(token);
-+  const auto vk = rex::ui::ParseVirtualKey(token);
-+  const auto idx = static_cast<uint16_t>(vk);
-+  if (vk == VirtualKey::kNone || idx >= 256 || !key_down[idx]) return false;
-+  if (!REXCVAR_GET(mnk_gameplay_modifiers)) return want == live_mods;
-+  if (want) return (live_mods & want) == want;
-+  // Alt shortcuts belong to the window, not to gameplay.
-+  if (live_mods & kModAlt) return false;
-+  if (!live_mods) return true;
-+  for (const auto& bind : PadBinds()) {
-+    std::string_view rest(bind.keys);
-+    while (!rest.empty()) {
-+      const auto comma = rest.find(',');
-+      auto chord = TrimSpaces(rest.substr(0, comma));
-+      rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
-+      const auto mods = TakeModifiers(chord);
-+      if (mods && (live_mods & mods) == mods && rex::ui::ParseVirtualKey(chord) == vk)
-+        return false;
-+    }
-+  }
-+  return true;
-+}
-+
- }  // namespace
- 
- void SetMouseLookActive(bool active) {
-@@ -441,6 +458,10 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
-                           has_focus_ && is_active());
- 
-   if (!is_active() || !has_focus_) {
-+    std::lock_guard lock(state_mutex_);
-+    mouse_dx_ = mouse_dy_ = 0.0f;
-+    mouse_stick_x_ = mouse_stick_y_ = 0;
-+    mouse_sample_time_ = {};
-     if (out_state) {
-       std::memset(out_state, 0, sizeof(*out_state));
-       out_state->packet_number = packet_number_;
-@@ -508,16 +529,32 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
-     ry -= INT16_MAX;
- 
-   if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {
--    double sensitivity = REXCVAR_GET(mnk_sensitivity);
--    constexpr double kBaseScale = 200.0;
--    rx += static_cast<int32_t>(double(mouse_dx_) * sensitivity * kBaseScale);
--    ry += static_cast<int32_t>(double(-mouse_dy_) * sensitivity * kBaseScale);
--  }
--  // Drained unconditionally: deltas keep accumulating in OnMouseMove while the
--  // mouse is off, and toggling it on would otherwise dump the whole backlog
--  // into one frame as a camera snap.
--  mouse_dx_ = 0.0f;
--  mouse_dy_ = 0.0f;
-+    const auto now = std::chrono::steady_clock::now();
-+    const bool first = mouse_sample_time_ == std::chrono::steady_clock::time_point{};
-+    const double elapsed = first ? 1.0 / 60.0
-+        : std::chrono::duration<double>(now - mouse_sample_time_).count();
-+    if (elapsed >= 1.0 / 60.0) {
-+      const double scale = REXCVAR_GET(mnk_sensitivity) * 200.0 / (elapsed * 60.0);
-+      const double deadzone = REXCVAR_GET(mnk_mouse_deadzone);
-+      const auto axis = [scale, deadzone](float delta) -> int32_t {
-+        if (delta == 0.0f) return 0;
-+        const double magnitude = std::min(std::abs(double(delta) * scale), 32767.0);
-+        return static_cast<int32_t>(std::copysign(
-+            deadzone * 32767.0 + (1.0 - deadzone) * magnitude, delta));
-+      };
-+      mouse_stick_x_ = axis(mouse_dx_);
-+      mouse_stick_y_ = axis(-mouse_dy_);
-+      mouse_dx_ = mouse_dy_ = 0.0f;
-+      mouse_sample_time_ = now;
-+    }
-+    // UI and guest polling must see the same sample instead of consuming each other's motion.
-+    rx += mouse_stick_x_;
-+    ry += mouse_stick_y_;
-+  } else {
-+    mouse_dx_ = mouse_dy_ = 0.0f;
-+    mouse_stick_x_ = mouse_stick_y_ = 0;
-+    mouse_sample_time_ = {};
-+  }
- 
-   auto clamp16 = [](int32_t v) -> int16_t {
-     return static_cast<int16_t>(std::clamp(v, (int32_t)INT16_MIN, (int32_t)INT16_MAX));
-@@ -721,6 +758,7 @@ void MnkInputDriver::OnKeyDown(rex::ui::KeyEvent& e) {
-     return;
-   }
-   uint16_t vk = static_cast<uint16_t>(e.virtual_key());
-+  if (vk < 256 && !key_down_[vk]) NotifyInputActivity(true);
-   SetKeyState(vk, true);
-   RefreshBoundKeystrokesLocked();
- }
-@@ -760,6 +798,7 @@ void MnkInputDriver::OnMouseDown(rex::ui::MouseEvent& e) {
-   if (!IsEnabled() || !has_focus_)
-     return;
-   std::lock_guard lock(state_mutex_);
-+  NotifyInputActivity(true);
-   switch (e.button()) {
-     case rex::ui::MouseEvent::Button::kLeft:
-       SetKeyState(static_cast<uint16_t>(VirtualKey::kLButton), true);
-@@ -804,16 +843,20 @@ void MnkInputDriver::OnMouseMove(rex::ui::MouseEvent& e) {
-   {
-     std::lock_guard lock(state_mutex_);
-     if (relative_mouse_mode_) {
-+      if (e.dx() != 0 || e.dy() != 0) NotifyInputActivity(true);
-       // The pointer is locked, so the absolute position no longer moves.
-       mouse_dx_ += e.dx();
-       mouse_dy_ += e.dy();
-     } else {
-+      if (mouse_position_known_ && (x != prev_mouse_x_ || y != prev_mouse_y_))
-+        NotifyInputActivity(true);
-       mouse_dx_ += float(x - prev_mouse_x_);
-       mouse_dy_ += float(y - prev_mouse_y_);
-     }
-   }
-   prev_mouse_x_ = x;
-   prev_mouse_y_ = y;
-+  mouse_position_known_ = true;
-   // Without a pointer lock the cursor still has to be kept off the edges.
-   if (mouse_captured_ && !relative_mouse_mode_) {
-     RecenterCursorFromUIThread(x, y);
-@@ -832,6 +875,8 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
-     RefreshBoundKeystrokesLocked();
-     mouse_dx_ = 0.0f;
-     mouse_dy_ = 0.0f;
-+    mouse_stick_x_ = mouse_stick_y_ = 0;
-+    mouse_sample_time_ = {};
-   }
-   if (attached_window_) {
-     ReleaseMouseCaptureFromUIThread(attached_window_);
-@@ -840,6 +885,7 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
- 
- void MnkInputDriver::OnGotFocus(rex::ui::UISetupEvent&) {
-   has_focus_ = true;
-+  mouse_position_known_ = false;
- }
- 
- }  // namespace rex::input::mnk
-diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
-index 57f65c4..7692074 100644
---- a/src/input/sdl/sdl_input_driver.cpp
-+++ b/src/input/sdl/sdl_input_driver.cpp
-@@ -20,6 +20,7 @@
- #include <rex/cvar.h>
- #include <rex/input/flags.h>
- #include <rex/input/sdl/sdl_input_driver.h>
-+
- #include <rex/logging.h>
- #include <rex/ui/virtual_key.h>
- 
-@@ -316,9 +317,16 @@ X_RESULT SDLInputDriver::GetDeviceCapabilities(DeviceId id, uint32_t flags,
- }
- 
- X_RESULT SDLInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
--  assert(sdl_events_initialized_ && SDL_Gamepad_initialized_);
-+  return ReadState(id, out_state, is_active());
-+}
- 
--  auto is_active = this->is_active();
-+X_RESULT SDLInputDriver::GetDeviceStateForUI(DeviceId id, X_INPUT_STATE* out_state) {
-+  // ImGui capture blocks gameplay, but the focused dialog still needs the pad.
-+  return ReadState(id, out_state, !attached_window_ || attached_window_->HasFocus());
-+}
-+
-+X_RESULT SDLInputDriver::ReadState(DeviceId id, X_INPUT_STATE* out_state, bool is_active) {
-+  assert(sdl_events_initialized_ && SDL_Gamepad_initialized_);
- 
-   if (is_active) {
-     QueueControllerUpdate();
-@@ -528,6 +536,21 @@ void SDLInputDriver::HandleEvent(const SDL_Event& event) {
-   // This breaks the lock ordering inversion between controllers_mutex_ and
-   // SDL's internal joystick lock that caused deadlocks.
-   std::lock_guard<std::mutex> guard(event_queue_mutex_);
-+  if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) NotifyInputActivity(false);
-+  if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
-+    const auto axis = static_cast<DeviceId>((uint64_t(event.gaxis.which) << 8) |
-+                                            (event.gaxis.axis + 1));
-+    X_INPUT_GAMEPAD motion{};
-+    if (event.gaxis.axis >= SDL_GAMEPAD_AXIS_LEFT_TRIGGER)
-+      motion.left_trigger = uint8_t(std::max(0, int(event.gaxis.value)) >> 7);
-+    else
-+      motion.thumb_lx = event.gaxis.value;
-+    if (activity_axes_.Observe(0, axis, motion)) NotifyInputActivity(false);
-+  }
-+  if (event.type == SDL_EVENT_GAMEPAD_REMOVED) {
-+    for (unsigned axis = 1; axis <= 6; ++axis)
-+      activity_axes_.Forget(static_cast<DeviceId>((uint64_t(event.gdevice.which) << 8) | axis));
-+  }
-   pending_events_.push_back(event);
- }
- 
-diff --git a/src/input/state_merge.cpp b/src/input/state_merge.cpp
-index d33884e..a8a37f0 100644
---- a/src/input/state_merge.cpp
-+++ b/src/input/state_merge.cpp
-@@ -54,12 +54,33 @@ bool IsNeutral(const X_INPUT_GAMEPAD& gamepad) {
-          !PastDeadzone(gamepad.thumb_rx) && !PastDeadzone(gamepad.thumb_ry);
- }
- 
--void ActiveDeviceTracker::Observe(uint32_t user_index, DeviceId id,
--                                  const X_INPUT_GAMEPAD& gamepad) {
--  if (user_index >= kMaxGuestUsers || IsNeutral(gamepad)) {
--    return;
--  }
--  active_[user_index] = id;
-+bool ActiveDeviceTracker::Observe(uint32_t user_index, DeviceId id,
-+                                  const X_INPUT_GAMEPAD& gamepad, bool synthetic) {
-+  if (user_index >= kMaxGuestUsers) return false;
-+  auto& previous = previous_[user_index][id];
-+  const auto neutral = [synthetic](const X_INPUT_GAMEPAD& pad) {
-+    return IsNeutral(pad) && (!synthetic ||
-+        (!pad.thumb_lx && !pad.thumb_ly && !pad.thumb_rx && !pad.thumb_ry));
-+  };
-+  const auto axis_changed = [synthetic](int16_t current, int16_t before) {
-+    return std::abs(int(current)) >= (synthetic ? 1 : kThumbDeadzone) &&
-+           std::abs(int(current) - int(before)) > (synthetic ? 0 : 2048);
-+  };
-+  const bool changed =
-+      (uint16_t(gamepad.buttons) & ~uint16_t(previous.buttons)) ||
-+      (gamepad.left_trigger >= kTriggerThreshold &&
-+       std::abs(int(gamepad.left_trigger) - int(previous.left_trigger)) >= kTriggerThreshold) ||
-+      (gamepad.right_trigger >= kTriggerThreshold &&
-+       std::abs(int(gamepad.right_trigger) - int(previous.right_trigger)) >= kTriggerThreshold) ||
-+      axis_changed(gamepad.thumb_lx, previous.thumb_lx) ||
-+      axis_changed(gamepad.thumb_ly, previous.thumb_ly) ||
-+      axis_changed(gamepad.thumb_rx, previous.thumb_rx) ||
-+      axis_changed(gamepad.thumb_ry, previous.thumb_ry);
-+  const bool activity = !neutral(gamepad) && (neutral(previous) || changed);
-+  if (activity) active_[user_index] = id;
-+  if (changed || neutral(gamepad)) previous = gamepad;
-+  previous.buttons = gamepad.buttons;
-+  return activity;
- }
- 
- DeviceId ActiveDeviceTracker::Active(uint32_t user_index) const {
-@@ -70,6 +91,7 @@ DeviceId ActiveDeviceTracker::Active(uint32_t user_index) const {
- }
- 
- void ActiveDeviceTracker::Forget(DeviceId id) {
-+  for (auto& previous : previous_) previous.erase(id);
-   for (auto& active : active_) {
-     if (active == id) {
-       active = DeviceId::kInvalid;
-diff --git a/src/system/gpu_plugin_loader.cpp b/src/system/gpu_plugin_loader.cpp
-index 754fa13..6f56f1b 100644
---- a/src/system/gpu_plugin_loader.cpp
-+++ b/src/system/gpu_plugin_loader.cpp
-@@ -12,6 +12,8 @@
- #include <rex/system/gpu_plugin.h>
- 
- #include <filesystem>
-+#include <atomic>
-+#include <cstring>
- #include <string>
- #include <vector>
- 
-@@ -19,6 +21,7 @@
- 
- #include <rex/filesystem.h>
- #include <rex/logging.h>
-+#include <rex/memory.h>
- #include <rex/platform.h>
- #include <rex/platform/dynlib.h>
- 
-@@ -26,6 +29,8 @@ namespace rex::system {
- 
- namespace {
- 
-+std::atomic<std::shared_ptr<const TextureDataCallback>> texture_data_callback;
-+
- // Plugin binaries follow the SDK's per-config postfix convention; this TU is
- // part of rexruntime, so REXGLUE_BUILD_CONFIG matches the plugin's config.
- std::string PluginFileName(std::string_view name) {
-@@ -54,6 +59,24 @@ std::vector<platform::DynamicLibrary>& LoadedPlugins() {
- 
- }  // namespace
- 
-+void SetTextureDataCallback(TextureDataCallback callback) {
-+  texture_data_callback.store(callback
-+      ? std::make_shared<const TextureDataCallback>(std::move(callback)) : nullptr);
-+}
-+
-+bool UpdateTextureData(memory::Memory& memory, uint32_t address, uint32_t width,
-+                       uint32_t height, uint32_t format, uint32_t size) {
-+  auto callback = texture_data_callback.load();
-+  if (!callback || address >= 0x20000000 || size > 0x20000000 - address) return false;
-+  std::span<uint8_t> data(memory.TranslatePhysical(address), size);
-+  auto replacement = (*callback)(width, height, format, data);
-+  if (replacement.empty() || replacement.size() != size) return false;
-+  memory.TriggerPhysicalMemoryCallbacks(thread::global_critical_region::AcquireDirect(),
-+      0xA0000000 | address, size, true, true);
-+  std::memcpy(data.data(), replacement.data(), size);
-+  return true;
-+}
-+
- std::unique_ptr<IGraphicsSystem> LoadGpuPlugin(std::string_view name, std::string_view backend) {
-   auto path = rex::filesystem::GetExecutableFolder() / PluginFileName(name);
-   if (!std::filesystem::exists(path)) {
-diff --git a/src/ui/d3d12/d3d12_provider.cpp b/src/ui/d3d12/d3d12_provider.cpp
-index bf8252b..c4b202e 100644
---- a/src/ui/d3d12/d3d12_provider.cpp
-+++ b/src/ui/d3d12/d3d12_provider.cpp
-@@ -234,6 +234,13 @@ bool D3D12Provider::Initialize() {
-       if (SUCCEEDED(pfn_d3d12_get_debug_interface_(IID_PPV_ARGS(&dred_settings)))) {
-         dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-         dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-+        Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> context_settings;
-+        if (SUCCEEDED(dred_settings.As(&context_settings))) {
-+          context_settings->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-+          REXLOG_INFO("DRED breadcrumb contexts enabled");
-+        } else {
-+          REXLOG_WARN("DRED breadcrumb contexts are unavailable");
-+        }
-         REXLOG_INFO("DRED (Device Removed Extended Data) enabled");
-       } else {
-         REXLOG_WARN(
-diff --git a/src/ui/imgui_drawer.cpp b/src/ui/imgui_drawer.cpp
-index f270f3c..ae1f1b4 100644
---- a/src/ui/imgui_drawer.cpp
-+++ b/src/ui/imgui_drawer.cpp
-@@ -9,6 +9,7 @@
-  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+-  IPhysicalMemory& GetMemory() const { return physical_memory_; }
+-
+   u32 GetPageSizeLog2() const { return page_size_log2_; }
+
+   u32 GetHostGPUMemorySparseGranularityLog2() const {
+diff --git a/src/gpu/xenos/xenos_counters.h b/src/gpu/xenos/xenos_counters.h
+index 1a15fc3d..5cfd43da 100644
+--- a/src/gpu/xenos/xenos_counters.h
++++ b/src/gpu/xenos/xenos_counters.h
+@@ -22,7 +22,7 @@ namespace rex::gpu {
+  * the table logs a warning and is left out.
   */
+ inline void RegisterXenosCounters() {
+-  constexpr std::array<const char*, 7> kNames = {
++  constexpr std::array<const char*, 12> kNames = {
+       "draw_calls",
+       "command_buffer_stalls",
+       "vertices_processed",
+@@ -30,7 +30,17 @@ inline void RegisterXenosCounters() {
+       "texture_cache_misses",
+       "pipeline_cache_hits",
+       "pipeline_cache_misses",
++      "command_buffer_wait_us",
++      "texture_cache_evictions",
++      "draw_calls_skipped_no_effect",
++      "host_us",
++      "memexport_sync_us",
+   };
++  if (auto counter =
++          platform::RegisterCounter("texture_cache_memory_mb", platform::CounterType::kGauge);
++      !counter) {
++    REXGPU_WARN("{}", counter.error().message);
++  }
+   for (const char* name : kNames) {
+     if (auto counter = platform::RegisterCounter(name); !counter) {
+       REXGPU_WARN("{}", counter.error().message);
+diff --git a/src/gpu/xenos/xenos_graphics_driver_base.cpp b/src/gpu/xenos/xenos_graphics_driver_base.cpp
+index 6fe403e1..f39f995d 100644
+--- a/src/gpu/xenos/xenos_graphics_driver_base.cpp
++++ b/src/gpu/xenos/xenos_graphics_driver_base.cpp
+@@ -157,14 +157,24 @@ Result<void> XenosGraphicsDriverBase::AttachTitle(const TitleInfo& info, IPhysic
+   auto thread = guest_interrupts_->StartHostThread("GPU VSync", [this](const std::stop_token&) {
+     f64 refresh_rate_hz = std::max(1.0, static_cast<f64>(title_info_.video_mode.refresh_rate));
+     u64 guest_tick_frequency = Clock::GetGuestTickFrequency();
+-    u64 vsync_interval_ticks =
+-        std::max(static_cast<u64>(1),
+-                 static_cast<u64>(static_cast<f64>(guest_tick_frequency) / refresh_rate_hz));
++    const auto refresh_setting = settings_->Find("ui.video_mode_refresh_rate");
++    const auto* live_refresh =
++        refresh_setting ? static_cast<const Setting<f64>*>(*refresh_setting) : nullptr;
++    f64 previous_refresh_rate_hz = 0.0;
+     u64 no_vsync_interval_ticks = std::max(static_cast<u64>(1), guest_tick_frequency / 1000);
+     const f64 nanoseconds_per_tick = 1e9 / static_cast<f64>(guest_tick_frequency);
+     constexpr std::chrono::milliseconds kLongestSleep{50};
+     u64 last_frame_time = Clock::QueryGuestTickCount();
+     while (vsync_worker_running_) {
++      if (live_refresh) {
++        refresh_rate_hz = live_refresh->Get();
++      }
++      const u64 vsync_interval_ticks = std::max(
++          u64{1}, static_cast<u64>(static_cast<f64>(guest_tick_frequency) / refresh_rate_hz));
++      if (refresh_rate_hz != previous_refresh_rate_hz) {
++        previous_refresh_rate_hz = refresh_rate_hz;
++        REXGPU_INFO("Guest refresh rate applied live: {} Hz", refresh_rate_hz);
++      }
+       u64 interval_ticks = IsVSyncEnabled() ? vsync_interval_ticks : no_vsync_interval_ticks;
+       DeliverVblanks(
+           Clock::QueryGuestTickCount(), last_frame_time, interval_ticks, kMaxVblankCatchUp,
+@@ -185,13 +195,35 @@ Result<void> XenosGraphicsDriverBase::AttachTitle(const TitleInfo& info, IPhysic
+   }
+   vsync_worker_thread_ = std::move(*thread);
 
-+#include <algorithm>
- #include <cfloat>
- #include <cstring>
- #include <filesystem>
-@@ -436,8 +437,9 @@ void ImGuiDrawer::Draw(UIDrawContext& ui_draw_context) {
-   // it now if needed.
-   DetachIfLastDialogRemoved();
-
--  if (!dialogs_.empty()) {
--    // Repaint (and handle input) continuously if still active. In detached mode
-+  if (std::any_of(dialogs_.begin(), dialogs_.end(),
-+                  [](const auto* dialog) { return dialog->IsContinuousRepaintNeeded(); })) {
-+    // Repaint (and handle input) continuously if requested. In detached mode
-     // there is no presenter; the app drives repaint via its own present loop.
-     if (presenter_) {
-       presenter_->RequestUIPaintFromUIThread();
-diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
-index 7360ed9..175194d 100644
---- a/src/ui/presenter.cpp
-+++ b/src/ui/presenter.cpp
-@@ -12,6 +12,7 @@
- #include <algorithm>
- #include <atomic>
- #include <cctype>
-+#include <chrono>
- #include <utility>
- 
- #include <rex/assert.h>
-@@ -1600,7 +1601,12 @@ void Presenter::WaitForUITickFromUIThread() {
-           std::min(last_vblank_before_wait + uint64_t(1), dxgi_ui_tick_last_vblank_);
-       return;
-     }
--    dxgi_ui_tick_signal_condition_.wait(dxgi_ui_tick_lock);
-+    // Keep the UI responsive if the display stops delivering vblanks.
-+    if (dxgi_ui_tick_signal_condition_.wait_for(dxgi_ui_tick_lock,
-+                                              std::chrono::milliseconds(50)) ==
-+        std::cv_status::timeout) {
-+      return;
+-  if (const std::filesystem::path cache_root = REX_PATHS().cache_root.Get(); !cache_root.empty()) {
+-    REX_TRY_VOID(InitializeShaderStorage(cache_root, title_info_.title_id, false));
++  if (!blocking_shader_precompile_) {
++    const std::filesystem::path cache_root = REX_PATHS().cache_root.Get();
++    if (!cache_root.empty()) {
++      REX_TRY_VOID(InitializeShaderStorage(cache_root, title_info_.title_id, false));
 +    }
    }
- #endif  // XE_PLATFORM
+
+   return Ok();
  }
-@@ -1609,6 +1615,7 @@ void Presenter::ForceUIThreadPaintTick() {
- #if REX_PLATFORM_WIN32
-   std::scoped_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
-   dxgi_ui_tick_force_requested_ = true;
-+  dxgi_ui_tick_signal_condition_.notify_all();
- #endif  // XE_PLATFORM
- }
- 
-@@ -1648,7 +1655,7 @@ void Presenter::DXGIUITickThread() {
-     {
-       Microsoft::WRL::ComPtr<IDXGIOutput> dxgi_output = dxgi_ui_tick_output_;
-       dxgi_ui_tick_lock.unlock();
--      wait_succeeded = SUCCEEDED(dxgi_ui_tick_output_->WaitForVBlank());
-+      wait_succeeded = SUCCEEDED(dxgi_output->WaitForVBlank());
-     }
-     dxgi_ui_tick_lock.lock();
-     if (wait_succeeded) {
-diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
-index 9ff54e8..d01338e 100644
---- a/src/ui/rex_app.cpp
-+++ b/src/ui/rex_app.cpp
-@@ -250,10 +250,9 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
-     input_sys->SetActiveCallback([this]() {
-       if (window_ && !window_->HasFocus())
-         return false;
--      if (!imgui_drawer_ ||
--          (!debug_overlay_ && !console_overlay_ && !settings_overlay_ && !achievements_overlay_))
--        return true;
--      return !imgui_drawer_->GetIO().WantCaptureMouse;
-+      if (!imgui_drawer_) return true;
-+      const auto& io = imgui_drawer_->GetIO();
-+      return !io.WantCaptureMouse && !io.WantCaptureKeyboard;
-     });
-   }
- 
-diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
-index 6782cce..9b033a8 100644
---- a/src/ui/window_sdl.cpp
-+++ b/src/ui/window_sdl.cpp
-@@ -27,6 +27,9 @@
- #include <rex/ui/flags.h>
- #include <rex/ui/sdl_virtual_key.h>
- 
-+REXCVAR_DEFINE_BOOL(window_hidden, false, "UI/Window", "Keep the window hidden for background tests")
-+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
++Result<void> XenosGraphicsDriverBase::PrepareShaderStorage() {
++  const std::filesystem::path cache_root = REX_PATHS().cache_root.Get();
++  if (!command_processor_ || !store_shaders.Get() || cache_root.empty()) {
++    return Err(ErrorCategory::kRuntime, "Shader preparation needs a title and shader storage");
++  }
++  return InitializeShaderStorage(cache_root, title_info_.title_id, true);
++}
 +
- #if REX_PLATFORM_WIN32
- #include <rex/ui/surface_win.h>
- #elif REX_PLATFORM_MAC
-@@ -129,7 +132,7 @@ bool WindowSDL::OpenImpl() {
-   // desired state so a reopened window comes back with the state it had.
-   ApplyTextInputActiveNow();
-   ApplyCursorVisibilityNow();
--  SDL_ShowWindow(sdl_window_);
-+  if (!REXCVAR_GET(window_hidden)) SDL_ShowWindow(sdl_window_);
- 
-   // Actualize state for the common Window code. Listener dispatch is handled
-   // by Window::Open after OpenImpl returns; these only record initial state.
++Result<GuestFrame> XenosGraphicsDriverBase::CaptureGuestFrame() {
++  auto* presenter = GetHostPresenter();
++  return presenter ? presenter->CaptureGuestFrame()
++                   : Err<GuestFrame>(ErrorCategory::kRuntime, "No guest output presenter");
++}
++
++bool XenosGraphicsDriverBase::GetAppliedDither() const {
++  const auto* presenter = GetHostPresenter();
++  return presenter && presenter->GetAppliedDither();
++}
++
+ void XenosGraphicsDriverBase::DetachTitle() {
+   vsync_worker_running_ = false;
+   vsync_worker_thread_ = ScopeGuard();
+@@ -222,6 +254,7 @@ void XenosGraphicsDriverBase::OnHostGPULossFromAnyThread([[maybe_unused]] bool i
+   if (host_gpu_loss_reported_.test_and_set(std::memory_order_relaxed)) {
+     return;
+   }
++  LogDeviceLoss();
+   REXGPU_FATAL("Graphics device lost (probably due to an internal error)");
+ }
+
+diff --git a/src/gpu/xenos/xenos_graphics_driver_base.h b/src/gpu/xenos/xenos_graphics_driver_base.h
+index 4892b3eb..500c3c4a 100644
+--- a/src/gpu/xenos/xenos_graphics_driver_base.h
++++ b/src/gpu/xenos/xenos_graphics_driver_base.h
+@@ -74,6 +74,12 @@ class REX_GPU_XENOS_API XenosGraphicsDriverBase : public IXenosGraphicsDriver,
+                                          IPhysicalWriteWatch& watch,
+                                          IGuestInterrupts& interrupts) override;
+   void DetachTitle() override;
++  void SetBlockingShaderPrecompile(bool blocking) override {
++    blocking_shader_precompile_ = blocking;
++  }
++  [[nodiscard]] Result<void> PrepareShaderStorage() override;
++  [[nodiscard]] Result<GuestFrame> CaptureGuestFrame() override;
++  bool GetAppliedDither() const override;
+
+   FrameStatus WaitForFrame(u32 timeout_ms) override;
+   void ResizeSurface(u32 width, u32 height) override;
+@@ -95,7 +101,7 @@ class REX_GPU_XENOS_API XenosGraphicsDriverBase : public IXenosGraphicsDriver,
+    *
+    * @param is_responsible True when the caller is responsible for the recovery.
+    */
+-  void OnHostGPULossFromAnyThread(bool is_responsible);
++  virtual void OnHostGPULossFromAnyThread(bool is_responsible);
+
+   /** Reports a finished swap to WaitForFrame. Command processor thread only. */
+   void NotifySwap();
+@@ -157,6 +163,7 @@ class REX_GPU_XENOS_API XenosGraphicsDriverBase : public IXenosGraphicsDriver,
+   virtual void CreateProvider(bool with_presentation) = 0;
+
+   virtual std::unique_ptr<CommandProcessor> CreateCommandProcessor() = 0;
++  virtual void LogDeviceLoss() {}
+
+   void MarkVblank();
+
+@@ -181,6 +188,7 @@ class REX_GPU_XENOS_API XenosGraphicsDriverBase : public IXenosGraphicsDriver,
+   std::unique_ptr<XenosPresentation> presentation_;
+
+   std::atomic_flag host_gpu_loss_reported_;
++  bool blocking_shader_precompile_ = false;
+   bool shader_storage_opened_ = false;
+   std::mutex frame_mutex_;
+   std::condition_variable frame_signal_;
+diff --git a/src/kernel/CMakeLists.txt b/src/kernel/CMakeLists.txt
+index 4388fd48..dec35fc1 100644
+--- a/src/kernel/CMakeLists.txt
++++ b/src/kernel/CMakeLists.txt
+@@ -57,7 +57,7 @@ foreach (kernel_target rexkernel-objects rexkernel)
+
+   if (REXGLUE_ENABLE_PERF_COUNTERS)
+     target_compile_definitions(
+-      ${kernel_target} PUBLIC $<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PERF_COUNTERS>
++      ${kernel_target} PUBLIC REXGLUE_ENABLE_PERF_COUNTERS
+     )
+   endif ()
+
+diff --git a/src/xam/CMakeLists.txt b/src/xam/CMakeLists.txt
+index 87ea8f45..7179360b 100644
+--- a/src/xam/CMakeLists.txt
++++ b/src/xam/CMakeLists.txt
+@@ -80,7 +80,7 @@ foreach (xam_target rexxam-objects rexxam)
+
+   if (REXGLUE_ENABLE_PERF_COUNTERS)
+     target_compile_definitions(
+-      ${xam_target} PUBLIC $<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PERF_COUNTERS>
++      ${xam_target} PUBLIC REXGLUE_ENABLE_PERF_COUNTERS
+     )
+   endif ()
+
 diff --git a/thirdparty/CMakeLists.txt b/thirdparty/CMakeLists.txt
-index f102b56..01484d9 100644
+index 32d57aa..7d5e224 100644
 --- a/thirdparty/CMakeLists.txt
 +++ b/thirdparty/CMakeLists.txt
-@@ -126,7 +126,7 @@ target_compile_options(aes128 PRIVATE -w)
- 
- # libmspack - LZX decompression (only lzxd.c needed for XEX decompression)
- # Uses cabextract version which has all needed headers in one place
--set(MSPACK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libmspack/cabextract/mspack")
-+set(MSPACK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libmspack/libmspack/mspack")
- add_library(mspack STATIC
-     ${MSPACK_DIR}/lzxd.c
- )
+@@ -195,7 +195,13 @@ set(REXGLUE_VULKAN_COMPONENTS "")
+ if (APPLE)
+   set(REXGLUE_VULKAN_COMPONENTS COMPONENTS MoltenVK)
+ endif ()
+-find_package(Vulkan ${REXGLUE_VULKAN_MIN_VERSION} REQUIRED ${REXGLUE_VULKAN_COMPONENTS} GLOBAL)
++if (WIN32 AND Vulkan_INCLUDE_DIR)
++  # The Windows backend loads vulkan-1.dll at runtime.
++  add_library(Vulkan::Headers INTERFACE IMPORTED GLOBAL)
++  set_target_properties(Vulkan::Headers PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${Vulkan_INCLUDE_DIR}")
++else ()
++  find_package(Vulkan ${REXGLUE_VULKAN_MIN_VERSION} REQUIRED ${REXGLUE_VULKAN_COMPONENTS} GLOBAL)
++endif ()
+
+ # VMA - header-only, from the Vulkan SDK and private to the Vulkan backend
+ find_path(

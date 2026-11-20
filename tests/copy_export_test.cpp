@@ -6,14 +6,15 @@
 #include <limits>
 #include <utility>
 
-#include <rex/graphics/util/draw.h>
+#include <rex/gpu/copy_export.h>
 
 int main() {
-  using namespace rex::graphics;
+  using namespace rex;
+  using namespace rex::xenos;
   // Serialized register state for a 128-vertex, 8 KiB checkpoint copy.
   std::array<uint32_t, RegisterFile::kRegisterCount> words{};
-  const auto fetch = XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + 95 * 2;
-  const auto c = XE_GPU_REG_SHADER_CONSTANT_000_X;
+  const auto fetch = std::to_underlying(Register::SHADER_CONSTANT_FETCH_00_0) + 95 * 2;
+  const auto c = std::to_underlying(Register::SHADER_CONSTANT_000_X);
   words[fetch] = 0x155cc003;
   words[fetch + 1] = 0x10002002;
   words[c + 24] = 0x45ad5400;
@@ -23,10 +24,9 @@ int main() {
   words[c + 255 * 4 + 1] = std::bit_cast<uint32_t>(1.0f);
   words[c + 255 * 4 + 2] = std::bit_cast<uint32_t>(4.0f);
   words[c + 255 * 4 + 3] = std::bit_cast<uint32_t>(8.0f);
-  words[XE_GPU_REG_VGT_MAX_VTX_INDX] = 0xffffff;
-  const draw_util::MemExportRange range{0x05ad5400, 8192};
+  words[std::to_underlying(Register::VGT_MAX_VTX_INDX)] = 0xffffff;
   auto matches = [&](uint32_t count) {
-    return draw_util::GetLollipopCopyExport(std::bit_cast<RegisterFile>(words), count, range);
+    return gpu::GetLollipopCopyExport(std::bit_cast<RegisterFile>(words), count, 0x05ad5400, 8192);
   };
   const auto full = matches(128);
   if (!full || full->source != 0x155cc000 || full->destination != 0x16b55000 ||
@@ -35,7 +35,7 @@ int main() {
 
   // Opening-level streaming copies one 4 KiB chunk at a time from a larger allocation.
   const auto first = matches(64);
-  words[XE_GPU_REG_VGT_INDX_OFFSET] = 64;
+  words[std::to_underlying(Register::VGT_INDX_OFFSET)] = 64;
   const auto second = matches(64);
   if (!first || !second || first->length != 4096 || second->length != 4096 ||
       second->source != first->source + 4096 || second->destination != first->destination + 4096)
@@ -51,10 +51,10 @@ int main() {
       return 4;
   }
   words[c + 7 * 4] = 0;
-  words[XE_GPU_REG_VGT_INDX_OFFSET] = 65;
+  words[std::to_underlying(Register::VGT_INDX_OFFSET)] = 65;
   if (matches(64))
     return 5;
-  words[XE_GPU_REG_VGT_INDX_OFFSET] = 0;
+  words[std::to_underlying(Register::VGT_INDX_OFFSET)] = 0;
 
   words[fetch] = 0x1fffe003;
   if (!matches(128))
@@ -74,9 +74,9 @@ int main() {
            {c + 27, 1},
            {c + 7 * 4, 0x3f800000},
            {c + 255 * 4 + 3, 0x00800000},
-           {XE_GPU_REG_VGT_INDX_OFFSET, 1},
-           {XE_GPU_REG_VGT_MIN_VTX_INDX, 1},
-           {XE_GPU_REG_VGT_MAX_VTX_INDX, 0xffffff}}) {
+           {std::to_underlying(Register::VGT_INDX_OFFSET), 1},
+           {std::to_underlying(Register::VGT_MIN_VTX_INDX), 1},
+           {std::to_underlying(Register::VGT_MAX_VTX_INDX), 0xffffff}}) {
     words[index] ^= mask;
     if (matches(128)) {
       std::cerr << "Unexpected copy match after changing register " << index << '\n';

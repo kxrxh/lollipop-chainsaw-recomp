@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace lollipop;
@@ -26,7 +27,9 @@ internal static class GameUpdate {
         .HashText(commit + "\n" +
                   Tools.HashFile(Path.Combine(kit, "patches/rexglue-fixes.patch")) + "\n" +
                   Tools.HashFile(Path.Combine(kit, "patches/rexglue-shader-precompile.patch")) + "\n" +
-                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-live-settings.patch")))
+                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-live-settings.patch")) + "\n" +
+                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-input.patch")) + "\n" +
+                  Tools.HashFile(Path.Combine(kit, "patches/rexglue-game.patch")))
         .Substring(0, 16);
   }
 
@@ -99,8 +102,7 @@ internal static class GameUpdate {
   internal static void Publish(string destination, bool hadPlayableBuild) {
     var stage = Stage(destination);
     if (!File.Exists(Path.Combine(stage, "lollipop.exe")) ||
-        !File.Exists(Path.Combine(stage, "rexruntime.dll")) ||
-        !File.Exists(Path.Combine(stage, "rexgpu-xenos.dll")))
+        !SdkPackage.RuntimeFiles.All(name => File.Exists(Path.Combine(stage, name))))
       throw new IOException("The updated game is incomplete. The previous build was kept.");
     File.WriteAllText(Path.Combine(stage, "recomp-version.txt"), Releases.GameVersion);
     var state = Path.Combine(destination, "out/launcher");

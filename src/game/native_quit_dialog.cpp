@@ -1,7 +1,7 @@
 #include "native_quit_dialog.h"
 #include "game/game_bridge.h"
 #include <cmath>
-#include <rex/logging.h>
+#include <rex/logging/log_category.h>
 #include <stdexcept>
 
 namespace lollipop {

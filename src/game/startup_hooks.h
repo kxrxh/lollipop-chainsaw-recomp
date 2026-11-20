@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 
 namespace lollipop {
 bool prefetch_recompiled_code();

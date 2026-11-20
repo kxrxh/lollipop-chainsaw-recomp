@@ -3,62 +3,58 @@
 #include "game/native_quit_dialog.h"
 #include "game/timing_hooks.h"
 
+#include "settings/runtime_settings.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <imgui.h>
-#include <rex/cvar.h>
-#include <rex/input/input_system.h>
-#include <rex/ui/imgui_dialog.h>
-#include <rex/ui/keybinds.h>
-
-REXCVAR_DEFINE_BOOL(lollipop_cheats_menu, false, "Lollipop", "Open the in-game cheats window");
+#include <rex/hid/input_system.h>
+#include <rex/ui/ui_system.h>
+#include <stdexcept>
 
 namespace lollipop {
 namespace {
-bool captures_input = false;
+std::atomic<bool> captures_input = false;
 constexpr ImU32 paper = IM_COL32(250, 236, 209, 255);
 constexpr ImU32 pink = IM_COL32(255, 76, 137, 255);
 constexpr ImU32 ink = IM_COL32(24, 15, 23, 255);
 
-class cheats_menu final : public rex::ui::ImGuiDialog {
+class cheats_menu final : public rex::ui::DialogBase {
 public:
-  cheats_menu(rex::ui::ImGuiDrawer& drawer, rex::input::InputSystem& input)
-      : ImGuiDialog(&drawer), input_(input) {
-    rex::ui::RegisterBind("bind_cheats", "F6", "Toggle cheats window", [] {
-      rex::cvar::SetFlagByName("lollipop_cheats_menu",
-                               rex::cvar::Query<bool>("lollipop_cheats_menu") ? "false" : "true");
-    });
-  }
+  explicit cheats_menu(rex::hid::IInputSystem& input) : input_(input) {}
   ~cheats_menu() override {
-    rex::ui::UnregisterBind("bind_cheats");
-    rex::cvar::SetFlagByName("lollipop_cheats_menu", "false");
+    settings::SetFlagByName("lollipop_cheats_menu", "false");
     release();
   }
-  bool IsContinuousRepaintNeeded() const override { return visible_ || blocked_; }
+  bool NeedsContinuousPaint() const override { return visible_ || blocked_; }
+
+  bool Draw(ImGuiIO& io) override {
+    draw(io);
+    return true;
+  }
 
 private:
   bool closing_input_down() {
-    rex::input::X_INPUT_STATE state{};
-    input_.GetStateForUI(0, &state);
-    return (state.gamepad.buttons & 0x3030) || ImGui::IsKeyDown(ImGuiKey_Enter) ||
+    const auto state = input_.GetStateForUI(0).value_or(rex::hid::PadState{});
+    return (state.buttons & 0x3030) || ImGui::IsKeyDown(ImGuiKey_Enter) ||
            ImGui::IsKeyDown(ImGuiKey_Space) || ImGui::IsKeyDown(ImGuiKey_Escape) ||
            ImGui::IsKeyDown(ImGuiKey_Backspace) || ImGui::IsKeyDown(ImGuiKey_F6) ||
            ImGui::IsMouseDown(0);
   }
   void release() {
     if (blocked_)
-      input_.RemoveUIInputBlocker();
+      input_.ReleaseUIBlock();
     blocked_ = captures_input = false;
     set_cheats_pause(false);
   }
   void close() {
     visible_ = false;
-    rex::cvar::SetFlagByName("lollipop_cheats_menu", "false");
+    settings::SetFlagByName("lollipop_cheats_menu", "false");
     if (!closing_input_down())
       release();
   }
-  void OnDraw(ImGuiIO& io) override {
-    const bool requested = rex::cvar::Query<bool>("lollipop_cheats_menu");
+  void draw(ImGuiIO& io) {
+    const bool requested = settings::Query<bool>("lollipop_cheats_menu");
     if (native_quit().status() != quit_dialog_state::idle) {
       close();
       return;
@@ -72,7 +68,7 @@ private:
       selected_ = 0;
       previous_buttons_ = 0xFFFF;
       if (!blocked_)
-        input_.AddUIInputBlocker();
+        input_.AcquireUIBlock();
       blocked_ = captures_input = true;
       set_cheats_pause(true);
     }
@@ -80,12 +76,11 @@ private:
       return;
     ImGui::SetNextFrameWantCaptureKeyboard(true);
     ImGui::SetNextFrameWantCaptureMouse(true);
-    rex::input::X_INPUT_STATE state{};
-    input_.GetStateForUI(0, &state);
-    uint16_t buttons = state.gamepad.buttons;
-    if (state.gamepad.thumb_ly > 16000)
+    const auto state = input_.GetStateForUI(0).value_or(rex::hid::PadState{});
+    uint16_t buttons = state.buttons;
+    if (state.thumb_ly > 16000)
       buttons |= 1;
-    if (state.gamepad.thumb_ly < -16000)
+    if (state.thumb_ly < -16000)
       buttons |= 2;
     const uint16_t pressed = buttons & ~previous_buttons_;
     previous_buttons_ = buttons;
@@ -146,14 +141,14 @@ private:
         draw.AddRectFilled(point(28, y), point(892, y + 48), IM_COL32(66, 32, 49, 255));
         draw.AddRectFilled(point(28, y), point(33, y + 48), pink);
       }
-      const bool enabled = rex::cvar::Query<bool>(option.flag);
+      const bool enabled = settings::Query<bool>(option.flag);
       text(48, y + 10, 26, paper, option.label);
       draw.AddRectFilled(point(766, y + 7), point(874, y + 41),
                          enabled ? pink : IM_COL32(65, 54, 63, 255), 4 * scale);
       text(792, y + 11, 23, enabled ? ink : paper, enabled ? "ON" : "OFF");
       if (clicked || (selected_ == i && (accept || adjust))) {
         selected_ = i;
-        rex::cvar::SetFlagByName(option.flag, enabled ? "false" : "true");
+        settings::SetFlagByName(option.flag, enabled ? "false" : "true");
       }
     }
     text(32, 363, 18, paper, game_cheats_state().c_str());
@@ -182,7 +177,7 @@ private:
       close();
   }
 
-  rex::input::InputSystem& input_;
+  rex::hid::IInputSystem& input_;
   bool visible_ = false, blocked_ = false;
   int selected_ = 0;
   uint16_t previous_buttons_ = 0;
@@ -190,11 +185,32 @@ private:
 } // namespace
 
 bool cheats_menu_captures_input() {
-  return captures_input || rex::cvar::Query<bool>("lollipop_cheats_menu");
+  return captures_input || settings::Query<bool>("lollipop_cheats_menu");
 }
 
-std::unique_ptr<rex::ui::ImGuiDialog> make_cheats_menu(rex::ui::ImGuiDrawer& drawer,
-                                                       rex::input::InputSystem& input) {
-  return std::make_unique<cheats_menu>(drawer, input);
+std::unique_ptr<rex::ui::IDialog> make_cheats_menu(rex::hid::IInputSystem& input) {
+  return std::make_unique<cheats_menu>(input);
+}
+
+void register_cheats_hotkey(rex::ui::IUISystem& ui) {
+  class cheats_hotkey final : public rex::ui::DialogBase {
+  public:
+    bool Draw(ImGuiIO&) override { return false; }
+    bool OnToggle() override {
+      settings::SetFlagByName("lollipop_cheats_menu",
+                              settings::Query<bool>("lollipop_cheats_menu") ? "false" : "true");
+      return true;
+    }
+  };
+  const rex::ui::OverlayConfig overlay{
+      .name = "cheats",
+      .default_key = {rex::VirtualKey::kF6},
+      .create = [](rex::ui::IUISystem&) -> std::unique_ptr<rex::ui::IDialog> {
+        return std::make_unique<cheats_hotkey>();
+      },
+      .global_hotkey = true,
+  };
+  if (const auto result = ui.AddOverlays(std::span(&overlay, 1)); !result)
+    throw std::runtime_error("Could not register the cheats hotkey");
 }
 } // namespace lollipop

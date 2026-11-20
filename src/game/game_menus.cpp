@@ -4,11 +4,11 @@
 #include "game/game_settings.h"
 #include "game/native_quit_dialog.h"
 #include "game/timing_hooks.h"
+#include "settings/runtime_settings.h"
 #include "ui/exit_flow.h"
 #include <atomic>
-#include <rex/cvar.h>
-#include <rex/logging.h>
-#include <rex/ppc.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
 
 namespace lollipop {
 namespace {
@@ -16,7 +16,7 @@ std::atomic<unsigned char*> guest_memory{};
 }
 void set_game_ui_memory(unsigned char* memory) { guest_memory.store(memory); }
 
-void update_game_ui(rex::Runtime& runtime, PPCContext& context) {
+void update_game_ui(rex::kernel::TitleRuntime& runtime, PPCContext& context) {
   // Loading movies also advance on a worker while the engine serializes objects.
   if (!is_engine_tick_thread())
     return;
@@ -40,7 +40,7 @@ void game_movie_loaded(uint32_t player, uint32_t path) {
   if (name != "UIScane_Option.ASH_UI_OptionMenu")
     return;
   replace_game_options(player);
-  rex::cvar::SetFlagByName("lollipop_pc_settings", "true");
+  lollipop::settings::SetFlagByName("lollipop_pc_settings", "true");
 }
 
 void game_movie_unloaded(uint32_t player) {

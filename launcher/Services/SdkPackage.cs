@@ -6,14 +6,34 @@ using System.Linq;
 namespace lollipop;
 
 internal static class SdkPackage {
-  internal const string Commit = "bd833a2ab69d305f99ddf57418fc38ffec8af93d";
+  internal const string Commit = "a3e1d82678ca20d68d4837a8e9ee4652ff073745";
+  internal static readonly string[] RuntimeFiles = [
+    "rexapp.dll", "rexapu.dll", "rexapu-sdl3.dll", "rexbase.dll", "rexfilesystem.dll", "rexgpu.dll",
+    "rexgpu-xenos-d3d12.dll", "rexgpu-xenos-null.dll", "rexgpu-xenos-vulkan.dll", "rexhid.dll",
+    "rexhid-sdl3.dll", "rexhid-xinput.dll", "rexkernel.dll", "rexppc.dll", "rexui.dll",
+    "rexui-sdl3.dll", "rexxam.dll", "rexxbdm.dll", "SDL3.dll"
+  ];
   private static readonly string[] RequiredFiles = [
-    "lollipop-sdk.id", "bin/rexglue.exe", "bin/rexruntime.dll", "bin/rexgpu-xenos.dll",
-    "bin/msvcp140.dll", "bin/msvcp140_atomic_wait.dll", "bin/vcruntime140.dll",
-    "bin/vcruntime140_1.dll", "include/rex/rex_app.h", "lib/rexruntime.lib",
-    "lib/cmake/rexglue/rexglueConfig.cmake", "share/rexglue/rex_app.cpp",
+    "lollipop-sdk.id",
+    "bin/rexglue.exe",
+    "bin/msvcp140.dll",
+    "bin/msvcp140_atomic_wait.dll",
+    "bin/vcruntime140.dll",
+    "bin/vcruntime140_1.dll",
+    "include/rex/app/title_app.h",
+    "include/renderdoc_app.h",
+    "lib/rexapp.lib",
+    "lib/rexfilesystem.lib",
+    "lib/rexgpu.lib",
+    "lib/rexhid.lib",
+    "lib/rexui.lib",
+    "lib/cmake/rexglue/rexglueConfig.cmake",
     "lib/cmake/rexglue/rexglueTargets-release.cmake",
-    "licenses/rexglue/LICENSE", "licenses/SOURCES.txt"
+    "lib/cmake/rexglue/rexglueModules-Release.cmake",
+    "cmake/SDL3Config.cmake",
+    "cmake/SDL3sharedTargets-release.cmake",
+    "licenses/rexglue/LICENSE",
+    "licenses/SOURCES.txt"
   ];
 
   internal static string Install(string kit, string destination) {
@@ -26,7 +46,8 @@ internal static class SdkPackage {
   }
 
   private static void Validate(string directory, string identity) {
-    if (!RequiredFiles.All(name => File.Exists(Path.Combine(directory, name))))
+    if (!RequiredFiles.Concat(RuntimeFiles.Select(name => "bin/" + name))
+             .All(name => File.Exists(Path.Combine(directory, name))))
       throw new InvalidDataException(
           "The bundled SDK is incomplete. Use a complete launcher download.");
     var marker = Path.Combine(directory, "lollipop-sdk.id");

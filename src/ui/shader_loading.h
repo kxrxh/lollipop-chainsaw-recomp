@@ -7,8 +7,7 @@
 #include <string>
 
 namespace rex::ui {
-class ImGuiDialog;
-class ImGuiDrawer;
+class IDialog;
 } // namespace rex::ui
 
 namespace lollipop {
@@ -19,7 +18,6 @@ struct shader_loading_state {
   uint32_t completed = 0, total = 0, failed = 0;
   bool compiled = false;
 };
-std::unique_ptr<rex::ui::ImGuiDialog>
-make_shader_loading(rex::ui::ImGuiDrawer& drawer, std::shared_ptr<shader_loading_state> state,
-                    std::function<void()> close);
+std::unique_ptr<rex::ui::IDialog> make_shader_loading(std::shared_ptr<shader_loading_state> state,
+                                                      std::function<void()> close);
 } // namespace lollipop

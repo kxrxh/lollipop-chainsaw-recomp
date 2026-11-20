@@ -71,6 +71,7 @@ Setup and manual builds reject other executables.
 - PowerShell 7.2 or newer (`pwsh`) and Git on PATH.
 - Visual Studio 2022 Build Tools: x64 C++ tools, Windows SDK, CMake and Ninja.
 - [LLVM 20.1.8](https://github.com/llvm/llvm-project/releases/tag/llvmorg-20.1.8).
+- Python 3 on PATH for the SDK shader toolchain. Pass `-PythonExecutable` if needed.
 - The supported disc files.
 
 The scripts initialize the Visual Studio environment. If LLVM is not on PATH,
@@ -103,12 +104,21 @@ To validate an existing import, run `./prepare-game.ps1 -InputPath ./game`.
 ./run.ps1
 ```
 
-The SDK script downloads ReXGlue 0.10.1 at
-`bd833a2ab69d305f99ddf57418fc38ffec8af93d`, applies the patches in `patches/`,
-and installs to `out/sdk/`. `build.ps1` validates the executable, updates generated
+The SDK script downloads ReXGlue 0.11.0 at
+`a3e1d82678ca20d68d4837a8e9ee4652ff073745`, applies the patches in `patches/`,
+and installs to `out/sdk-0.11.0/`. It fetches the pinned Vulkan 1.4.313 headers
+and Vulkan Memory Allocator 3.3.0 for the Windows SDK build. The new
+versioned SDK source, build and install directories leave earlier checkouts
+and caches intact. `build.ps1` validates the executable, updates generated
 C++, builds changed sources and runs CTest. Unchanged translations and compiled
 objects are reused. For launch behavior and shader caches, see
 [shader preparation](COMPATIBILITY.md#shader-preparation).
+
+The launcher and run script continue to use the installation's user and cache
+directories. Existing saves and their headers remain readable in place. Direct
+EXE launches default to `Documents/lollipop` for saves and the user directory's
+`cache` subfolder. Advanced configuration is loaded from `lollipop.toml` beside
+the EXE.
 
 ### Custom paths
 
@@ -120,7 +130,7 @@ objects are reused. For launch behavior and shader caches, see
 | Script | Path parameters |
 | --- | --- |
 | `prepare-game.ps1` | `-InputPath`, `-Destination`, `-ExtractXiso` |
-| `build-sdk.ps1` | `-SourceDirectory`, `-InstallDirectory`, `-BuildDirectory`, `-LlvmDirectory` |
+| `build-sdk.ps1` | `-SourceDirectory`, `-InstallDirectory`, `-BuildDirectory`, `-LlvmDirectory`, `-PythonExecutable` |
 | `build.ps1` | `-GameDirectory`, `-SdkDirectory`, `-GeneratedDirectory`, `-BuildDirectory`, `-LlvmDirectory` |
 | `run.ps1` | `-GameDirectory`, `-UserDirectory`, `-CacheDirectory`, `-BuildDirectory` |
 
@@ -143,7 +153,7 @@ Paths are relative to the checkout or chosen install folder.
 | `out/generated/` | Generated C++ |
 | `out/source/` | Stable game source kit used by launcher builds |
 | `out/tools/sdk/` | Bundled SDK unpacked by player setup |
-| `out/tools/`, `out/sdk/` | Compiler packages and the developer-built SDK |
+| `out/tools/`, `out/sdk-0.11.0/` | Compiler packages and the developer-built SDK |
 | `out/build/` | SDK, game and test builds |
 | `out/build/win-amd64-release/lollipop.exe` | Playable game |
 | `out/launcher/latest.log` | Setup and launcher log |

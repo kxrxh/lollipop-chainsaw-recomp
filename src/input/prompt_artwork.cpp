@@ -19,15 +19,14 @@
 
 #include <gdiplus.h>
 
-#include <rex/cvar.h>
-#include <rex/filesystem/devices/host_path_device.h>
+#include "settings/runtime_settings.h"
+#include <rex/filesystem/file_system.h>
+#include <rex/gpu/graphics_system.h>
 #include <rex/hash.h>
-#include <rex/input/input_system.h>
-#include <rex/logging.h>
-#include <rex/perf/counter.h>
-#include <rex/runtime.h>
-#include <rex/string/utf8.h>
-#include <rex/system/gpu_plugin.h>
+#include <rex/hid/input_system.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/logging/log_category.h>
+#include <rex/platform/perf.h>
 
 namespace lollipop {
 namespace {
@@ -60,7 +59,7 @@ constexpr size_t prompt_sample_bytes = 64;
 uint64_t prompt_hash(std::span<const uint8_t> texture) {
   const auto size = std::min(texture.size(), prompt_sample_bytes);
   const auto sample = texture.subspan((texture.size() - size) / 2, size);
-  return XXH3_64bits(sample.data(), sample.size());
+  return rex::HashXXH3(sample);
 }
 constexpr prompt prompts[] = {
     {0x13b3b3, 16737, "keybind_a", nullptr},
@@ -96,7 +95,7 @@ constexpr prompt prompts[] = {
 };
 
 std::wstring key_label(const prompt &p) {
-  auto key = p.label ? std::string(p.label) : rex::cvar::GetFlagByName(p.flag);
+  auto key = p.label ? std::string(p.label) : lollipop::settings::GetFlagByName(p.flag);
   key = key.substr(0, key.find(','));
   if (key == "Space") key = "SPACE";
   if (key == "Escape") key = "ESC";
@@ -425,31 +424,6 @@ void upscale_controller_prompt(std::vector<uint8_t> &package, const prompt &p) {
   write32(package, p.offset + p.size - 24, 128);
 }
 
-class keyboard_game_device final : public rex::filesystem::HostPathDevice {
- public:
-  keyboard_game_device(const std::filesystem::path &game,
-                       const std::filesystem::path &cache)
-      : HostPathDevice("\\Device\\LollipopGame", game, true),
-        cooked_(rex::path_to_utf8(
-            (game / "AshGame/CookedXbox360").lexically_normal())),
-        cache_(cache) {}
-  std::filesystem::path ResolveHostPath(
-      const std::filesystem::path &path) const override {
-    if (rex::string::utf8_equal_case(
-            rex::path_to_utf8(path.parent_path().lexically_normal()),
-            cooked_) ||
-        path.filename().string().starts_with("Xbox360TOC")) {
-      const auto cached = cache_ / path.filename();
-      if (std::filesystem::is_regular_file(cached)) return cached;
-    }
-    return path;
-  }
-
- private:
-  std::string cooked_;
-  std::filesystem::path cache_;
-};
-
 }  // namespace
 
 std::vector<uint8_t> pack_keyboard_prompts(
@@ -549,16 +523,34 @@ std::vector<uint8_t> pack_keyboard_prompts(
   result.resize((result.size() + 32767) & ~size_t(32767));
   return result;
 }
-std::unique_ptr<rex::filesystem::Device> make_keyboard_game_device(
-    const std::filesystem::path &game, const std::filesystem::path &cache) {
-  return std::make_unique<keyboard_game_device>(game, cache);
+void mount_game_ui_assets(rex::filesystem::IFileSystem& files, const std::filesystem::path& game,
+                          const std::filesystem::path& cache) {
+  rex::filesystem::MountEntry mount{.path = "\\Device\\LollipopGame", .source = game};
+  for (const auto& entry : std::filesystem::directory_iterator(cache)) {
+    if (!entry.is_regular_file())
+      continue;
+    const auto name = entry.path().filename().string();
+    const auto prefix = name.starts_with("Xbox360TOC") ? "AshGame\\" : "AshGame\\CookedXbox360\\";
+    if (std::filesystem::is_regular_file(game / (std::string(prefix) + name)))
+      mount.replacements.emplace_back(prefix + name, entry.path());
+  }
+  auto check = [](auto result) {
+    if (!result)
+      throw std::runtime_error(result.error().GetDescription());
+  };
+  check(files.Mount(mount));
+  for (const auto link : {"game:", "d:"}) {
+    if (files.FindLink(link))
+      check(files.Unlink(link));
+    check(files.Link(link, mount.path));
+  }
 }
 
 bool cache_keyboard_prompts(std::span<const uint8_t> package,
                             const std::filesystem::path& directory) {
   const auto path = directory / "Startup.xxx";
   const auto stamp = directory / "Startup.lzx-v1";
-  const auto source_hash = XXH3_64bits(package.data(), package.size());
+  const auto source_hash = rex::HashXXH3(package);
   uint64_t saved_source{}, saved_packed{};
   if (std::ifstream(stamp) >> saved_source >> saved_packed && saved_source == source_hash) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -567,7 +559,7 @@ bool cache_keyboard_prompts(std::span<const uint8_t> package,
       std::vector<uint8_t> bytes(static_cast<size_t>(size));
       file.seekg(0);
       if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size()) &&
-          XXH3_64bits(bytes.data(), bytes.size()) == saved_packed)
+          rex::HashXXH3(bytes) == saved_packed)
         return true;
     }
   }
@@ -582,8 +574,7 @@ bool cache_keyboard_prompts(std::span<const uint8_t> package,
       throw std::runtime_error("Could not publish keyboard artwork cache");
   };
   publish(path, reinterpret_cast<const char*>(packed.data()), packed.size());
-  const auto hashes =
-      std::to_string(source_hash) + " " + std::to_string(XXH3_64bits(packed.data(), packed.size()));
+  const auto hashes = std::to_string(source_hash) + " " + std::to_string(rex::HashXXH3(packed));
   publish(stamp, hashes.data(), hashes.size());
   return false;
 }
@@ -800,10 +791,16 @@ std::vector<uint8_t> make_keyboard_title(std::span<const uint8_t> coalesced) {
   return result;
 }
 
-void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& game_root,
-                              const std::filesystem::path& cache_root) {
+void install_game_ui_assets(rex::kernel::TitleRuntime& runtime,
+                            const std::filesystem::path& game_root,
+                            const std::filesystem::path& cache_root) {
   auto directory = cache_root / "main-menu";
-  if (rex::cvar::Query<bool>("mnk_mode")) {
+  using namespace rex::platform;
+  static const auto prompt_replacements = RegisterCounter("prompt_replacements").value();
+  static const auto prompt_hash_bytes = RegisterCounter("prompt_hash_bytes").value();
+  static const auto prompt_candidates = RegisterCounter("prompt_candidates").value();
+  static const auto prompt_match_ns = RegisterCounter("prompt_match_ns").value();
+  if (lollipop::settings::Query<bool>("mnk_mode")) {
     const auto source = game_root / "AshGame/CookedXbox360/Startup.xxx";
     std::ifstream file(source, std::ios::binary | std::ios::ate);
     if (!file || file.tellg() != 294912)
@@ -814,12 +811,12 @@ void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& 
       throw std::runtime_error("Could not read startup artwork");
     const auto rendered = make_keyboard_prompts(packed);
     auto variants = make_prompt_variants(rendered, make_keyboard_prompts(packed, true));
-    auto* input = dynamic_cast<rex::input::InputSystem*>(runtime.input_system());
+    auto* input = REX_INTERFACE(rex::hid::IInputSystem);
     if (!input)
       throw std::runtime_error("Prompt switching needs the SDK input system");
-    rex::system::SetTextureDataCallback(
+    rex::gpu::SetTextureDataCallback(
         [input, variants = std::move(variants),
-         profile = !rex::cvar::GetFlagByName("perf_log_csv").empty()](
+         profile = !lollipop::settings::GetFlagByName("perf_log_csv").empty()](
             uint32_t width, uint32_t height, uint32_t format,
             std::span<const uint8_t> data) -> std::span<const uint8_t> {
           if (width != height || (width != 128 && width != 256) || format != 20)
@@ -829,19 +826,16 @@ void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& 
             return select_prompt_artwork(variants, data, keyboard);
           const auto start = std::chrono::steady_clock::now();
           const auto replacement = select_prompt_artwork(variants, data, keyboard);
-          using namespace rex::perf;
-          IncrementCounter(CounterId::kPromptMatchNs,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               std::chrono::steady_clock::now() - start)
-                               .count());
-          IncrementCounter(CounterId::kPromptCandidates);
-          IncrementCounter(CounterId::kPromptHashBytes, std::min(data.size(), prompt_sample_bytes));
+          IncrementCounter(prompt_match_ns, std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - start)
+                                                .count());
+          IncrementCounter(prompt_candidates);
+          IncrementCounter(prompt_hash_bytes, std::min(data.size(), prompt_sample_bytes));
           if (!replacement.empty())
-            IncrementCounter(CounterId::kPromptReplacements);
+            IncrementCounter(prompt_replacements);
           return replacement;
         });
-    directory = cache_root / "keyboard-prompts" /
-                std::to_string(XXH3_64bits(rendered.data(), rendered.size()));
+    directory = cache_root / "keyboard-prompts" / std::to_string(rex::HashXXH3(rendered));
     std::filesystem::create_directories(directory);
     const auto cache_start = std::chrono::steady_clock::now();
     const bool reused = cache_keyboard_prompts(rendered, directory);
@@ -895,15 +889,7 @@ void install_game_ui_assets(rex::Runtime& runtime, const std::filesystem::path& 
     if (!input.eof() || !toc)
       throw std::runtime_error("Could not cache game UI asset TOC");
   }
-  auto device = make_keyboard_game_device(game_root, directory);
-  if (!device->Initialize())
-    throw std::runtime_error("Could not mount game UI assets");
-  auto* vfs = runtime.file_system();
-  if (!vfs->RegisterDevice(std::move(device)) || !vfs->UnregisterSymbolicLink("game:") ||
-      !vfs->UnregisterSymbolicLink("d:") ||
-      !vfs->RegisterSymbolicLink("game:", "\\Device\\LollipopGame") ||
-      !vfs->RegisterSymbolicLink("d:", "\\Device\\LollipopGame"))
-    throw std::runtime_error("Could not install game UI asset override");
+  mount_game_ui_assets(runtime.GetFileSystem(), game_root, directory);
 }
 
 } // namespace lollipop

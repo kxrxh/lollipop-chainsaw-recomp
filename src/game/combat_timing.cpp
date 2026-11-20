@@ -2,8 +2,9 @@
 #include "game/timing_hooks.h"
 
 #include <cmath>
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
 #include <rex/memory.h>
-#include <rex/system/thread_state.h>
 #include <string_view>
 
 namespace {
@@ -78,11 +79,13 @@ void correct_attack_homing(uint8_t* memory, uint32_t frame, uint32_t current) {
 } // namespace lollipop
 
 void lollipop_finisher_multiply(PPCRegister& frame, PPCRegister& left, PPCRegister& right) {
-  lollipop::correct_finisher_multiply(rex::runtime::ThreadState::Get()->memory()->virtual_membase(),
-                                      frame.u32, lollipop::engine_tick_delta(), left, right);
+  lollipop::correct_finisher_multiply(
+      rex::kernel::ThreadState::Get()->GetAddressSpace()->GetVirtualMembase(), frame.u32,
+      lollipop::engine_tick_delta(), left, right);
 }
 
 void lollipop_attack_homing(PPCRegister& frame, PPCRegister& current) {
-  lollipop::correct_attack_homing(rex::runtime::ThreadState::Get()->memory()->virtual_membase(),
-                                  frame.u32, current.u32);
+  lollipop::correct_attack_homing(
+      rex::kernel::ThreadState::Get()->GetAddressSpace()->GetVirtualMembase(), frame.u32,
+      current.u32);
 }

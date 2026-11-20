@@ -1,6 +1,6 @@
 #requires -Version 7.2
 param(
-    [string]$RexGlueDirectory = (Join-Path $PSScriptRoot '../out/sdk/lib/cmake/rexglue'),
+    [string]$RexGlueDirectory = (Join-Path $PSScriptRoot '../out/sdk-0.11.0/lib/cmake/rexglue'),
     [string]$GeneratedDirectory = (Join-Path $PSScriptRoot '../out/generated'),
     [string]$LlvmDirectory
 )
@@ -63,7 +63,8 @@ try {
     try {
         foreach ($name in 'CMakeLists.txt','launcher/assets/lollipop.ico','src/main.cpp','VERSION','THIRD_PARTY.md',
                           'launcher/assets/LICENSE.Markdig','launcher/assets/LICENSE.NET',
-                          'launcher/assets/LICENSE.LLVM','launcher/assets/LICENSE.Clang','launcher/assets/LICENSE.LLD') {
+                          'launcher/assets/LICENSE.LLVM','launcher/assets/LICENSE.Clang','launcher/assets/LICENSE.LLD',
+                          'patches/rexglue-input.patch','patches/rexglue-game.patch') {
             if (-not $archive.GetEntry($name)) { throw "Game source kit is missing $name" }
         }
         if ($archive.Entries.FullName -match '^(game|user|cache|out|generated|tests|launcher/tests)/|\.ps1$|\.cs$|\.xaml$|default\.xex$') {
@@ -76,9 +77,11 @@ try {
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target)
         }
     } finally { $archive.Dispose() }
+    $playerSdk = Join-Path $temporary ("player SDK [1] " + [char]0x0416)
+    [IO.Compression.ZipFile]::ExtractToDirectory("$root/out/launcher/sdk.zip", $playerSdk)
     $playerBuild = Join-Path $temporary 'player build'
     & $tools.CMake -S $playerSource -B $playerBuild -G Ninja "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)" `
-        "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-Drexglue_DIR=$RexGlueDirectory" `
+        "-DCMAKE_CXX_COMPILER=$($tools.Clangxx)" "-Drexglue_DIR=$playerSdk/lib/cmake/rexglue" `
         "-DLOLLIPOP_GENERATED_DIR=$GeneratedDirectory" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
     if ($LASTEXITCODE -ne 0) { throw 'Player source kit could not be configured without test files.' }
     $targets = (& $tools.Ninja -C $playerBuild -t targets all) -join "`n"

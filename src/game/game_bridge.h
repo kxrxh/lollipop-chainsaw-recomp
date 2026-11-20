@@ -6,7 +6,9 @@
 #include <utility>
 
 namespace rex {
-class Runtime;
+namespace kernel {
+class TitleRuntime;
+}
 }
 
 namespace lollipop {
@@ -14,7 +16,7 @@ namespace lollipop {
 // Scoped access on the engine tick thread; restores the caller's PPC context.
 class game_bridge {
 public:
-  game_bridge(rex::Runtime& runtime, PPCContext& context);
+  game_bridge(rex::kernel::TitleRuntime& runtime, PPCContext& context);
   ~game_bridge();
   game_bridge(const game_bridge&) = delete;
   game_bridge& operator=(const game_bridge&) = delete;
@@ -47,7 +49,7 @@ public:
 private:
   uint32_t process(uint32_t object, uint32_t function);
   void string(uint32_t header, uint32_t text, const char* value);
-  rex::Runtime& runtime_;
+  rex::kernel::TitleRuntime& runtime_;
   PPCContext& context_;
   PPCContext saved_;
   unsigned char* memory_;

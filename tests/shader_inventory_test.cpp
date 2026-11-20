@@ -77,7 +77,7 @@ std::vector<uint8_t> compress(std::span<const uint8_t> input) {
 }
 std::vector<uint8_t> library(std::span<const uint8_t> code) {
   std::vector<uint8_t> data{'X', 'E', 'S', 'H', 0x20, 0x20, 0x12, 0x19};
-  le64(data, XXH3_64bits(code.data(), code.size()));
+  le64(data, rex::HashXXH3(code));
   le32(data, uint32_t(code.size() / 4));
   data.insert(data.end(), code.begin(), code.end());
   return data;
@@ -150,11 +150,11 @@ int main(int argc, char** argv) try {
   variant[5] ^= 3;
   write(root / "cache/shaders/shareable/565707D0.xsh", library(variant));
   std::vector<uint8_t> description(64);
-  const auto hash = XXH3_64bits(variant.data(), variant.size());
+  const auto hash = rex::HashXXH3(variant);
   for (unsigned i = 0; i < 8; ++i)
     description[i] = uint8_t(hash >> (i * 8));
   std::vector<uint8_t> pipelines{'X', 'E', 'P', 'S', 'D', 'X', 'R', 'O', 0x20, 0x26, 0x02, 0x26};
-  le64(pipelines, XXH3_64bits(description.data(), description.size()));
+  le64(pipelines, rex::HashXXH3(description));
   pipelines.insert(pipelines.end(), description.begin(), description.end());
   write(root / "cache/shaders/shareable/565707D0.rov.d3d12.xpso", pipelines);
   const auto output = root / "collected.txt";

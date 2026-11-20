@@ -9,24 +9,13 @@
 #include <iomanip>
 #include <mutex>
 
-#include <rex/cvar.h>
-#include <rex/logging.h>
+#include "settings/runtime_settings.h"
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
+#include <rex/logging/log_category.h>
 #include <rex/memory.h>
-#include <rex/perf/counter.h>
-#include <rex/system/thread_state.h>
-
-REXCVAR_DEFINE_BOOL(
-    lollipop_60fps, true, "Lollipop",
-    "Legacy 30/60 FPS switch; use lollipop_fps instead")
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
-
-REXCVAR_DEFINE_INT32(lollipop_fps, 60, "Lollipop", "Frame limit: 30, 60, 90 or 120 FPS")
-    .allowed({"30", "60", "90", "120"})
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
-
-REXCVAR_DEFINE_STRING(lollipop_tick_trace_csv, "", "Lollipop",
-                      "Opt-in candidate engine Tick timing log")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+#include <rex/platform/perf.h>
+#include <rex/string/text.h>
 
 namespace {
 std::atomic<bool> settings_paused{false};
@@ -37,9 +26,10 @@ thread_local double tick_delta = 0;
 
 void apply_frame_rate(int fps) {
   frame_rate.store(fps, std::memory_order_relaxed);
-  const auto source = rex::cvar::GetFlagSource("video_mode_refresh_rate");
-  if (source == rex::cvar::Source::kDefault || source == rex::cvar::Source::kRuntime)
-    rex::cvar::SetFlagByName("video_mode_refresh_rate", std::to_string(std::max(60, fps)));
+  const auto source = lollipop::settings::GetFlagSource("video_mode_refresh_rate");
+  if (source == lollipop::settings::Source::kDefault ||
+      source == lollipop::settings::Source::kRuntime)
+    lollipop::settings::SetFlagByName("video_mode_refresh_rate", std::to_string(std::max(60, fps)));
 }
 } // namespace
 
@@ -47,22 +37,20 @@ bool lollipop::is_engine_tick_thread() { return engine_tick_thread; }
 double lollipop::engine_tick_delta() { return tick_delta; }
 
 void lollipop::configure_frame_rate() {
-  using rex::cvar::Source;
-  const auto source = rex::cvar::GetFlagSource("lollipop_fps");
-  const auto legacy = rex::cvar::GetFlagSource("lollipop_60fps");
+  using lollipop::settings::Source;
+  const auto source = lollipop::settings::GetFlagSource("lollipop_fps");
+  const auto legacy = lollipop::settings::GetFlagSource("lollipop_60fps");
   if (source == Source::kDefault ||
       (legacy == Source::kCommandLine && source != Source::kCommandLine) ||
       (legacy == Source::kEnvironment && source != Source::kCommandLine &&
        source != Source::kEnvironment))
-    rex::cvar::SetFlagByName("lollipop_fps", REXCVAR_GET(lollipop_60fps) ? "60" : "30");
-  static const bool watching = [] {
-    rex::cvar::RegisterChangeCallback("lollipop_fps", [](std::string_view, std::string_view value) {
-      apply_frame_rate(std::stoi(std::string(value)));
-    });
-    return true;
-  }();
+    lollipop::settings::SetFlagByName(
+        "lollipop_fps", lollipop::settings::Query<bool>("lollipop_60fps") ? "60" : "30");
+  static const auto watching =
+      static_cast<rex::Setting<int32_t>*>(lollipop::settings::GetFlagInfo("lollipop_fps"))
+          ->OnChange([](int32_t fps) { apply_frame_rate(fps); });
   (void)watching;
-  apply_frame_rate(REXCVAR_GET(lollipop_fps));
+  apply_frame_rate(lollipop::settings::Query<int32_t>("lollipop_fps"));
 }
 
 void lollipop::set_settings_pause(bool paused) {
@@ -118,7 +106,7 @@ void lollipop_trail_inertia(PPCRegister& control, PPCRegister& step, PPCRegister
   constexpr uint32_t momentum_offset = 0x150;
   if (control.u32 < 0x10000 || control.u32 > 0xC0000000 - momentum_offset - sizeof(float))
     return;
-  const auto* base = rex::runtime::ThreadState::Get()->memory()->virtual_membase();
+  const auto* base = rex::kernel::ThreadState::Get()->GetAddressSpace()->GetVirtualMembase();
   const auto momentum = rex::memory::load_and_swap<float>(base + control.u32 + momentum_offset);
   lollipop::scale_trail_inertia(momentum, step, x, y, z);
 }
@@ -126,12 +114,14 @@ void lollipop_trail_inertia(PPCRegister& control, PPCRegister& step, PPCRegister
 void lollipop_tick_trace(PPCRegister &engine, PPCRegister &delta) {
   engine_tick_thread = true;
   tick_delta = delta.f64;
-  const auto &path = REXCVAR_GET(lollipop_tick_trace_csv);
+  static const auto* trace_path = static_cast<rex::Setting<std::string>*>(
+      lollipop::settings::GetFlagInfo("lollipop_tick_trace_csv"));
+  const auto path = trace_path->Get();
   if (path.empty())
     return;
   static std::mutex mutex;
   std::lock_guard lock(mutex);
-  static std::ofstream trace{std::filesystem::path(path)};
+  static std::ofstream trace{rex::string::to_path(path)};
   static bool initialized = false;
   static unsigned rows = 0;
   if (!initialized) {
@@ -146,10 +136,8 @@ void lollipop_tick_trace(PPCRegister &engine, PPCRegister &delta) {
   const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
-  trace << now << ',' << engine.u32 << ',' << std::setprecision(9) << delta.f64
-        << ','
-        << rex::perf::GetSnapshotCounter(rex::perf::CounterId::kFrameTimeUs)
-        << '\n';
+  trace << now << ',' << engine.u32 << ',' << std::setprecision(9) << delta.f64 << ','
+        << rex::platform::GetSnapshotCounter(rex::platform::CounterID::kFrameTimeUs) << '\n';
   if (++rows % 60 == 0)
     trace.flush();
 }

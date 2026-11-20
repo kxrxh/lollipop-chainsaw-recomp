@@ -1,0 +1,358 @@
+diff --git a/cmake/rexglue_install.cmake b/cmake/rexglue_install.cmake
+index 24db2b54..367666f1 100644
+--- a/cmake/rexglue_install.cmake
++++ b/cmake/rexglue_install.cmake
+@@ -84,6 +84,11 @@ foreach (_module IN LISTS REXGLUE_RUNTIME_FILE_TARGETS)
+   string(APPEND REXGLUE_MODULES_CONTENT "${_config_upper})${_nl}")
+   string(APPEND REXGLUE_MODULES_CONTENT "${_set} PROPERTY IMPORTED_LOCATION_${_config_upper} ")
+   string(APPEND REXGLUE_MODULES_CONTENT "\"${_location}\")${_nl}")
++  if (WIN32 AND _export_name MATCHES "^(filesystem|gpu|hid|ui)$")
++    install(FILES $<TARGET_LINKER_FILE:${_module}> DESTINATION ${CMAKE_INSTALL_LIBDIR})
++    string(APPEND REXGLUE_MODULES_CONTENT
++      "${_set} PROPERTY IMPORTED_IMPLIB_${_config_upper} \"\${PACKAGE_PREFIX_DIR}/${CMAKE_INSTALL_LIBDIR}/$<TARGET_LINKER_FILE_NAME:${_module}>\")${_nl}")
++  endif ()
+   if (NOT WIN32 AND NOT APPLE)
+     string(APPEND REXGLUE_MODULES_CONTENT "${_set} PROPERTY IMPORTED_SONAME_${_config_upper} ")
+     string(APPEND REXGLUE_MODULES_CONTENT "\"${_soname}\")${_nl}")
+diff --git a/include/rex/filesystem/mount.h b/include/rex/filesystem/mount.h
+index 9b4c7f05..33766af2 100644
+--- a/include/rex/filesystem/mount.h
++++ b/include/rex/filesystem/mount.h
+@@ -12,6 +12,7 @@
+ 
+ #include <filesystem>
+ #include <string>
++#include <utility>
+ #include <vector>
+ 
+ #include <rex/bit.h>
+@@ -46,6 +47,8 @@ struct MountEntry {
+   std::filesystem::path source; /**< Host folder or container file, empty for kNull. */
+   MountFlags flags = MountFlags::kNone;
+   std::vector<std::string> null_paths; /**< Paths the null provider answers. */
++  // Optional replacements for existing files on a read-only host mount.
++  std::vector<std::pair<std::string, std::filesystem::path>> replacements = {};
+ };
+ 
+ }  // namespace rex::filesystem
+diff --git a/include/rex/kernel/title_runtime.h b/include/rex/kernel/title_runtime.h
+index ee09423f..d0b844ce 100644
+--- a/include/rex/kernel/title_runtime.h
++++ b/include/rex/kernel/title_runtime.h
+@@ -109,6 +109,9 @@ class REX_KERNEL_API TitleRuntime final : public rex::NonCopyable {
+    */
+   [[nodiscard]] Result<void> Launch();
+ 
++  /** Attaches the title systems without starting the main guest thread. */
++  [[nodiscard]] Result<void> AttachForLaunch();
++
+   /**
+    * Ends every guest thread, saves content and frees guest memory. Does nothing when not loaded.
+    * After Launch it must run on the UI thread.
+@@ -157,6 +160,8 @@ class REX_KERNEL_API TitleRuntime final : public rex::NonCopyable {
+    */
+   [[nodiscard]] rex::ScopeGuard OnTitleExit(rex::MoveOnlyFunction<void(TitleExitReason)> callback);
+ 
++  FunctionDispatcher& GetFunctionDispatcher() const;
++
+   GuestMemory& GetGuestMemory() const;
+ 
+   kernel::IModuleRegistry& GetModuleRegistry();
+diff --git a/src/app/app.cpp b/src/app/app.cpp
+index 94ca3905..9e5ed325 100644
+--- a/src/app/app.cpp
++++ b/src/app/app.cpp
+@@ -362,7 +362,8 @@ Result<void> App::Init(const CLIArgList& args) {
+     if (auto set = name.SetText(SettingLayer::kTitle, state.name); !set) {
+       return failed("name", set.error());
+     }
+-    if (auto set = root.SetText(SettingLayer::kTitle, DefaultRoot(state.name).string()); !set) {
++    if (auto set = root.SetText(SettingLayer::kTitle, string::PathToUTF8(DefaultRoot(state.name)));
++        !set) {
+       return failed("root", set.error());
+     }
+     LogOpenFileLimit();
+diff --git a/src/app/title_app.cpp b/src/app/title_app.cpp
+index 185db323..ba35d7c1 100644
+--- a/src/app/title_app.cpp
++++ b/src/app/title_app.cpp
+@@ -135,6 +135,7 @@ Result<void> TitleApp::LaunchTitle() {
+       title.Unload();
+       return Fail("OnTitleLaunch", hooked.error());
+     }
++    if (IsShutdownRequested()) return Ok();
+     if (auto started = title.Launch(); !started) {
+       title.Unload();
+       return failure(started.error().message);
+diff --git a/src/base/log_file.cpp b/src/base/log_file.cpp
+index 95380a67..82558bf1 100644
+--- a/src/base/log_file.cpp
++++ b/src/base/log_file.cpp
+@@ -19,6 +19,7 @@
+ #include <vector>
+ 
+ #include <rex/platform/file.h>
++#include <rex/string/text.h>
+ 
+ #include "base/logger.h"
+ 
+@@ -30,7 +31,7 @@ std::optional<i32> RunNumber(const std::filesystem::path& file, std::string_view
+   if (file.extension() != ".log") {
+     return std::nullopt;
+   }
+-  const std::string stem = file.stem().string();
++  const std::string stem = string::PathToUTF8(file.stem());
+   if (!stem.starts_with(prefix)) {
+     return std::nullopt;
+   }
+@@ -89,14 +90,14 @@ std::filesystem::path NextRun(const std::filesystem::path& folder, std::string_v
+       highest = std::max(highest, *run);
+     }
+   }
+-  return folder / std::format("{}_{:03d}.log", name, highest + 1);
++  return folder / string::to_path(std::format("{}_{:03d}.log", name, highest + 1));
+ }
+ 
+ }  // namespace
+ 
+ std::filesystem::path DefaultLogFolder() {
+   const std::filesystem::path root =
+-      platform::GetAppRoot(platform::GetExecutablePath().stem().string());
++      platform::GetAppRoot(string::PathToUTF8(platform::GetExecutablePath().stem()));
+   return (root.empty() ? platform::GetExecutableFolder() : root) / "logs";
+ }
+ 
+@@ -109,7 +110,7 @@ std::filesystem::path ResolveLogFile(const LogFileConfig& config) {
+   }
+   const std::filesystem::path folder = config.folder.empty() ? DefaultLogFolder() : config.folder;
+   const std::string name =
+-      config.name.empty() ? platform::GetExecutablePath().stem().string() : config.name;
++      config.name.empty() ? string::PathToUTF8(platform::GetExecutablePath().stem()) : config.name;
+   std::error_code ec;
+   std::filesystem::create_directories(folder, ec);
+   const std::filesystem::path next = NextRun(folder, name);
+diff --git a/src/base/logger.cpp b/src/base/logger.cpp
+index af80836a..f34b8598 100644
+--- a/src/base/logger.cpp
++++ b/src/base/logger.cpp
+@@ -704,7 +704,7 @@ Result<void> Logger::State::OpenFile(const std::filesystem::path& log_root,
+   config.enabled = owner.file.Get();
+   config.folder = log_root;
+   config.name = owner.file_name.Get().empty() ? std::string(app_name) : owner.file_name.Get();
+-  if (const std::filesystem::path named(owner.file_name.Get()); named.is_absolute()) {
++  if (const auto named = string::to_path(config.name); named.is_absolute()) {
+     config.path = named;
+   }
+   config.folder_budget = static_cast<u64>(owner.folder_budget.Get());
+@@ -723,7 +723,7 @@ Result<void> Logger::State::OpenFile(const std::filesystem::path& log_root,
+         SetCrashFile(path);
+         Replay(*file, true);
+       } catch (const std::exception&) {
+-        file_error = std::format("log file {} could not be opened", path.string());
++        file_error = std::format("log file {} could not be opened", string::PathToUTF8(path));
+       }
+     }
+     file_resolved = true;
+diff --git a/src/base/settings/parse.cpp b/src/base/settings/parse.cpp
+index 4737108c..4971555a 100644
+--- a/src/base/settings/parse.cpp
++++ b/src/base/settings/parse.cpp
+@@ -13,6 +13,7 @@
+ #include <format>
+ 
+ #include <rex/settings_registry.h>
++#include <rex/string/text.h>
+ 
+ namespace rex {
+ 
+@@ -78,7 +79,7 @@ bool ParseSetting(std::string_view text, std::string& out) {
+ }
+ 
+ bool ParseSetting(std::string_view text, std::filesystem::path& out) {
+-  out = std::filesystem::path(std::string(text));
++  out = string::to_path(text);
+   return true;
+ }
+ 
+@@ -111,11 +112,11 @@ std::string RenderSetting(const std::string& value) {
+ }
+ 
+ std::string RenderSetting(const std::filesystem::path& value) {
+-  return value.generic_string();
++  return string::PathToUTF8(value);
+ }
+ 
+ std::filesystem::path ResolveSettingPath(const std::filesystem::path& value) {
+-  std::string text = value.generic_string();
++  std::string text = string::PathToUTF8(value);
+   SettingsRegistry& settings = REX_SETTINGS();
+   for (int pass = 0; pass < 8; ++pass) {
+     const size_t open = text.find('{');
+@@ -130,7 +131,7 @@ std::filesystem::path ResolveSettingPath(const std::filesystem::path& value) {
+       break;
+     text.replace(open, close - open + 1, (*found)->GetText());
+   }
+-  return std::filesystem::path(text);
++  return string::to_path(text);
+ }
+ 
+ }  // namespace detail
+diff --git a/src/base/settings/setting.cpp b/src/base/settings/setting.cpp
+index 98ec51e9..ef08bed9 100644
+--- a/src/base/settings/setting.cpp
++++ b/src/base/settings/setting.cpp
+@@ -155,7 +155,7 @@ Result<void> SettingBase::Check(std::string_view text) const {
+     if (c.max && numeric > *c.max)
+       return fail(std::format("is above {}", *c.max));
+   }
+-  if (!c.allowed.empty() && state_->type == SettingType::kString &&
++  if (!c.allowed.empty() &&
+       std::ranges::find(c.allowed, std::string(text)) == c.allowed.end()) {
+     return fail("is not an accepted value");
+   }
+diff --git a/src/base/settings/settings_registry.cpp b/src/base/settings/settings_registry.cpp
+index 16cb0a5e..c481ad85 100644
+--- a/src/base/settings/settings_registry.cpp
++++ b/src/base/settings/settings_registry.cpp
+@@ -16,6 +16,7 @@
+ #include <rex/settings_registry.h>
+ #include <rex/console_command.h>
+ #include <rex/platform/process.h>
++#include <rex/string/text.h>
+ 
+ #include "base/settings/settings_internal.h"
+ 
+@@ -189,13 +190,13 @@ bool SettingsRegistry::ApplyOldLogFile(SettingLayer layer, std::string_view name
+     state_->notices.push_back(
+         std::format("log.file {} is now log.file, app.log_root and log.file_name", text));
+   }
+-  const std::filesystem::path path{std::string(text)};
++  const auto path = string::to_path(text);
+   result = SetText(layer, "log.file", "true");
+   if (result && path.has_parent_path()) {
+-    result = SetText(layer, "app.log_root", path.parent_path().string());
++    result = SetText(layer, "app.log_root", string::PathToUTF8(path.parent_path()));
+   }
+   if (result) {
+-    result = SetText(layer, "log.file_name", path.filename().string());
++    result = SetText(layer, "log.file_name", string::PathToUTF8(path.filename()));
+   }
+   return true;
+ }
+diff --git a/src/filesystem/host_provider.cpp b/src/filesystem/host_provider.cpp
+index 12915c01..01ce914b 100644
+--- a/src/filesystem/host_provider.cpp
++++ b/src/filesystem/host_provider.cpp
+@@ -155,13 +155,25 @@ std::filesystem::path HostNode::GetHostPath() const {
+ 
+ std::unique_ptr<HostNode> HostNode::Create(HostProvider& provider, HostNode& parent,
+                                            const HostFileStat& info) {
+-  auto node = std::make_unique<HostNode>(
+-      provider, &parent,
+-      string::utf8_join_guest_paths(parent.GetPath(), string::PathToUTF8(info.name)),
+-      parent.GetHostPath() / info.name);
+-  node->info_.create_time = info.create_time;
+-  node->info_.access_time = info.access_time;
+-  node->info_.write_time = info.write_time;
++  const auto relative = string::utf8_join_guest_paths(parent.GetPath(), string::PathToUTF8(info.name));
++  auto backing = parent.GetHostPath() / info.name;
++  std::optional<HostFileStat> replacement_info;
++  if (!info.directory && provider.IsReadOnly()) {
++    for (const auto& [guest, replacement] : provider.GetEntry().replacements) {
++      if (string::utf8_equal_case(guest, relative)) {
++        if (auto stat = HostStat(replacement); stat && !stat->directory) {
++          backing = replacement;
++          replacement_info = std::move(stat);
++        }
++        break;
++      }
++    }
++  }
++  auto node = std::make_unique<HostNode>(provider, &parent, relative, std::move(backing));
++  const auto& metadata = replacement_info ? *replacement_info : info;
++  node->info_.create_time = metadata.create_time;
++  node->info_.access_time = metadata.access_time;
++  node->info_.write_time = metadata.write_time;
+   if (info.directory) {
+     node->info_.attributes = FileAttributes::kDirectory;
+   } else {
+@@ -169,8 +181,8 @@ std::unique_ptr<HostNode> HostNode::Create(HostProvider& provider, HostNode& par
+     if (provider.IsReadOnly()) {
+       node->info_.attributes |= FileAttributes::kReadOnly;
+     }
+-    node->info_.size = info.size;
+-    node->info_.allocation_size = RoundUpNonZero(info.size, u64{kBytesPerSector});
++    node->info_.size = metadata.size;
++    node->info_.allocation_size = RoundUpNonZero(metadata.size, u64{kBytesPerSector});
+   }
+   return node;
+ }
+diff --git a/src/kernel/title_runtime.cpp b/src/kernel/title_runtime.cpp
+index 0308d4a8..c9558ddf 100644
+--- a/src/kernel/title_runtime.cpp
++++ b/src/kernel/title_runtime.cpp
+@@ -65,6 +65,10 @@ TitleState& StateOf(const TitleRuntime& runtime) {
+   return *runtime.state_;
+ }
+ 
++Result<void> TitleRuntime::AttachForLaunch() {
++  return state_->AttachForLaunch();
++}
++
+ Result<void> TitleRuntime::Launch() {
+   return state_->Launch();
+ }
+@@ -105,6 +109,10 @@ rex::ScopeGuard TitleRuntime::OnTitleExit(rex::MoveOnlyFunction<void(TitleExitRe
+   return state_->OnTitleExit(std::move(callback));
+ }
+ 
++FunctionDispatcher& TitleRuntime::GetFunctionDispatcher() const {
++  return *state_->GetFunctionDispatcher();
++}
++
+ GuestMemory& TitleRuntime::GetGuestMemory() const {
+   return state_->GetGuestMemory();
+ }
+diff --git a/src/kernel/title_state.cpp b/src/kernel/title_state.cpp
+index 916aeb6a..2f9df062 100644
+--- a/src/kernel/title_state.cpp
++++ b/src/kernel/title_state.cpp
+@@ -651,7 +651,7 @@ Result<void> TitleState::Load() {
+   return Ok();
+ }
+ 
+-Result<void> TitleState::Launch() {
++Result<void> TitleState::AttachForLaunch() {
+   if (!IsLoaded() || running_) {
+     return Err(ErrorCategory::kRuntime, "the title is not loaded or is running");
+   }
+@@ -684,6 +684,15 @@ Result<void> TitleState::Launch() {
+     return attached;
+   }
+ 
++  return Ok();
++}
++
++Result<void> TitleState::Launch() {
++  if (!attached_) {
++    REX_TRY_VOID(AttachForLaunch());
++  } else if (!IsLoaded() || running_) {
++    return Err(ErrorCategory::kRuntime, "the title is not loaded or is running");
++  }
+   const X_HANDLE main_thread = PrepareModuleLaunch();
+   if (!main_thread) {
+     Unload();
+diff --git a/src/kernel/title_state.h b/src/kernel/title_state.h
+index b7655632..d0b11911 100644
+--- a/src/kernel/title_state.h
++++ b/src/kernel/title_state.h
+@@ -136,6 +136,9 @@ class TitleState : public ITitleExit, public ITitleDebugOutput, public rex::NonC
+    */
+   [[nodiscard]] Result<void> Launch();
+ 
++  /** Attaches the title systems without starting the main guest thread. */
++  [[nodiscard]] Result<void> AttachForLaunch();
++
+   /**
+    * Ends every guest thread, detaches the title, saves content and frees guest memory. After
+    * Launch it must run on the UI thread, because detaching the UI system waits for that thread.

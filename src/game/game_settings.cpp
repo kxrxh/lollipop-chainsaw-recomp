@@ -1,6 +1,7 @@
 #include "game_settings.h"
 #include "game/game_bridge.h"
 #include "game/startup_hooks.h"
+#include "settings/runtime_settings.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -8,19 +9,10 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
-#include <rex/cvar.h>
-#include <rex/logging.h>
+#include <rex/logging/log_category.h>
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-REXCVAR_DEFINE_INT32(lollipop_music_volume, 10, "Lollipop", "Music volume, 0 to 10").range(0, 10);
-REXCVAR_DEFINE_INT32(lollipop_sfx_volume, 10, "Lollipop", "Sound effects volume, 0 to 10")
-    .range(0, 10);
-REXCVAR_DEFINE_BOOL(lollipop_subtitles, false, "Lollipop", "Subtitles");
-REXCVAR_DEFINE_BOOL(lollipop_camera_invert_y, false, "Lollipop", "Invert vertical camera");
-REXCVAR_DEFINE_BOOL(lollipop_camera_invert_x, false, "Lollipop", "Invert horizontal camera");
-REXCVAR_DEFINE_BOOL(lollipop_manual_aim, false, "Lollipop", "Manual blaster aim");
 
 namespace lollipop {
 namespace {
@@ -169,10 +161,10 @@ void update_game_settings(game_bridge& guest) {
   values[6] = guest.invoke(object, functions[5]) != 0;
   if (!ready.load()) {
     for (size_t i = 0; i < values.size(); ++i)
-      if (rex::cvar::GetFlagSource(flags[i]) == rex::cvar::Source::kDefault)
-        rex::cvar::SetFlagByName(flags[i], i < 2       ? std::to_string(values[i])
-                                           : values[i] ? "true"
-                                                       : "false");
+      if (lollipop::settings::GetFlagSource(flags[i]) == lollipop::settings::Source::kDefault)
+        lollipop::settings::SetFlagByName(flags[i], i < 2       ? std::to_string(values[i])
+                                                    : values[i] ? "true"
+                                                                : "false");
     ready.store(true);
     REXLOG_INFO("Original game settings imported into PC settings");
   }
@@ -182,7 +174,7 @@ void update_game_settings(game_bridge& guest) {
   }
   std::array<int, 7> wanted{};
   for (size_t i = 0; i < wanted.size(); ++i) {
-    const auto value = rex::cvar::GetFlagByName(flags[i]);
+    const auto value = lollipop::settings::GetFlagByName(flags[i]);
     wanted[i] = i < 2 ? std::stoi(value) : value == "true";
   }
   constexpr const char* setters[] = {"ASHUS_SetGameBGMVolume",    "ASHUS_SetGameSeVolume",

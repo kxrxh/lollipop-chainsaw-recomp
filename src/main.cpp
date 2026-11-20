@@ -1,5 +1,4 @@
 #include "app/application.h"
+#include <rex/app/app.h>
 
-#include <rex/rex_app.h>
-
-REX_DEFINE_APP(lollipop, lollipop::create_application)
+REX_DETAIL_ENTRY_POINTS(lollipop::run_application)

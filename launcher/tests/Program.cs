@@ -243,6 +243,8 @@ internal static class SetupTests {
     File.WriteAllText(Path.Combine(kit, "patches/rexglue-fixes.patch"), "first patch");
     File.WriteAllText(Path.Combine(kit, "patches/rexglue-shader-precompile.patch"), "second patch");
     File.WriteAllText(Path.Combine(kit, "patches/rexglue-live-settings.patch"), "live settings patch");
+    File.WriteAllText(Path.Combine(kit, "patches/rexglue-input.patch"), "input patch");
+    File.WriteAllText(Path.Combine(kit, "patches/rexglue-game.patch"), "game patch");
     var id = GameUpdate.SdkId(kit, "commit-a");
     Check(id == GameUpdate.SdkId(kit, "commit-a") && id != GameUpdate.SdkId(kit, "commit-b"),
           "SDK cache did not include the pinned commit");
@@ -258,7 +260,13 @@ internal static class SetupTests {
                                       "out/build/win-amd64-release" })
       Directory.CreateDirectory(Path.Combine(destination, directory));
     File.WriteAllText(Path.Combine(destination, "game/default.xex"), "disc");
-    File.WriteAllText(Path.Combine(destination, "user/save"), "save");
+    var titleUser = Path.Combine(destination, "user/B13EBABEBABEBABE/565707D0");
+    var save = Path.Combine(titleUser, "00000001/AshGame.sav/AshGame.sav");
+    var header = Path.Combine(titleUser, "Headers/00000001/AshGame.sav.header");
+    Directory.CreateDirectory(Path.GetDirectoryName(save)!);
+    Directory.CreateDirectory(Path.GetDirectoryName(header)!);
+    File.WriteAllText(save, "save");
+    File.WriteAllText(header, "save header");
     File.WriteAllText(Path.Combine(destination, "user/pc-settings.toml"), "preferences");
     File.WriteAllText(Path.Combine(destination, "cache/player-cache"), "cache");
     var active = Path.Combine(destination, "out/build/win-amd64-release");
@@ -284,8 +292,11 @@ internal static class SetupTests {
           "Incomplete update replaced the old game");
     Check(File.ReadAllText(Path.Combine(active, "lollipop.exe")) == "old game",
           "Failed update changed the playable build");
-    File.WriteAllText(Path.Combine(stage, "rexruntime.dll"), "new runtime");
-    File.WriteAllText(Path.Combine(stage, "rexgpu-xenos.dll"), "new renderer");
+    foreach (var name in SdkPackage.RuntimeFiles.Where(name => name != "SDL3.dll"))
+      File.WriteAllText(Path.Combine(stage, name), "new runtime");
+    Fails(delegate { GameUpdate.Publish(destination, true); },
+          "Update without SDL3 replaced the old game");
+    File.WriteAllText(Path.Combine(stage, "SDL3.dll"), "new runtime");
     File.WriteAllText(Path.Combine(stage, "lollipop.toml"), "stale staged key bindings");
     File.SetAttributes(Path.Combine(stage, "lollipop.toml"), FileAttributes.ReadOnly);
     var state = Path.Combine(destination, "out/launcher");
@@ -320,7 +331,8 @@ internal static class SetupTests {
     }
     File.Delete(Path.Combine(state, "publish.pending"));
     Check(File.ReadAllText(Path.Combine(destination, "game/default.xex")) == "disc" &&
-              File.ReadAllText(Path.Combine(destination, "user/save")) == "save" &&
+              File.ReadAllText(save) == "save" &&
+              File.ReadAllText(header) == "save header" &&
               File.ReadAllText(Path.Combine(destination, "user/pc-settings.toml")) ==
                   "preferences" &&
               File.ReadAllText(Path.Combine(destination, "cache/player-cache")) == "cache",
@@ -345,7 +357,7 @@ internal static class SetupTests {
     foreach (var version in new[] { "first game", "repaired game" }) {
       var freshStage = GameUpdate.Stage(fresh);
       Directory.CreateDirectory(freshStage);
-      foreach (var file in new[] { "lollipop.exe", "rexruntime.dll", "rexgpu-xenos.dll" })
+      foreach (var file in SdkPackage.RuntimeFiles.Append("lollipop.exe"))
         File.WriteAllText(Path.Combine(freshStage, file), version);
       File.WriteAllText(Path.Combine(freshState, "setup.pending"), "Installing");
       GameUpdate.Publish(fresh, false);

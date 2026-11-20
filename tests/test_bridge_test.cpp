@@ -7,18 +7,17 @@
 #include <thread>
 #include <windows.h>
 
-#include <rex/cvar.h>
-#include <rex/input/input_system.h>
+#include "input_fixture.h"
+#include "settings/runtime_settings.h"
 
-using rex::X_RESULT;
-
-REXCVAR_DEFINE_BOOL(bridge_test_flag, true, "Test", "Test hot setting");
-REXCVAR_DEFINE_INT32(bridge_test_restart, 1, "Test", "Test restart setting")
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+class bridge_settings final : public rex::SettingOwner {
+public:
+  bridge_settings() : SettingOwner("test") {}
+  REX_SETTING(bool, bridge_test_flag, true, "Test hot setting");
+  REX_SETTING(rex::i32, bridge_test_restart, 1, "Test restart setting", rex::kRestart);
+};
 
 using lollipop::execute_test_command;
-using lollipop::make_test_assignment;
-using lollipop::make_test_driver;
 using lollipop::test_controls;
 
 bool check_game_bridge() {
@@ -87,6 +86,10 @@ bool check_game_bridge() {
 int main() {
   if (!check_game_bridge())
     return 27;
+  input_fixture app("lollipop-test-bridge");
+  bridge_settings settings;
+  if (!REX_SETTINGS().Register(settings))
+    return 100;
   auto controls = std::make_shared<test_controls>();
   const auto run = [&](const std::string& s) { return execute_test_command(*controls, s); };
   if (!run("game_settings_state").starts_with("ok loading ") ||
@@ -111,10 +114,11 @@ int main() {
     return 23;
   if (run("ui_key space 1") != "ok key" || run("ui_key space 0") != "ok key")
     return 29;
-  if (run("set bridge_test_flag false") != "ok false" || run("get bridge_test_flag") != "ok false")
+  if (run("set test.bridge_test_flag false") != "ok false" ||
+      run("get test.bridge_test_flag") != "ok false")
     return 1;
   for (const auto* invalid :
-       {"get missing", "set bridge_test_restart 2", "input 4096 0 0 0 0 10001",
+       {"get missing", "set test.bridge_test_restart 2", "input 4096 0 0 0 0 10001",
         "input 4096 32768 0 0 0 100", "input 4096 0 0 0 0 -1", "input garbage",
         "input 0 0 0 0 0 1 extra", "input 0 0 0 0 0 1 255", "input 0 0 0 0 0 1 -1 0",
         "input 0 0 0 0 0 1 256 0", "input 0 0 0 0 0 1 0 -1", "input 0 0 0 0 0 1 0 256",
@@ -122,40 +126,10 @@ int main() {
     if (!run(invalid).starts_with("error"))
       return 2;
   }
-  auto driver = make_test_driver(controls);
-  rex::input::X_INPUT_CAPABILITIES caps{};
-  if (driver->GetDeviceCapabilities({}, 0, &caps) != X_ERROR_SUCCESS ||
-      caps.gamepad.left_trigger != 255 || caps.gamepad.right_trigger != 255)
-    return 26;
-  std::vector<rex::input::DeviceInfo> device_kind;
-  if (run("input_device gamepad") != "ok gamepad")
-    return 16;
-  driver->EnumerateDevices(device_kind);
-  if (device_kind.size() != 2 || !device_kind[0].synthetic || device_kind[1].synthetic)
-    return 17;
-  if (run("input_device keyboard") != "ok keyboard" ||
-      !run("input_device invalid").starts_with("error"))
+  if (run("input_device gamepad") != "ok gamepad" ||
+      !run("input_device invalid").starts_with("error") ||
+      run("input_device keyboard") != "ok keyboard")
     return 18;
-  auto assignment = make_test_assignment();
-  std::vector<rex::input::DeviceInfo> devices;
-  driver->EnumerateDevices(devices);
-  auto other = devices.front();
-  other.id = static_cast<rex::input::DeviceId>(1234);
-  other.synthetic = false;
-  devices.insert(devices.begin(), other);
-  assignment->OnDevicesChanged(devices);
-  std::vector<rex::input::DeviceId> assigned;
-  assignment->DevicesForUser(0, assigned);
-  if (assigned.size() != 3 || assigned[0] != other.id || assigned[1] != devices[1].id ||
-      assigned[2] != devices[2].id)
-    return 7;
-  assignment->DevicesForUser(1, assigned);
-  if (!assigned.empty())
-    return 8;
-  assignment->OnDevicesChanged({devices.back()});
-  assignment->DevicesForUser(0, assigned);
-  if (assigned.size() != 1 || assigned.front() != devices.back().id)
-    return 9;
   run("input 0 0 0 0 0 1000");
   {
     std::jthread producer([&] {
@@ -165,127 +139,127 @@ int main() {
       }
     });
     for (int i = 0; i < 5000; ++i) {
-      rex::input::X_INPUT_STATE snapshot{};
-      driver->GetDeviceState({}, &snapshot);
-      if (int16_t(snapshot.gamepad.thumb_lx) + int16_t(snapshot.gamepad.thumb_ly) != 0)
+      const auto snapshot = controls->read_pad(true);
+      if (int16_t(snapshot.thumb_lx) + int16_t(snapshot.thumb_ly) != 0)
         return 10;
     }
   }
   if (run("ui_mouse 1046 733 1") != "ok mouse" ||
       controls->mouse_event != std::optional{std::array{1046, 733, 1}})
     return 6;
-  rex::input::X_INPUT_STATE state{};
+  rex::hid::PadState state{};
   if (run("input 4096 12345 -23456 20000 0 1000 255 128") != "ok input")
     return 3;
-  driver->GetDeviceState({}, &state);
-  if (state.gamepad.buttons != 4096 || state.gamepad.thumb_lx != 12345 ||
-      state.gamepad.thumb_ly != -23456 || state.gamepad.left_trigger != 255 ||
-      state.gamepad.right_trigger != 128)
+  state = controls->read_pad(true);
+  if (state.buttons != 4096 || state.thumb_lx != 12345 || state.thumb_ly != -23456 ||
+      state.left_trigger != 255 || state.right_trigger != 128)
     return 4;
   {
     std::lock_guard lock(controls->mutex);
     controls->release_at = std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(1);
   }
-  driver->GetDeviceState({}, &state);
-  if (state.gamepad.buttons != 0 || state.gamepad.thumb_lx != 0 ||
-      state.gamepad.left_trigger != 0 || state.gamepad.right_trigger != 0)
+  state = controls->read_pad(true);
+  if (state.buttons != 0 || state.thumb_lx != 0 || state.left_trigger != 0 ||
+      state.right_trigger != 0)
     return 5;
   run("input_device gamepad");
   run("input 0 0 0 0 0 1000 128 255");
-  driver->GetDeviceState(device_kind[1].id, &state);
-  if (state.gamepad.left_trigger != 128 || state.gamepad.right_trigger != 255)
+  state = controls->read_pad(false);
+  if (state.left_trigger != 128 || state.right_trigger != 255)
     return 27;
-  driver->GetDeviceState(device_kind[0].id, &state);
-  if (state.gamepad.left_trigger != 0 || state.gamepad.right_trigger != 0)
+  state = controls->read_pad(true);
+  if (state.left_trigger != 0 || state.right_trigger != 0)
     return 28;
   run("input 0 0 0 0 0 1000");
-  driver->GetDeviceState(device_kind[1].id, &state);
-  if (state.gamepad.left_trigger != 0 || state.gamepad.right_trigger != 0)
+  state = controls->read_pad(false);
+  if (state.left_trigger != 0 || state.right_trigger != 0)
     return 29;
   run("input_device keyboard");
-  rex::input::InputSystem input(nullptr);
-  input.AddDriver(make_test_driver(controls));
-  input.SetDeviceAssignment(make_test_assignment());
+  auto& input = app.GetInput();
+  input.SetTestInput([controls](bool& keyboard) {
+    keyboard = controls->keyboard_input.load();
+    return controls->read_pad(keyboard);
+  });
   run("input 16 0 0 0 0 5000");
-  if (input.GetState(0, &state) != X_ERROR_SUCCESS || state.gamepad.buttons != 16)
+  if (input.GetState(0).value().state.buttons != 16)
     return 11;
   if (!input.IsKeyboardActive())
     return 19;
-  input.AddUIInputBlocker();
-  input.GetState(0, &state);
-  if (state.gamepad.buttons != 0)
+  input.AcquireUIBlock();
+  state = input.GetState(0).value().state;
+  if (state.buttons != 0)
     return 12;
-  input.GetStateForUI(0, &state);
-  if (state.gamepad.buttons != 16)
+  state = input.GetStateForUI(0).value();
+  if (state.buttons != 16)
     return 13;
-  input.RemoveUIInputBlocker();
-  input.GetState(0, &state);
-  if (state.gamepad.buttons != 0)
+  input.ReleaseUIBlock();
+  state = input.GetState(0).value().state;
+  if (state.buttons != 0)
     return 14;
   {
     std::lock_guard lock(controls->mutex);
     controls->release_at = std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(1);
   }
-  input.GetState(0, &state);
+  state = input.GetState(0).value().state;
   run("input 16 0 0 0 0 5000");
-  input.GetState(0, &state);
-  if (state.gamepad.buttons != 16)
+  state = input.GetState(0).value().state;
+  if (state.buttons != 16)
     return 15;
   run("input_device gamepad");
   run("input 4096 0 0 0 0 5000");
-  input.GetState(0, &state);
+  state = input.GetState(0).value().state;
   if (input.IsKeyboardActive())
     return 20;
   run("input_device keyboard");
   run("input 16384 0 0 0 0 5000");
-  input.GetState(0, &state);
+  state = input.GetState(0).value().state;
   if (!input.IsKeyboardActive())
     return 21;
   run("input_device gamepad");
   run("input 8192 0 0 0 0 5000");
-  input.GetState(0, &state);
+  state = input.GetState(0).value().state;
   if (input.IsKeyboardActive())
     return 22;
   run("input 0 0 0 0 0 0");
   run("input_device keyboard");
   run("input 0 0 0 7000 0 5000");
-  input.GetState(0, &state);
+  state = input.GetState(0).value().state;
   if (!input.IsKeyboardActive())
     return 23;
   run("input_device gamepad");
   run("input 0 0 0 0 0 5000 255 128");
-  input.GetState(0, &state);
-  if (state.gamepad.left_trigger != 255 || state.gamepad.right_trigger != 128)
+  state = input.GetState(0).value().state;
+  if (state.left_trigger != 255 || state.right_trigger != 128)
     return 30;
   if (input.IsKeyboardActive())
     return 37;
-  input.AddUIInputBlocker();
-  input.GetState(0, &state);
-  if (state.gamepad.left_trigger != 0 || state.gamepad.right_trigger != 0)
+  input.AcquireUIBlock();
+  state = input.GetState(0).value().state;
+  if (state.left_trigger != 0 || state.right_trigger != 0)
     return 31;
-  input.GetStateForUI(0, &state);
-  if (state.gamepad.left_trigger != 255 || state.gamepad.right_trigger != 128)
+  state = input.GetStateForUI(0).value();
+  if (state.left_trigger != 255 || state.right_trigger != 128)
     return 32;
-  input.RemoveUIInputBlocker();
-  input.GetState(0, &state);
-  if (state.gamepad.left_trigger != 0 || state.gamepad.right_trigger != 0)
+  input.ReleaseUIBlock();
+  state = input.GetState(0).value().state;
+  if (state.left_trigger != 0 || state.right_trigger != 0)
     return 33;
   run("input 0 0 0 0 0 5000 0 200");
-  input.GetState(0, &state);
-  if (state.gamepad.left_trigger != 0 || state.gamepad.right_trigger != 0)
+  state = input.GetState(0).value().state;
+  if (state.left_trigger != 0 || state.right_trigger != 0)
     return 34;
   run("input 0 0 0 0 0 5000 255 29");
-  input.GetState(0, &state);
-  if (state.gamepad.left_trigger != 255 || state.gamepad.right_trigger != 29)
+  state = input.GetState(0).value().state;
+  if (state.left_trigger != 255 || state.right_trigger != 29)
     return 35;
   run("input 0 0 0 0 0 5000 255 30");
-  input.GetState(0, &state);
-  if (state.gamepad.left_trigger != 255 || state.gamepad.right_trigger != 30)
+  state = input.GetState(0).value().state;
+  if (state.left_trigger != 255 || state.right_trigger != 30)
     return 36;
   run("input 0 0 0 0 0 5000 0 29");
-  input.AddUIInputBlocker();
-  input.RemoveUIInputBlocker();
+  input.AcquireUIBlock();
+  input.ReleaseUIBlock();
   run("input 0 0 0 0 0 5000 0 255");
-  input.GetState(0, &state);
-  return state.gamepad.right_trigger == 255 ? 0 : 38;
+  state = input.GetState(0).value().state;
+  return state.right_trigger == 255 ? 0 : 38;
 }

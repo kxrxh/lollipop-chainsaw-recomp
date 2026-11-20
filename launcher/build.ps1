@@ -1,7 +1,7 @@
 #requires -Version 5.1
 param(
     [string]$OutputFile = (Join-Path $PSScriptRoot '../out/launcher/Lollipop Chainsaw Launcher.exe'),
-    [string]$SdkDirectory = (Join-Path $PSScriptRoot '../out/sdk'),
+    [string]$SdkDirectory = (Join-Path $PSScriptRoot '../out/sdk-0.11.0'),
     [string]$LlvmDirectory,
     [switch]$Tests
 )

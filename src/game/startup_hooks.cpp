@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <cstddef>
-#include <rex/logging.h>
-#include <rex/system/thread_state.h>
+#include <rex/kernel/heap.h>
+#include <rex/kernel/thread_state.h>
+#include <rex/logging/log_category.h>
+#include <rex/memory/endian.h>
 #include <vector>
 #include <windows.h>
 
@@ -53,7 +55,7 @@ bool skip_startup_live_check(uint32_t caller, PPCRegister& result) {
 } // namespace lollipop
 
 bool lollipop_skip_startup_live_check(PPCRegister& frame, PPCRegister& result) {
-  const auto* memory = rex::runtime::ThreadState::Get()->memory();
+  const auto* memory = rex::kernel::ThreadState::Get()->GetAddressSpace();
   const auto caller = rex::memory::load_and_swap<uint32_t>(
       memory->TranslateVirtual(frame.u32 + 16)); // FFrame::Node.
   return lollipop::skip_startup_live_check(caller, result);

@@ -5,10 +5,12 @@
 #include <iterator>
 #include <memory>
 #include <stdexcept>
-#include <rex/cvar.h>
 
-REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU", "Test renderer default");
-REXCVAR_DEFINE_STRING(render_target_path_d3d12, "", "GPU", "Test renderer selection");
+#include <rex/path_settings.h>
+
+#include "settings/runtime_settings.h"
+
+#include "settings_fixture.h"
 
 static void check(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
@@ -22,14 +24,13 @@ using lollipop::configure_pc_settings;
 
 int main(int argc, char** argv) try {
   check(argc == 2 || argc == 3, "Expected test config path");
-  // GPU cvars live in a plugin; register only the missing ones for this storage test.
-  for (const auto& setting : pc_settings()) {
-    if (rex::cvar::GetFlagInfo(setting.name)) continue;
-    auto value = std::make_shared<std::string>(setting.recommended);
-    rex::cvar::RegisterFlag({.name = setting.name, .type = rex::cvar::FlagType::String,
-        .setter = [value](std::string_view text) { *value = text; return true; },
-        .getter = [value] { return *value; }, .default_value = *value});
-  }
+  lollipop::testing::settings_fixture fixture;
+  fixture.add("async_shader_compilation", "true");
+  fixture.add("render_target_path_d3d12", "");
+  fixture.add("window_height", "720");
+  fixture.add("resolution_scale_y", "1");
+  for (const auto& option : pc_settings())
+    fixture.add(option.name, option.recommended);
   pc_values values;
   for (const auto& setting : pc_settings()) values[setting.name] = setting.recommended;
   values["window_height"] = "1440";
@@ -47,12 +48,14 @@ int main(int argc, char** argv) try {
                              {"lollipop_fps", "90"},         {"present_dither", "true"},
                              {"lollipop_music_volume", "6"}, {"lollipop_shadow_resolution", "512"}};
     for (const auto& [name, value] : expected)
-      check(rex::cvar::GetFlagByName(name) == value,
-            ("Launcher setting not applied: " + name + " = " + rex::cvar::GetFlagByName(name))
+      check(lollipop::settings::GetFlagByName(name) == value,
+            ("Launcher setting not applied: " + name + " = " +
+             lollipop::settings::GetFlagByName(name))
                 .c_str());
-    check(std::stof(rex::cvar::GetFlagByName("mnk_sensitivity")) == 22.5f,
+    check(std::stof(lollipop::settings::GetFlagByName("mnk_sensitivity")) == 22.5f,
           "Launcher preserves mouse sensitivity");
-    check(rex::cvar::GetFlagSource("lollipop_subtitles") == rex::cvar::Source::kDefault,
+    check(lollipop::settings::GetFlagSource("lollipop_subtitles") ==
+              lollipop::settings::Source::kDefault,
           "Launcher leaves missing native settings eligible for import");
     return 0;
   }
@@ -60,13 +63,14 @@ int main(int argc, char** argv) try {
                     std::string_view(argv[2]) == "--shader-cli")) {
     const bool explicit_async = std::string_view(argv[2]) == "--shader-cli";
     if (explicit_async)
-      rex::cvar::SetFlagFromCommandLine("async_shader_compilation", "true");
+      lollipop::settings::SetFlagFromCommandLine("async_shader_compilation", "true");
     if (explicit_async)
-      rex::cvar::SetFlagFromCommandLine("render_target_path_d3d12", "rtv");
+      lollipop::settings::SetFlagFromCommandLine("render_target_path_d3d12", "rtv");
     configure_pc_settings(path);
-    check(rex::cvar::Query<bool>("async_shader_compilation") == explicit_async,
+    check(lollipop::settings::Query<bool>("async_shader_compilation") == explicit_async,
           "Wait for uncached shaders by default; explicit diagnostic launch flag wins");
-    check(rex::cvar::GetFlagByName("render_target_path_d3d12") == (explicit_async ? "rtv" : "rov"),
+    check(lollipop::settings::GetFlagByName("render_target_path_d3d12") ==
+              (explicit_async ? "rtv" : "rov"),
           "Direct launches use the precompilable renderer; explicit diagnostic selection wins");
     return 0;
   }
@@ -76,7 +80,7 @@ int main(int argc, char** argv) try {
     const bool legacy60 = std::string_view(argv[2]) == "--legacy-60";
     const bool precedence = std::string_view(argv[2]) == "--fps-precedence";
     if (precedence)
-      rex::cvar::SetFlagFromCommandLine("lollipop_fps", "120");
+      lollipop::settings::SetFlagFromCommandLine("lollipop_fps", "120");
     {
       std::ofstream file(path);
       file << "vsync = \"false\"\n";
@@ -84,14 +88,30 @@ int main(int argc, char** argv) try {
       else file << "lollipop_60fps = \"" << (legacy60 ? "true" : "false") << "\"\n";
     }
     configure_pc_settings(path);
-    check(rex::cvar::GetFlagByName("vsync") == (duplicate ? "true" : "false") &&
-          rex::cvar::GetFlagByName("lollipop_music_volume") == "10" &&
-          rex::cvar::GetFlagSource("lollipop_music_volume") == rex::cvar::Source::kDefault,
-          "Missing game settings stay eligible for native import; duplicate profiles cannot partially apply");
-    check(rex::cvar::GetFlagByName("lollipop_fps") == (precedence ? "120" : legacy60 || duplicate ? "60" : "30"),
+    check(lollipop::settings::GetFlagByName("vsync") == (duplicate ? "true" : "false") &&
+              lollipop::settings::GetFlagByName("lollipop_music_volume") == "10" &&
+              lollipop::settings::GetFlagSource("lollipop_music_volume") ==
+                  lollipop::settings::Source::kDefault,
+          "Missing game settings stay eligible for native import; duplicate profiles cannot "
+          "partially apply");
+    check(lollipop::settings::GetFlagByName("lollipop_fps") == (precedence              ? "120"
+                                                                : legacy60 || duplicate ? "60"
+                                                                                        : "30"),
           "Legacy FPS profiles migrate; explicit FPS launch flag wins");
     return 0;
   }
+  auto& paths = REX_PATHS();
+  using rex::SettingLayer;
+  check(paths.user_root.SetText(SettingLayer::kTitle, "legacy user").has_value(),
+        "Accept the legacy user directory default");
+  check(paths.cache_root.SetText(SettingLayer::kTitle, "{app.user_root}/cache").has_value(),
+        "Accept the legacy cache directory default");
+  check(paths.user_root.SetText(SettingLayer::kCommandLine, "profile \xD0\x96").has_value(),
+        "Accept a UTF-8 user directory from the command line");
+  const std::filesystem::path unicode_user(u"profile \u0416");
+  check(paths.user_root.Get() == unicode_user && paths.cache_root.Get() == unicode_user / "cache",
+        "The explicit user directory and derived cache path round trip");
+
   std::string error;
   check(save_pc_settings(path, values, error), "Can write settings");
   for (const char* fps : {"30", "60", "90", "120"}) {
@@ -136,14 +156,21 @@ int main(int argc, char** argv) try {
     std::ofstream file(path, std::ios::app);
     file << "lollipop_gpu_backend = \"vulkan\"\n";
   }
-  rex::cvar::SetFlagFromCommandLine("window_width", "1920");
+  lollipop::settings::SetFlagFromCommandLine("window_width", "1920");
+  (void)REX_SETTINGS().SetText(SettingLayer::kCommandLine, "resolution_scale", "3");
+  lollipop::settings::SetFlagFromCommandLine("resolution_scale_y", "4");
   configure_pc_settings(path);
-  check(rex::cvar::GetFlagByName("window_width") == "1920", "Explicit launch flag wins");
-  check(rex::cvar::GetFlagByName("swap_post_effect") == "fxaa", "Graphics profile round trips");
-  check(rex::cvar::GetFlagByName("lollipop_shadow_resolution") == "1024",
+  check(lollipop::settings::GetFlagByName("resolution_scale_x") == "3" &&
+            lollipop::settings::GetFlagByName("resolution_scale_y") == "4",
+        "Legacy uniform scale overrides the profile and preserves an explicit per-axis value");
+  check(lollipop::settings::GetFlagByName("window_width") == "1920", "Explicit launch flag wins");
+  check(lollipop::settings::GetFlagByName("swap_post_effect") == "fxaa",
+        "Graphics profile round trips");
+  check(lollipop::settings::GetFlagByName("lollipop_shadow_resolution") == "1024",
         "Shadow resolution round trips");
-  check(rex::cvar::Query<int32_t>("window_height") == 1440, "Invalid writes preserved the last good file");
-  check(rex::cvar::GetFlagByName("lollipop_sfx_volume") == "7",
+  check(lollipop::settings::Query<int32_t>("window_height") == 1440,
+        "Invalid writes preserved the last good file");
+  check(lollipop::settings::GetFlagByName("lollipop_sfx_volume") == "7",
         "Retired renderer selection must not discard the remaining profile");
   check(save_pc_settings(path, lollipop::read_pc_settings(), error), "Save migrated profile");
   {
@@ -156,10 +183,12 @@ int main(int argc, char** argv) try {
     std::ofstream file(path);
     file << "audio_mute = \"true\"\nwindow_height = \"-1\"\n";
   }
-  const auto mute = rex::cvar::GetFlagByName("audio_mute");
+  const auto mute = lollipop::settings::GetFlagByName("audio_mute");
   configure_pc_settings(path);
-  check(rex::cvar::GetFlagByName("audio_mute") == mute, "Malformed profile cannot partially apply");
-  check(rex::cvar::Query<int32_t>("window_height") == 1440, "Malformed profile leaves valid settings intact");
+  check(lollipop::settings::GetFlagByName("audio_mute") == mute,
+        "Malformed profile cannot partially apply");
+  check(lollipop::settings::Query<int32_t>("window_height") == 1440,
+        "Malformed profile leaves valid settings intact");
 } catch (const std::exception& error) {
   std::cerr << error.what() << '\n';
   return 1;

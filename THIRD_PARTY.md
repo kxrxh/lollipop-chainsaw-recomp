@@ -11,6 +11,9 @@ redistributions must retain the copyright notice, license terms and disclaimer.
 | Component | Use | License / notice |
 | --- | --- | --- |
 | [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) | Recompilation, runtime and Xenos graphics | [BSD notice](patches/LICENSE.rexglue) |
+| [Vulkan Headers](https://github.com/KhronosGroup/Vulkan-Headers/tree/409c16be502e39fe70dd6fe2d9ad4842ef2c9a53) | SDK Vulkan backend | [Upstream notices](https://github.com/KhronosGroup/Vulkan-Headers/tree/409c16be502e39fe70dd6fe2d9ad4842ef2c9a53/LICENSES) |
+| [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/tree/1d8f600fd424278486eade7ed3e877c99f0846b1) | SDK Vulkan backend | [MIT license](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/blob/1d8f600fd424278486eade7ed3e877c99f0846b1/LICENSE.txt) |
+| [TLSF](https://github.com/mattconte/tlsf) | Guest memory allocator | [BSD notice in tlsf.h](https://github.com/mattconte/tlsf/blob/deff9ab509341f264addbd3c8ada533678591905/tlsf.h) |
 | [Xenia](https://github.com/xenia-project/xenia) | ReXGlue foundations | Included in the ReXGlue notice |
 | [libmspack](https://github.com/kyz/libmspack) | LZX decoding, with a separate XMem padding mode in the SDK patch | [LGPL 2.1 notice](patches/LICENSE.libmspack) |
 | [PM.RAZOR / SSX-RexGlue](https://github.com/pmrazor/SSX-RexGlue) | Adapted texture-copy bounds and scaled-wrapper fixes | [BSD notice](patches/SSX-RexGlue-LICENSE.txt) |

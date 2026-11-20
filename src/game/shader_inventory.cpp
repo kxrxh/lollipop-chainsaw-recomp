@@ -11,8 +11,8 @@
 #include <string>
 #include <windows.h>
 
-#include <rex/graphics/format/ucode.h>
 #include <rex/hash.h>
+#include <rex/xenos/ucode.h>
 
 #include "game/package_lzx.h"
 
@@ -27,7 +27,7 @@ using descriptions = std::map<uint64_t, std::array<uint8_t, description_size>>;
 constexpr uint64_t loading_copy_hash = 0x896985ccfaf3c47aull;
 
 shader_program make_loading_copy_shader() {
-  namespace u = rex::graphics::ucode;
+  namespace u = rex::xenos::ucode;
   using instruction = std::array<uint32_t, 3>;
   std::array<instruction, 28> code{};
   const auto exec = [](uint32_t address, uint32_t count, uint32_t sequence = 0,
@@ -96,7 +96,7 @@ shader_program make_loading_copy_shader() {
     for (uint32_t word : instruction)
       for (unsigned byte = 0; byte < 4; ++byte)
         program.code.push_back(uint8_t(word >> (24 - byte * 8)));
-  if (XXH3_64bits(program.code.data(), program.code.size()) != loading_copy_hash)
+  if (rex::HashXXH3(program.code) != loading_copy_hash)
     throw std::runtime_error("Generated loading copy shader fingerprint mismatch");
   return program;
 }
@@ -191,7 +191,7 @@ descriptions read_pipelines(std::span<const uint8_t> data) {
   for (size_t offset = pipeline_header.size(); offset < data.size();
        offset += description_size + 8) {
     const auto description = data.subspan(offset + 8, description_size);
-    const auto hash = XXH3_64bits(description.data(), description.size());
+    const auto hash = rex::HashXXH3(description);
     if (hash != le64(data, offset))
       throw std::runtime_error("Pipeline cache checksum mismatch");
     std::ranges::copy(description, result[hash].begin());
@@ -219,7 +219,7 @@ descriptions parse_inventory(std::string_view text) {
         throw std::runtime_error("Invalid pipeline inventory encoding");
       description[i] = uint8_t(value);
     }
-    result.emplace(XXH3_64bits(description.data(), description.size()), description);
+    result.emplace(rex::HashXXH3(description), description);
   }
   return result;
 }
@@ -243,7 +243,7 @@ void apply_executable(std::string_view text, std::span<const uint8_t> image,
     if (flags & 2)
       for (size_t i = 0; i < code.size(); i += 4)
         std::reverse(code.begin() + i, code.begin() + i + 4);
-    if (XXH3_64bits(code.data(), code.size()) != hash)
+    if (rex::HashXXH3(code) != hash)
       throw std::runtime_error("Executable shader does not match the supported disc");
     add_programs(programs, {{hash, bool(flags & 1), std::move(code)}});
   }
@@ -274,8 +274,7 @@ void apply_variants(std::string_view text, std::map<uint64_t, shader_program>& p
       previous = index;
       ++count;
     }
-    if (!count || count > variant.code.size() / 8 ||
-        XXH3_64bits(variant.code.data(), variant.code.size()) != target)
+    if (!count || count > variant.code.size() / 8 || rex::HashXXH3(variant.code) != target)
       throw std::runtime_error("Shader variant checksum mismatch");
     add_programs(programs, {std::move(variant)});
   }
@@ -340,8 +339,8 @@ static std::vector<shader_program> scan_raw_containers(std::span<const uint8_t> 
     if (!length || length % 4 || start > physical_size || length > physical_size - start)
       continue;
     const auto code = bytes.subspan(virtual_size + start, length);
-    programs.push_back({XXH3_64bits(code.data(), code.size()), vertex,
-                        std::vector<uint8_t>(code.begin(), code.end())});
+    programs.push_back(
+        {rex::HashXXH3(code), vertex, std::vector<uint8_t>(code.begin(), code.end())});
   }
   return programs;
 }
@@ -382,7 +381,7 @@ std::vector<shader_program> read_shader_library(std::span<const uint8_t> data) {
     if (!length || length > data.size() - offset)
       throw std::runtime_error("Invalid shader library size");
     const auto code = data.subspan(offset, size_t(length));
-    if (XXH3_64bits(code.data(), code.size()) != hash)
+    if (rex::HashXXH3(code) != hash)
       throw std::runtime_error("Shader library checksum mismatch");
     programs.push_back(
         {hash, (count_type >> 31) == 0, std::vector<uint8_t>(code.begin(), code.end())});
@@ -411,7 +410,8 @@ void prepare_shader_inventory(const std::filesystem::path& game, const std::file
         path.lexically_relative(game).generic_string() + ':' +
         std::to_string(std::filesystem::file_size(path)) + ':' +
         std::to_string(std::filesystem::last_write_time(path).time_since_epoch().count()) + '\n';
-  const auto stamp = std::to_string(XXH3_64bits(fingerprint.data(), fingerprint.size()));
+  const auto stamp = std::to_string(
+      rex::HashXXH3({reinterpret_cast<const uint8_t*>(fingerprint.data()), fingerprint.size()}));
   std::map<uint64_t, shader_program> programs;
   std::ifstream stamp_file(identity);
   std::string previous;

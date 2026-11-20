@@ -437,15 +437,15 @@ void cache_main_menu(const std::filesystem::path& game, const std::filesystem::p
   if (!artwork.data())
     throw std::runtime_error("Could not read native Quit Game artwork");
   const auto source = load(game / "AshGame/CookedXbox360/MENU_PL.xxx");
-  const auto source_hash = XXH3_64bits(source.data(), source.size());
-  const auto art_hash = XXH3_64bits(artwork.data(), artwork.size());
+  const auto source_hash = rex::HashXXH3(source);
+  const auto art_hash = rex::HashXXH3(artwork);
   const auto path = cache / "MENU_PL.xxx", stamp = cache / "MENU.native-v3";
   uint64_t old_source{}, old_art{}, old_output{};
   if (std::ifstream(stamp) >> old_source >> old_art >> old_output && old_source == source_hash &&
       old_art == art_hash && std::filesystem::is_regular_file(path)) {
     try {
       const auto cached = load(path);
-      if (XXH3_64bits(cached.data(), cached.size()) == old_output)
+      if (rex::HashXXH3(cached) == old_output)
         return;
     } catch (const std::runtime_error&) {
       // An unreadable or incomplete cache can be rebuilt from the disc.
@@ -464,7 +464,7 @@ void cache_main_menu(const std::filesystem::path& game, const std::filesystem::p
   };
   publish(path, reinterpret_cast<const char*>(patched.data()), patched.size());
   const auto hashes = std::to_string(source_hash) + " " + std::to_string(art_hash) + " " +
-                      std::to_string(XXH3_64bits(patched.data(), patched.size()));
+                      std::to_string(rex::HashXXH3(patched));
   publish(stamp, hashes.data(), hashes.size());
 }
 } // namespace lollipop

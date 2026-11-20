@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <string>
 
-#include <rex/cvar.h>
+#include "settings/runtime_settings.h"
 
 namespace lollipop {
 namespace {
@@ -39,16 +39,16 @@ constexpr binding bindings[] = {
 
 void configure_keyboard_controls() {
   for (const auto& bind : bindings) {
-    if (rex::cvar::GetFlagSource(bind.flag) == rex::cvar::Source::kDefault &&
-        !rex::cvar::SetFlagByName(bind.flag, bind.keys))
+    if (settings::GetFlagSource(bind.flag) == settings::Source::kDefault &&
+        !settings::SetFlagByName(bind.flag, bind.keys))
       throw std::runtime_error(std::string("Could not set keyboard binding: ") + bind.flag);
   }
-  if (rex::cvar::Query<bool>("mnk_mode")) {
+  if (settings::Query<bool>("mnk_mode")) {
     // Native UI copies icons on the GPU; delayed readback leaves stale keyboard artwork on the CPU.
     for (const auto& bind :
          {binding{"readback_memexport", "true"}, binding{"readback_memexport_fast", "false"}}) {
-      if (rex::cvar::GetFlagSource(bind.flag) == rex::cvar::Source::kDefault &&
-          !rex::cvar::SetFlagByName(bind.flag, bind.keys))
+      if (settings::GetFlagSource(bind.flag) == settings::Source::kDefault &&
+          !settings::SetFlagByName(bind.flag, bind.keys))
         throw std::runtime_error(std::string("Could not synchronize prompt artwork: ") + bind.flag);
     }
   }

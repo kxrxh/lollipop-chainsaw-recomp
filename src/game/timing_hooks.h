@@ -1,6 +1,6 @@
 #pragma once
 
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 
 namespace lollipop {
 void configure_frame_rate();
