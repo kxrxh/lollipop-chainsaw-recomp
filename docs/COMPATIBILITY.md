@@ -14,6 +14,8 @@ scenes. The normal story route through those phone scenes is unverified.
   not reproduce them; full-playthrough stability is unverified.
 - Uncached shaders can pause the game while compiling. Automatic shader preparation
   reduces these pauses; combinations missing from the inventory still compile on use.
+- A player reported intermittent scenery flicker in the digital sections of Stage 4
+  at 1440p. The affected surfaces are still unidentified.
 - Physical controllers, multiple monitors and other disc versions need
   more testing. Automated controller checks use injected input.
 - macOS and Linux are unverified.
@@ -24,6 +26,9 @@ The default is 60 FPS. Options also offers 30, 90 and 120 FPS; changing the limi
 applies live. Physics, quick-time events and cutscenes at 90/120 FPS are
 unverified. Prerecorded movies may stay at 30 FPS.
 
+Hair and body motion use elapsed time for inertia above 30 FPS. The Stage 4 UFO
+fall was compared at 30, 60 and 120 FPS.
+
 Borderless fullscreen uses the desktop resolution. Window resolution applies
 in windowed mode; Render resolution sets internal resolution. VSync, monitor
 refresh and GPU load affect the displayed frame rate.
@@ -31,8 +36,9 @@ refresh and GPU load affect the displayed frame rate.
 **Shadow resolution** in the launcher and in-game Graphics settings offers Original,
 256, 512 and 1024. Original preserves the game's character shadows (normally capped
 at 128). Higher values increase character shadow detail and GPU usage independently
-of Render resolution. Changes apply live, including switching back to Original. Shadow targets
-reserve space for the highest quality at startup so their dimensions remain safe while playing.
+of Render resolution. Changes apply live, including switching back to Original.
+The renderer reserves the largest shadow texture at startup. Each light uses
+the resolution allowed by the selected quality.
 
 ## Controls
 
@@ -83,6 +89,9 @@ Other renderers and launches with shader storage disabled retain on-demand compi
 
 The inventory covers all seven stages, boss maps and opening/ending/result
 scenes. Coverage is incomplete for outfits, boss phases and effect combinations.
+Recorded pipelines include Juliet's default outfit during stage transitions,
+the Stage 2 Vikke cutscene, the Stage 3 creature and Mariska cutscenes, and the
+Stage 4 Josie ending.
 Preparation also reconstructs the engine-generated loading copy shader, so it
 does not require a prior play session. See
 [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).

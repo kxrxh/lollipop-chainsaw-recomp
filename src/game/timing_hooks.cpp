@@ -3,6 +3,7 @@
 #include <chrono>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -10,7 +11,9 @@
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
+#include <rex/memory.h>
 #include <rex/perf/counter.h>
+#include <rex/system/thread_state.h>
 
 REXCVAR_DEFINE_BOOL(
     lollipop_60fps, true, "Lollipop",
@@ -87,6 +90,37 @@ void lollipop_tick_limit(PPCRegister& limit) {
   if (fps > 30) {
     limit.f64 = double(fps);
   }
+}
+
+void lollipop_trail_minimum_step(PPCRegister& minimum) {
+  minimum.f64 *= 30.0 / frame_rate.load(std::memory_order_relaxed);
+}
+
+void lollipop::scale_trail_inertia(double momentum, PPCRegister& step, PPCRegister& x,
+                                   PPCRegister& y, PPCRegister& z) {
+  const double frames = 30.0 * step.f64;
+  if (!(frames > 0 && frames < 1 && momentum > 0 && momentum <= 1) ||
+      frame_rate.load(std::memory_order_relaxed) == 30)
+    return;
+
+  // The guest stores velocity with one 30 Hz momentum factor already applied.
+  const double retained = std::pow(momentum, frames);
+  step.f64 *= retained / momentum;
+  // Fractional steps of v' = momentum * v + impulse must compose to one native step.
+  const double impulse = momentum == 1 ? frames : (1 - retained) / (1 - momentum);
+  x.f64 *= impulse;
+  y.f64 *= impulse;
+  z.f64 *= impulse;
+}
+
+void lollipop_trail_inertia(PPCRegister& control, PPCRegister& step, PPCRegister& x, PPCRegister& y,
+                            PPCRegister& z) {
+  constexpr uint32_t momentum_offset = 0x150;
+  if (control.u32 < 0x10000 || control.u32 > 0xC0000000 - momentum_offset - sizeof(float))
+    return;
+  const auto* base = rex::runtime::ThreadState::Get()->memory()->virtual_membase();
+  const auto momentum = rex::memory::load_and_swap<float>(base + control.u32 + momentum_offset);
+  lollipop::scale_trail_inertia(momentum, step, x, y, z);
 }
 
 void lollipop_tick_trace(PPCRegister &engine, PPCRegister &delta) {

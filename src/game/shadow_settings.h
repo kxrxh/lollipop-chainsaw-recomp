@@ -13,4 +13,4 @@ bool update_shadow_settings(uint8_t* memory);
 // Generated guest code calls these symbols in the global namespace.
 void lollipop_initialize_shadows();
 void lollipop_update_shadows();
-void lollipop_shadow_capacity(PPCRegister& resolution);
+void lollipop_shadow_light_limit(PPCRegister& light);

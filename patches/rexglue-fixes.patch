@@ -941,7 +941,7 @@ index 2be0e8e..9b3ca32 100644
    desc.MipLevels = 1;
    desc.Format = d3d12_cache.GetDXGIResourceFormat(key());
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 76f5600..76ba9be 100644
+index 76f5600..99560a6 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
 @@ -25,6 +25,8 @@
@@ -1000,7 +1000,18 @@ index 76f5600..76ba9be 100644
    if (mips_watch_handle_) {
      texture_cache().shared_memory().UnwatchMemoryRange(mips_watch_handle_);
    }
-@@ -1009,6 +1037,8 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
+@@ -911,6 +939,10 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
+     case xenos::FetchConstantType::kTexture:
+       break;
+     case xenos::FetchConstantType::kInvalidTexture:
++      // An unbound texture has no backing pages and already has an invalid key.
++      if (!fetch.base_address && !fetch.mip_address) {
++        return;
++      }
+       if (REXCVAR_GET(gpu_allow_invalid_fetch_constants)) {
+         break;
+       }
+@@ -1009,6 +1041,8 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
  
  void TextureCache::UpdateTexturesTotalHostMemoryUsage(uint64_t add, uint64_t subtract) {
    textures_total_host_memory_usage_ = textures_total_host_memory_usage_ - subtract + add;

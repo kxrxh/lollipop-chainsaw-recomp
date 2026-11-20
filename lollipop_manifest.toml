@@ -75,6 +75,19 @@ address = 0x829D0CF8
 name = "lollipop_tick_trace"
 registers = ["r3", "f1"]
 
+# USkelControlTrail::TickSkelControl, lower timestep bound before the native clamp.
+[[entrypoint.midasm_hook]]
+address = 0x8267D454
+name = "lollipop_trail_minimum_step"
+registers = ["f0"]
+after_instruction = true
+
+# GHM_SkelControlTrailWithInertia, before adding FakeVelocity displacement and retained velocity.
+[[entrypoint.midasm_hook]]
+address = 0x82219E14
+name = "lollipop_trail_inertia"
+registers = ["r30", "f0", "f13", "f12", "f11"]
+
 # UObject::execMultiply_FloatFloat, after evaluating both operands and before fmuls.
 [[entrypoint.midasm_hook]]
 address = 0x8226EED8
@@ -99,27 +112,16 @@ address = 0x829BD280
 name = "lollipop_update_shadows"
 registers = []
 
-# FSceneRenderTargets: reserve full capacity independently of the live per-object quality cap.
-# Direct shadow-depth allocation, atlas dimensions, cube-map bin selection and cube allocation.
+# Both projected-shadow setup paths have resolved the light's cap in r10 here.
 [[entrypoint.midasm_hook]]
-address = 0x827E4614
-name = "lollipop_shadow_capacity"
-registers = ["r11"]
+address = 0x827FDA70
+name = "lollipop_shadow_light_limit"
+registers = ["r10"]
 
 [[entrypoint.midasm_hook]]
-address = 0x827E5324
-name = "lollipop_shadow_capacity"
-registers = ["r11"]
-
-[[entrypoint.midasm_hook]]
-address = 0x827E53CC
-name = "lollipop_shadow_capacity"
-registers = ["r11"]
-
-[[entrypoint.midasm_hook]]
-address = 0x827E546C
-name = "lollipop_shadow_capacity"
-registers = ["r11"]
+address = 0x827FE72C
+name = "lollipop_shadow_light_limit"
+registers = ["r10"]
 
 # UWorld::IsPaused false return, after li r3,0. Native true returns stay untouched.
 [[entrypoint.midasm_hook]]

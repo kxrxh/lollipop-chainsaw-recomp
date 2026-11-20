@@ -1,5 +1,6 @@
 #include "game/timing_hooks.h"
 
+#include <cmath>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -61,6 +62,35 @@ int main(int argc, char **argv) {
   }
   for (int fps : {30, 60, 90, 120}) {
     if (!rex::cvar::SetFlagByName("lollipop_fps", std::to_string(fps))) return 10;
+    PPCRegister minimum{};
+    minimum.f64 = 0.016f;
+    lollipop_trail_minimum_step(minimum);
+    if (std::abs(minimum.f64 * fps - double(0.016f) * 30) > 1e-7)
+      return 18;
+    // Over one native frame the solver must retain the same velocity and add the same impulse.
+    for (const double momentum : {0.0, 0.8, 1.0}) {
+      double velocity = 5.0;
+      for (int i = 0; i < fps / 30; ++i) {
+        PPCRegister step{}, x{}, y{}, z{};
+        step.f64 = x.f64 = 1.0 / fps;
+        y.f64 = -x.f64;
+        z.f64 = 2 * x.f64;
+        lollipop::scale_trail_inertia(momentum, step, x, y, z);
+        if (y.f64 != -x.f64 || z.f64 != 2 * x.f64)
+          return 19;
+        velocity = (velocity * momentum * step.f64 + x.f64) * fps;
+      }
+      if (std::abs(velocity - (5.0 * momentum + 1.0)) > 1e-6)
+        return 20;
+    }
+    for (double dt : {0.0, fps == 30 ? 0.016 : 0.066}) {
+      PPCRegister step{}, x{}, y{}, z{};
+      step.f64 = dt;
+      x.f64 = y.f64 = z.f64 = 1;
+      lollipop::scale_trail_inertia(0.8, step, x, y, z);
+      if (step.f64 != dt || x.f64 != 1 || y.f64 != 1 || z.f64 != 1)
+        return 21;
+    }
     interval.u64 = 2;
     limit.f64 = 30.0;
     lollipop_present_interval(interval);

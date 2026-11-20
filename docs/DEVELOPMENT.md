@@ -93,9 +93,9 @@ Use an isolated save directory for game checks; copy existing saves there if nee
   `lollipop_fps`.
 - `lollipop_shadow_resolution` keeps native character shadows at `0` (default), or
   raises their resolution cap and texel density to `256`, `512` or `1024` live.
-  Startup captures the native baseline; the engine tick applies changes and queues the
-  native settings snapshot to the render thread. Shadow allocation and dimension getters
-  reserve the maximum supported capacity so live quality changes cannot invalidate targets.
+  Startup captures the native baseline. The engine tick queues live settings to
+  the render thread. Shadow projection uses the allocated target dimensions
+  while the selected quality limits each light's viewport.
   Original restores the baseline, and native reloads cannot compound the density.
 - Native options load after the save. Apply uses the game's setters and save
   routine on the engine tick thread. `game_bridge` restores the caller's PPC
@@ -159,6 +159,12 @@ Play the required scenes, close the game, then collect:
 Reusing the output merges records. Review before replacing
 `assets/shaders/pipelines.txt`, rebuild, and check normal rendering with a fresh
 cache. Watch `pipeline_cache_misses` for combinations compiled during play.
+
+For automated stage checks, resume a checkpoint through the title screen so the
+game loads Juliet's costume. From gameplay, `game_console RemoteEvent START_PL_STAGE02`
+uses the game's Stage 2 transition inside `START_PL`. Confirm the target stage
+loaded and capture Juliet in gameplay. Opening the stage package directly can
+leave her pawn using `SK_CH_Main_Juliet_dummy` and miss character pipelines.
 
 `--d3d12_pipeline_collection=true --audio_mute=true` skips color/depth draws
 while recording pipelines. Verify its results with normal rendering afterward.
