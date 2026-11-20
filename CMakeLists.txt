@@ -76,8 +76,13 @@ target_include_directories(lollipop PRIVATE src "${LOLLIPOP_GENERATED_DIR}")
 target_link_libraries(lollipop PRIVATE lollipop_recomp lollipop_host_sdk gdiplus bcrypt)
 rexglue_configure_target(lollipop)
 # Relink and restage if a runtime-loaded SDK module changes between builds.
-file(GLOB sdk_runtime_dlls CONFIGURE_DEPENDS "${rexglue_DIR}/../../../bin/*.dll")
-set_property(TARGET lollipop APPEND PROPERTY LINK_DEPENDS ${sdk_runtime_dlls})
+get_property(sdk_targets DIRECTORY PROPERTY IMPORTED_TARGETS)
+foreach(sdk_target IN LISTS sdk_targets)
+    get_target_property(sdk_type ${sdk_target} TYPE)
+    if(sdk_type STREQUAL "SHARED_LIBRARY" AND sdk_target MATCHES "^(rex|SDL3)::")
+        set_property(TARGET lollipop APPEND PROPERTY LINK_DEPENDS "$<TARGET_FILE:${sdk_target}>")
+    endif()
+endforeach()
 add_custom_command(TARGET lollipop POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E touch "$<TARGET_FILE_DIR:lollipop>/shader-precompile-v1.ready"
     VERBATIM)
