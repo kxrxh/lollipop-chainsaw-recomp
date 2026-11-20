@@ -103,6 +103,9 @@ internal static class SdkPackageTests {
     File.WriteAllText(
         Path.Combine(sdk, "lib/cmake/rexglue/header-only.cmake"),
         "file(GLOB _cmake_config_files \"${CMAKE_CURRENT_LIST_DIR}/header-only-*.cmake\")\n");
+    var codegenLog = Path.Combine(sdk, "bin/logs/rexglue_001.log");
+    Directory.CreateDirectory(Path.GetDirectoryName(codegenLog)!);
+    File.WriteAllText(codegenLog, "Private codegen diagnostics");
     var diagnostics = new List<string>();
     var tools = new Tools(new RecordedProgress(), diagnostics.Add);
     var program =
@@ -119,6 +122,8 @@ internal static class SdkPackageTests {
     if (tools.Run(program, sandbox, arguments, false) != 0)
       throw new Exception("SDK packaging failed: " + String.Join('\n', diagnostics));
     using (var zip = ZipFile.OpenRead(output)) {
+      if (zip.GetEntry("bin/logs/rexglue_001.log") != null || !File.Exists(codegenLog))
+        throw new Exception("Packaging included or removed a local codegen log");
       using var reader =
           new StreamReader(zip.GetEntry("lib/cmake/rexglue/rexglueConfig.cmake")!.Open());
       var imports = reader.ReadToEnd();
@@ -142,7 +147,7 @@ internal static class SdkPackageTests {
                                     "missing license", "wrong SDK" }) {
       var license = Path.Combine(sdk, "licenses/rexglue/LICENSE");
       var game = Path.Combine(sdk, "bin/lollipop.exe");
-      var dll = Path.Combine(sdk, "bin/unknown.dll");
+      var dll = Path.Combine(sdk, "bin/logs/rexbase.dll");
       var marker = Path.Combine(sdk, "lollipop-sdk.id");
       if (invalid == "missing import configuration")
         File.Delete(release);

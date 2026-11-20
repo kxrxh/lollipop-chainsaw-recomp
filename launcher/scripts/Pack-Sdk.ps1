@@ -20,6 +20,7 @@ $required = @('lollipop-sdk.id','bin/rexglue.exe',
 $binaries = $runtime + @('rexglue.exe','msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll',
     'msvcp140_atomic_wait.dll','msvcp140_codecvt_ids.dll','vcruntime140.dll',
     'vcruntime140_1.dll','vcruntime140_threads.dll','vccorlib140.dll','concrt140.dll')
+$binaryPaths = @($binaries | ForEach-Object { 'bin/' + $_ })
 foreach ($name in $required) {
     if (-not [IO.File]::Exists((Join-Path $sdk $name))) {
         throw "SDK package is missing $name. Build it with ./build-sdk.ps1 first, or pass -SdkDirectory."
@@ -29,7 +30,10 @@ if ([IO.File]::ReadAllText((Join-Path $sdk 'lollipop-sdk.id')) -ne (Get-SdkIdent
     throw 'The SDK was built with a different revision or patch set. Rebuild it with ./build-sdk.ps1 before packaging the launcher.'
 }
 $files = @(Get-ChildItem -LiteralPath $sdk -Recurse -File | Where-Object {
-    $_.Name -notmatch '\.(pdb|ilk|exp|pc)$' -and $_.Name -notmatch '^SDL(_|3[-_])test'
+    $relative = $_.FullName.Substring($sdk.Length + 1).Replace('\', '/')
+    $codegenLog = $relative -match '^bin/logs/rexglue_[0-9]+\.log$' -and
+        -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+    -not $codegenLog -and $_.Name -notmatch '\.(pdb|ilk|exp|pc)$' -and $_.Name -notmatch '^SDL(_|3[-_])test'
 } | Sort-Object FullName)
 foreach ($file in $files) {
     $name = $file.FullName.Substring($sdk.Length + 1).Replace('\', '/')
@@ -38,7 +42,7 @@ foreach ($file in $files) {
     }
     if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
         $name -match '\.(xex|iso|obj|o)$|(^|/)sources\.cmake$|lollipop_(recomp|init|register|pch)' -or
-        ($name.StartsWith('bin/') -and $file.Name -notin $binaries) -or
+        ($name.StartsWith('bin/', [StringComparison]::OrdinalIgnoreCase) -and $name -notin $binaryPaths) -or
         ($file.Extension -eq '.exe' -and $name -ne 'bin/rexglue.exe')) {
         throw "Build output or game code is not allowed in the SDK package: $name"
     }
