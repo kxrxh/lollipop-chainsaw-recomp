@@ -90,8 +90,8 @@ Other renderers and launches with shader storage disabled retain on-demand compi
 The inventory covers all seven stages, boss maps and opening/ending/result
 scenes. Coverage is incomplete for outfits, boss phases and effect combinations.
 Recorded pipelines include Juliet's default outfit during stage transitions,
-the Stage 2 Vikke cutscene, the Stage 3 creature and Mariska cutscenes, and the
-Stage 4 Josie ending.
+the Stage 2 Vikke cutscene, the Stage 3 creature and Mariska cutscenes, the
+Stage 4 Josie ending, and the Stage 5 Lewis ending and Section 3 barrels.
 Preparation also reconstructs the engine-generated loading copy shader, so it
 does not require a prior play session. See
 [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
