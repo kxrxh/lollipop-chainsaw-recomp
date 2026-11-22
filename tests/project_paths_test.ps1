@@ -86,10 +86,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Player source kit could not be configured without test files.' }
     $targets = (& $tools.Ninja -C $playerBuild -t targets all) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $targets -notmatch '(?m)^lollipop\.exe:') { throw 'Player build is missing the game target.' }
-    if ($targets -match '(?m)^lollipop_(?:[a-z_]*test|header_check|setup_check|shader_tool)(?:\.exe)?:') {
+    if ($targets -notmatch '(?m)^lollipop_shader_tool\.exe:') { throw 'Player build is missing the pipeline collection tool.' }
+    if ($targets -match '(?m)^lollipop_(?:[a-z_]*test|header_check|setup_check)(?:\.exe)?:') {
         throw 'Player build includes development targets.'
     }
-    $commands = (& $tools.Ninja -C $playerBuild -t commands lollipop) -join "`n"
+    $commands = (& $tools.Ninja -C $playerBuild -t commands lollipop lollipop_shader_tool) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $commands -match 'tests[/\\][a-z_]+_test\.(cpp|cs)|header-check|setup_test\.cs') {
         throw 'Player compilation plan includes developer tests.'
     }

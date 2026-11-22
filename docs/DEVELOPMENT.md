@@ -160,6 +160,73 @@ Reusing the output merges records. Review before replacing
 `assets/shaders/pipelines.txt`, rebuild, and check normal rendering with a fresh
 cache. Watch `pipeline_cache_misses` for combinations compiled during play.
 
+To search across playthroughs, close the game and collect
+`cache/shaders/shareable/565707D0.rov.d3d12.xpso` from each recording. This
+file contains pipeline descriptions and shader fingerprints. Compare one or more
+recordings with the current inventory from PowerShell 7:
+
+```powershell
+./out/build/win-amd64-release/lollipop_shader_tool.exe discover assets/shaders/pipelines.txt `
+    'out/recordings/stage 2.xpso' 'out/recordings/stage 6.xpso' > out/discovery.txt
+```
+
+The report counts unique pipelines across all inputs. Plain hex lines are new
+combinations of vertex shader, pixel shader and fixed-function state already
+represented in the inventory, including the shader modification bits. Append
+those lines to a copy of the inventory for review. Commented records identify
+new shader forms or render states for a full `collect` run. A tester can share
+the small `.xpso` alone for this comparison. Verify additions by replaying the
+scene with a fresh game cache and normal rendering.
+
+If the tester exported a [full text report](COMPATIBILITY.md#shader-coverage),
+combine it with the current inventory in a scratch file. This retains new shader
+recipes as well as pipeline states. Review the additions before rebuilding.
+
+```powershell
+Get-Content assets/shaders/pipelines.txt, out/stage-pipelines.txt |
+    Select-Object -Unique | Set-Content -Encoding utf8NoBOM out/candidate.txt
+```
+
+Prioritize effects that appear briefly, including boss transformations, explosions
+and combat moves. Streamed scenery alone will miss their draws. Record the scene
+and the `pipeline_cache_misses` and `frame_time_us` counters together. Replay
+the same segment using the updated inventory and a fresh pipeline cache. A
+second run with the learned cache only measures a returning player's experience.
+Long frames with zero misses warrant separate investigation.
+
+The disc scan finds shader programs. A D3D12 pipeline also depends on the
+vertex and pixel shader modifications, depth/stencil and blend state, and render
+targets used by a particular draw. Unleashed Recompiled supplements its recorded
+states by preparing pipelines from models and particle materials as assets load.
+For a similar UE3 implementation, measure how many actual misses a material-load
+predictor anticipates on a separate playthrough, and how much extra compilation
+it schedules. [Unleashed Recompiled renderer](https://github.com/hedge-dev/UnleashedRecomp/blob/main/UnleashedRecomp/gpu/video.cpp)
+
+Forza Motorsport 4 orders scripted races by the additional shaders their tracks
+reference. Forza Horizon 1: ReImagined measures its prebuilt list on routes
+excluded from capture. Apply both ideas here: select scenes with different
+materials and effects, reserve unseen encounters, and count new pipelines over
+the entire session, including loading and transitions. ReImagined also has a
+Vulkan implementation that reads queued draws using a copy of the GPU registers
+and starts creating their pipelines early. A D3D12 experiment should measure
+the time spent predicting as well as the time saved at the draw.
+[Motorsport 4 scripted warm-up](https://github.com/i2kiselev/fm4-static-recomp/blob/160ef51f716ebc6f90692d368d68f3a820fcecfe/tools/warm-up.ps1)
+· [Horizon held-out measurements](https://github.com/FH1-ReImagined/ForzaHorizon1-ReImagined/blob/46d5ed62866af68700d15c61748df8c29ad0248d/docs/shader_prebuild.md#wider-coverage-276)
+· [Horizon lookahead implementation](https://github.com/FH1-ReImagined/ForzaHorizon1-ReImagined/blob/46d5ed62866af68700d15c61748df8c29ad0248d/patches/rexglue-sdk/0270-vulkan-pipeline-lookahead.patch)
+
+Saints Reborn reloads pipelines learned in earlier sessions. It separately
+prefetches world chunks toward the camera's predicted position. For a slow
+frame with zero pipeline misses, time package reads, decompression and texture
+uploads separately before choosing what to prefetch.
+[Saints Reborn cache startup](https://github.com/whompay/SaintsReborn/blob/6c6e07eab365c83554e0777b48688425995caa4a/project/src/main.cpp)
+· [Saints Reborn chunk prefetch](https://github.com/whompay/SaintsReborn/blob/6c6e07eab365c83554e0777b48688425995caa4a/project/src/render_fixes.cpp)
+
+Zelda 64: Recompiled uses RT64, which can draw with a general-purpose N64 shader
+while background threads compile specialized versions. Applying that approach to
+the Xbox 360 renderer would require a fallback that also reproduces guest shader
+execution and memory exports. [Zelda 64: Recompiled](https://github.com/Zelda64Recomp/Zelda64Recomp)
+and [RT64 shader cache](https://github.com/rt64/rt64/blob/main/src/render/rt64_raster_shader_cache.cpp)
+
 For automated stage checks, resume a checkpoint through the title screen so the
 game loads Juliet's costume. From gameplay, `game_console RemoteEvent START_PL_STAGE02`
 uses the game's Stage 2 transition inside `START_PL`. Confirm the target stage

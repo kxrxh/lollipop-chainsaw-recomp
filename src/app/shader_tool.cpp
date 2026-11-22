@@ -6,6 +6,9 @@
 int main(int argc, char** argv) try {
   if (argc == 5 && std::string_view(argv[1]) == "collect") {
     lollipop::collect_shader_inventory(argv[2], argv[3], argv[4]);
+  } else if (argc >= 4 && std::string_view(argv[1]) == "discover") {
+    const std::vector<std::filesystem::path> recordings(argv + 3, argv + argc);
+    lollipop::discover_shader_pipelines(argv[2], recordings, std::cout);
   } else if (argc == 4 && std::string_view(argv[1]) == "scan") {
     lollipop::prepare_shader_inventory(argv[2], argv[3],
                                        "lollipop-pipelines-v1 d3d12-rov 20260226\n",
@@ -14,7 +17,8 @@ int main(int argc, char** argv) try {
                                        });
   } else {
     throw std::runtime_error(
-        "Usage: lollipop_shader_tool scan <game> <cache> | collect <cache> <output> <coverage>");
+        "Usage: lollipop_shader_tool scan <game> <cache> | collect <cache> <output> <coverage> | "
+        "discover <inventory> <recording.xpso> [...]");
   }
 } catch (const std::exception& error) {
   std::cerr << error.what() << '\n';

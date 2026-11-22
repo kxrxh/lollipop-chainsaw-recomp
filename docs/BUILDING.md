@@ -156,6 +156,7 @@ Paths are relative to the checkout or chosen install folder.
 | `out/tools/`, `out/sdk-0.11.0/` | Compiler packages and the developer-built SDK |
 | `out/build/` | SDK, game and test builds |
 | `out/build/win-amd64-release/lollipop.exe` | Playable game |
+| `out/build/win-amd64-release/lollipop_shader_tool.exe` | Exports a pipeline report from the local shader cache |
 | `out/launcher/latest.log` | Setup and launcher log |
 | `out/build/win-amd64-release/recomp-version.txt` | Installed recomp version, published with the game |
 | `out/build/win-amd64-release/logs/` | Game logs; override with `--log_file` |

@@ -7,17 +7,12 @@
 The original Xbox 360 game, recompiled for Windows. Requires your own game copy;
 game files are not included.
 
-Press **F6** for the dedicated in-game **Cheats** window: unlimited health, gold and platinum
-medals, and a full Star Soul gauge. Mouse, keyboard and controller navigation are
-supported. Changes apply immediately; **All Off** disables every cheat. Toggles
-reset on restart, but medals and purchases can be kept by the game's normal saves.
-
-In-game render resolution, frame rate, anti-aliasing and color dithering apply
-without restarting. Shadow resolution also applies live.
-
-Mash finishers keep their 30 FPS meter decay at higher frame rates while preserving
-native progress and slow motion. Attack homing uses Juliet's actual position after
-collision to avoid accumulating movement against enemies or scenery.
+- Press **F6** to open **Cheats**. Toggle unlimited health, gold and platinum
+  medals, or a full Star Soul gauge with a mouse, keyboard, or controller.
+  Cheats take effect immediately and reset on restart. **All Off** disables
+  every cheat. The game can still save medals and purchases.
+- Change **graphics settings** in-game without restarting, including render and
+  shadow resolution, frame rate, anti-aliasing, and color dithering.
 
 ## Getting started
 

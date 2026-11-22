@@ -90,12 +90,31 @@ Other renderers and launches with shader storage disabled retain on-demand compi
 The inventory covers all seven stages, boss maps and opening/ending/result
 scenes. Coverage is incomplete for outfits, boss phases and effect combinations.
 Recorded pipelines include Juliet's default outfit during stage transitions,
-the Stage 1 Swan and Zed cutscene before the junkyard, the Stage 2 Vikke
-cutscene, the Stage 3 creature and Mariska cutscenes, the Stage 4 Josie ending,
-and the Stage 5 Lewis ending and Section 3 barrels.
+the Stage 1 Swan and Zed cutscene before the junkyard, the Stage 2 Vikke and
+Stage 3 Mariska boss scenes, the Stage 3 creature cutscene, the Stage 4 opening
+and Josie ending, the Stage 5 Lewis ending and Section 3 barrels, and the Stage 6
+opening and boss map entries. Captures also include Juliet's unlockable combo
+finishers, both Lewis battle-suit transformations, and the left and right arm
+and leg cuts. Captures cover Zed's first two boss QTEs,
+Vikke's first-cut QTE and lower-body entrance,
+both of Mariska's mid-fight cuts, Josey's Simon QTE and mothership transition,
+and the Stage 6 sequence where Killabilly swallows Juliet.
 Preparation also reconstructs the engine-generated loading copy shader, so it
 does not require a prior play session. See
 [pipeline collection](DEVELOPMENT.md#shader-preparation-and-collection).
+
+If a scene stutters on first use, exit the game and run this from the game
+installation folder. Include the stage and effect in the description. Attach the
+resulting text file to the report. It contains shader fingerprints, pipeline
+state and instructions for reconstructing shader variants from the supported disc.
+
+```powershell
+./out/build/win-amd64-release/lollipop_shader_tool.exe collect cache stage-pipelines.txt "Stage and effect"
+```
+
+On installations without the collection tool, the smaller
+`cache/shaders/shareable/565707D0.rov.d3d12.xpso` file can identify missing
+combinations for developers.
 
 ## Gameplay problems
 

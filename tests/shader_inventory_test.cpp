@@ -5,6 +5,7 @@
 #include <array>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -203,6 +204,56 @@ int main(int argc, char** argv) try {
     missing_shader += hex[byte & 15];
   }
   rejects([&] { prepare(missing_shader + '\n'); });
+  {
+    const auto baseline = root / "discovery-inventory.txt";
+    const auto recording = root / "discovery.xpso";
+    auto other_state = missing_shader.substr(header.size());
+    other_state[2 * 8 + 1] = '1';
+    other_state[2 * 32 + 1] = '1';
+    std::ofstream(baseline) << missing_shader << '\n' << other_state << '\n';
+    auto cache = pipelines;
+    auto add = [&](const auto& d) {
+      le64(cache, rex::HashXXH3(d));
+      cache.insert(cache.end(), d.begin(), d.end());
+    };
+    auto d = description;
+    d[32] = 1; // Known shader forms and state, in a new combination.
+    add(d);
+    d[16] = 42; // Unknown pixel shader.
+    add(d);
+    d = description;
+    d[8] = 2; // Unknown vertex shader modification.
+    add(d);
+    d = description;
+    d[32] = 2; // Unknown fixed-function state.
+    add(d);
+    write(recording, cache);
+    std::ostringstream report;
+    lollipop::discover_shader_pipelines(baseline, std::array{recording, recording}, report);
+    auto reusable = missing_shader.substr(header.size());
+    reusable[2 * 32 + 1] = '1';
+    std::istringstream lines(report.str());
+    std::vector<std::string> additions;
+    size_t unresolved = 0;
+    for (std::string line; std::getline(lines, line);) {
+      if (line.starts_with("# Needs full collection: "))
+        ++unresolved;
+      if (!line.starts_with('#'))
+        additions.push_back(line);
+    }
+    check(
+        additions == std::vector{reusable} && unresolved == 3 &&
+            report.str().ends_with("# Already covered: 1, reusable: 1, need full collection: 3\n"),
+        "Identify new combinations and deduplicate recordings");
+    cache.back() ^= 1;
+    const auto damaged = root / "damaged.xpso";
+    write(damaged, cache);
+    std::ostringstream partial;
+    rejects([&] {
+      lollipop::discover_shader_pipelines(baseline, std::array{recording, damaged}, partial);
+    });
+    check(partial.str().empty(), "Reject corrupt recordings before emitting any additions");
+  }
   {
     const auto generated_cache = root / "generated-copy-cache";
     std::vector<uint8_t> copy_description(64);

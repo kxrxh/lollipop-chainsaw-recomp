@@ -222,7 +222,8 @@ internal sealed class Installer {
     configure.AddRange(toolchain.ConfigureArguments);
     tools.Run(cmake, destination, configure, true, activity: "Configuring the game");
     tools.Run(cmake, destination,
-              new[] { "--build", build, "--target", "lollipop", "--parallel", "6" }, true,
+              new[] { "--build", build, "--target", "lollipop", "lollipop_shader_tool",
+                      "--parallel", "6" }, true,
               activity: "Building the game");
   }
 

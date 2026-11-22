@@ -87,15 +87,16 @@ add_custom_command(TARGET lollipop POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E touch "$<TARGET_FILE_DIR:lollipop>/shader-precompile-v1.ready"
     VERBATIM)
 
+add_executable(lollipop_shader_tool src/app/shader_tool.cpp src/game/shader_inventory.cpp
+    src/game/package_lzx.cpp)
+target_include_directories(lollipop_shader_tool PRIVATE src)
+target_link_libraries(lollipop_shader_tool PRIVATE lollipop_host_sdk)
+
 include(CTest)
 if(NOT BUILD_TESTING)
     return()
 endif()
 
-add_executable(lollipop_shader_tool src/app/shader_tool.cpp src/game/shader_inventory.cpp
-    src/game/package_lzx.cpp)
-target_include_directories(lollipop_shader_tool PRIVATE src)
-target_link_libraries(lollipop_shader_tool PRIVATE lollipop_host_sdk)
 add_executable(lollipop_shader_inventory_test tests/shader_inventory_test.cpp
     src/game/shader_inventory.cpp src/game/package_lzx.cpp)
 target_include_directories(lollipop_shader_inventory_test PRIVATE src)

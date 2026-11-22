@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <iosfwd>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -22,4 +23,7 @@ void prepare_shader_inventory(const std::filesystem::path& game, const std::file
                               std::span<const uint8_t> executable = {});
 void collect_shader_inventory(const std::filesystem::path& cache,
                               const std::filesystem::path& output, std::string_view coverage);
+void discover_shader_pipelines(const std::filesystem::path& inventory,
+                               std::span<const std::filesystem::path> recordings,
+                               std::ostream& report);
 } // namespace lollipop

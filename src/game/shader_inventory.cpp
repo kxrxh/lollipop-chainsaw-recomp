@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -198,6 +199,18 @@ descriptions read_pipelines(std::span<const uint8_t> data) {
   }
   return result;
 }
+std::string encode_description(const std::array<uint8_t, description_size>& description) {
+  constexpr char hex[] = "0123456789abcdef";
+  std::string line;
+  line.reserve(description_size * 2 + 1);
+  for (uint8_t byte : description) {
+    line += hex[byte >> 4];
+    line += hex[byte & 15];
+  }
+  line += '\n';
+  return line;
+}
+
 descriptions parse_inventory(std::string_view text) {
   std::istringstream file{std::string(text)};
   std::string line;
@@ -592,14 +605,55 @@ void collect_shader_inventory(const std::filesystem::path& cache,
     }
     text += record.str() + '\n';
   }
-  constexpr char hex[] = "0123456789abcdef";
-  for (const auto& [hash, description] : pipelines) {
-    for (uint8_t byte : description) {
-      text += hex[byte >> 4];
-      text += hex[byte & 15];
-    }
-    text += '\n';
-  }
+  for (const auto& [hash, description] : pipelines)
+    text += encode_description(description);
   publish(output, {reinterpret_cast<const uint8_t*>(text.data()), text.size()});
+}
+
+void discover_shader_pipelines(const std::filesystem::path& inventory,
+                               std::span<const std::filesystem::path> recordings,
+                               std::ostream& report) {
+  const auto bytes = read_file(inventory);
+  const auto known = parse_inventory(std::string(bytes.begin(), bytes.end()));
+  descriptions observed;
+  for (const auto& path : recordings) {
+    try {
+      observed.merge(read_pipelines(read_file(path)));
+    } catch (const std::runtime_error& error) {
+      throw std::runtime_error(path.string() + ": " + error.what());
+    }
+  }
+
+  // The ROV record stores two shader hash/modification pairs followed by fixed-function state.
+  using shader_key = std::pair<uint64_t, uint64_t>;
+  std::set<shader_key> vertices, pixels;
+  std::set<std::array<uint8_t, 32>> states;
+  const auto state_key = [](const std::array<uint8_t, description_size>& description) {
+    std::array<uint8_t, 32> state;
+    std::ranges::copy(std::span(description).last<32>(), state.begin());
+    return state;
+  };
+  for (const auto& [hash, d] : known) {
+    vertices.emplace(le64(d, 0), le64(d, 8));
+    pixels.emplace(le64(d, 16), le64(d, 24));
+    states.insert(state_key(d));
+  }
+  size_t existing = 0, reusable = 0, capture = 0;
+  for (const auto& [hash, d] : observed) {
+    if (known.contains(hash)) {
+      ++existing;
+      continue;
+    }
+    if (vertices.contains({le64(d, 0), le64(d, 8)}) &&
+        pixels.contains({le64(d, 16), le64(d, 24)}) && states.contains(state_key(d))) {
+      ++reusable;
+    } else {
+      ++capture;
+      report << "# Needs full collection: ";
+    }
+    report << encode_description(d);
+  }
+  report << "# Already covered: " << existing << ", reusable: " << reusable
+         << ", need full collection: " << capture << '\n';
 }
 } // namespace lollipop
