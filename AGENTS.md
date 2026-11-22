@@ -35,3 +35,10 @@
 - Keep game data, generated translations, binaries, captures, logs, prompts and session notes out of Git.
 - Keep final assets and required attribution; avoid duplicate reports and implementation-history documents.
 - Inspect the final diff for unintended files and machine-specific paths before committing.
+
+## Release descriptions
+
+- Use a short Markdown bullet changelog, with one plain, factual sentence per bullet.
+- Lead with verbs such as Added, Fixed, Improved or Removed; describe concrete changes for players.
+- Keep the description to the changelog: no introduction, headings, closing summary or promotional filler.
+- Omit Codex/AI notices, development narration and test reports from release descriptions.
