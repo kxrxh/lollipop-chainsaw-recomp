@@ -166,26 +166,33 @@ The launcher caches its source kit under `launcher-data/source/` beside its EXE.
 
 ## Setup and build problems
 
-| Problem | Action |
-| --- | --- |
-| Interrupted setup | Reopen the launcher and use the remembered destination. Use Repair game if the disc is already imported; otherwise supply the same ISO in Manage game. Check `out/launcher/latest.log`. |
-| Preparing game tools failed | Download the complete launcher again and check `out/launcher/latest.log`. |
-| Install folder rejected | Choose an empty folder for a new install. Close the game and other launcher windows; check write access. |
-| Unsupported or incomplete disc | Compare the executable hash above. Re-extract if it differs or `AshGame/` or `Engine/` is missing. |
-| Tool download failed in the launcher | Check internet access and free space, then retry. Verified packages are reused. |
-| Missing compiler in a manual build | Check the manual build requirements above. Supply `-LlvmDirectory` if needed. |
-| SDK patch conflict | Use new SDK source and build directories; see below. |
-| Paths refer to an old checkout | Rerun `build.ps1`. Use a new build directory for an SDK built at the old location. |
-| Ninja reports `build.ninja` still dirty after 100 tries | Update the launcher and retry Repair. For manual builds, check Windows date/time synchronization; future-dated inputs can cause a CMake regeneration loop. |
+### Launcher setup
 
-To build the SDK from a clean checkout without deleting the old one:
+Setup writes its log to `out/launcher/latest.log` in the installation folder.
+
+| Symptom | What to try |
+| --- | --- |
+| Setup stopped halfway | Reopen the launcher and select the same destination. If the disc was imported, choose **Manage game → Apply launcher build / Repair**. Otherwise, select the same ISO again. |
+| Preparing game tools failed | Download a fresh copy of the launcher and retry. |
+| A tool download failed | Check your connection and free disk space, then retry. Setup reuses verified downloads. |
+| Install folder rejected | For a new install, choose an empty, writable folder. Close the game and any other launcher windows. |
+| Unsupported or incomplete disc | Check the [supported disc identifiers](#supported-game). For an extracted copy, verify the `default.xex` hash and that `AshGame/` and `Engine/` are present. Re-extract from the supported disc if needed. |
+| Ninja reports `build.ninja` is still dirty after 100 tries | Update the launcher, then run **Repair**. |
+
+### Manual builds
+
+- **Missing compiler.** Check the [required tools](#requirements). If LLVM is installed elsewhere, pass its path with `-LlvmDirectory`.
+- **Paths point to an old checkout.** Rerun `build.ps1`. If you moved the SDK, build it in a fresh build directory.
+- **Ninja keeps regenerating `build.ninja`.** Check Windows date and time synchronization. Files dated in the future can trigger this loop.
+
+If an SDK patch fails to apply, build in fresh directories to keep the existing checkout intact.
 
 ```powershell
 ./build-sdk.ps1 -SourceDirectory out/tools/rexglue-clean -BuildDirectory out/build/sdk-clean
 ./build.ps1
 ```
 
-If PowerShell blocks scripts, use a process-local execution-policy override:
+If PowerShell blocks a script, use a process-local execution-policy override.
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
@@ -194,28 +201,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./launcher/build.ps1
 
 ## Updating or removing an installation
 
-The launcher checks GitHub for a stable release in the background on each startup.
-A newer recomp release shows a dismissible notice and an Updates badge. Select the
-notice for release notes, or use **Updates → Check for updates** to retry. Connection
-failures appear in Updates and do not prevent playing. Downloads only start when
-you select **Update launcher**.
+1. Close the game. In **Updates**, select **Update launcher**. The launcher verifies the download and restarts. On launcher 0.2.4 or earlier, download the latest launcher manually and use **Locate game** to select your installation.
+2. Select **Manage game → Apply launcher build / Repair** to update the game itself. Repair reuses the imported disc and preserves saves, settings and bindings. If interrupted, run Repair again.
 
-Close the game, then select **Updates → Update launcher**. It checks the download's
-size and SHA-256, replaces the launcher after it exits, and restarts in the same
-folder. Older published versions cannot replace a newer local launcher. Downloads
-and the update helper are cached in `launcher-data/updates/`.
+A new SDK or compiler may require a full rebuild. Keep `out/source/`,
+`out/generated/` and `out/build/game-compile/` to reuse previous build work.
 
-With launcher 0.2.4 or earlier, download the new EXE once manually. Use **Locate game**
-if needed. Later launcher updates can be installed with the button.
-
-To update the game, select **Manage game → Apply launcher build / Repair**. The ISO
-is not needed again. Setup checks a staged build before replacing playable files;
-saves, settings and bindings are kept. After an interruption, run Repair again.
-
-Unchanged translations and objects are reused. The first update from an older
-launcher, or a change of SDK/compiler, may require a full rebuild. Keep `out/source/`,
-`out/generated/` and `out/build/game-compile/` to retain the build cache. Updating
-only the launcher does not rebuild the game.
-
-Back up `user/` before moving or removing the installation. Build output and
-caches can be recreated. For game issues, see [troubleshooting](COMPATIBILITY.md).
+Before moving or removing the installation, back up `user/`. It contains your saves and settings.

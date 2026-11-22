@@ -38,22 +38,14 @@ a newer release is available. Select the notice for release notes, then use
 
 </details>
 
-## Known issues
+## Help
 
-A full playthrough is unverified. See
-[compatibility and troubleshooting](docs/COMPATIBILITY.md) for tested scenes,
-shader coverage and known limitations.
+- [Compatibility and known issues](docs/COMPATIBILITY.md) · [Default controls](docs/COMPATIBILITY.md#controls)
+- [Setup errors](docs/BUILDING.md#setup-and-build-problems) · [Update or repair](docs/BUILDING.md#updating-or-removing-an-installation)
+- [Stutter, crashes and input problems](docs/COMPATIBILITY.md#gameplay-problems)
 
-## Docs
-
-[Build from source (optional)](docs/BUILDING.md) ·
-[Update / repair](docs/BUILDING.md#updating-or-removing-an-installation) ·
-[Development](docs/DEVELOPMENT.md)
-
-## Contributing
-
-Everyone is welcome to contribute. Open an issue or pull request, and see the
-[development guide](docs/DEVELOPMENT.md) to get started.
+To build from source or contribute a fix, see the [build guide](docs/BUILDING.md)
+and [development guide](docs/DEVELOPMENT.md).
 
 ## Credits
 
