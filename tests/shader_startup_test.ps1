@@ -45,6 +45,8 @@ foreach ($pass in @('cold', 'warm')) {
         if ($binding -ne ('ok ' + $Bindless.IsPresent.ToString().ToLowerInvariant())) {
             throw "Unexpected resource binding mode: $binding; see $log"
         }
+        $async = & "$PSScriptRoot/../scripts/test-control.ps1" -Directory $control -Command 'get gpu.xenos.async_shader_compilation'
+        if ($async -ne 'ok false') { throw "Expected missing pipelines to finish before drawing: $async; see $log" }
         $null = & "$PSScriptRoot/../scripts/test-control.ps1" -Directory $control -Command capture
         $null = & "$PSScriptRoot/../scripts/test-control.ps1" -Directory $control -Command quit
         if (-not $process.WaitForExit(10000) -or $process.ExitCode -ne 0) { throw "$pass launch did not close cleanly" }

@@ -45,6 +45,8 @@ protected:
     REX_TRY_VOID(registry.SetText(layer, "gpu.d3d12.render_target_path", "rov"));
     // NVIDIA's bindless path can hang during junkyard texture-cache churn.
     REX_TRY_VOID(registry.SetText(layer, "gpu.d3d12.bindless", "false"));
+    // Complete missing pipelines before presenting new scenery.
+    REX_TRY_VOID(registry.SetText(layer, "gpu.xenos.async_shader_compilation", "false"));
     // Preserve paths used by builds launched directly before the SDK upgrade.
     auto& paths = REX_PATHS();
     REX_TRY_VOID(paths.user_root.SetText(

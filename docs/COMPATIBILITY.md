@@ -7,7 +7,7 @@ The tested configuration is Windows x64, Direct3D 12 ROV, an i7-10700K, 32 GB of
 ## Known issues
 
 - **First-use stutter.** A new effect can briefly freeze the picture while its graphics pipeline compiles. Reports include explosions and cutscenes. If it happens again on the same effect, mention that in your report.
-- **Scenery flicker.** Reports include car piles in Stage 1's junkyard and some objects in Stage 4's digital sections at 1440p. These surface issues remain under investigation.
+- **Scenery flicker.** Draws now wait for missing graphics pipelines to finish compiling. Reports of flickering car piles in Stage 1's junkyard and objects in Stage 4's digital sections at 1440p remain under investigation.
 - **Reload hangs.** Earlier builds could hang on Continue, Restart or the phone call after the third prologue rescue. Recent checkpoint tests passed. If a hang recurs, include the checkpoint and the game log.
 
 ## Gameplay problems
@@ -20,7 +20,7 @@ The first Direct3D 12 ROV launch can spend several minutes preparing shaders. La
 
 ### Shader coverage
 
-The inventory includes effects from all seven stages, including boss transformations, Juliet’s unlockable finishers and barrel explosions. Other moves, outfits and effects can still compile during play.
+The inventory includes effects from all seven stages, including boss transformations, Juliet’s unlockable finishers and barrel explosions, with additional coverage for gym, barn, water and driving scenes. Other moves, outfits and effects can still compile during play.
 
 To report a hitch, close the game and run this command from the installation folder. Replace the quoted text with the stage and effect you saw.
 

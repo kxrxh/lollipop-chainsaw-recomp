@@ -198,6 +198,11 @@ the same segment using the updated inventory and a fresh pipeline cache. A
 second run with the learned cache only measures a returning player's experience.
 Long frames with zero misses warrant separate investigation.
 
+Measure frame times with `--d3d12_debug=false --gpu_debug_markers=false` and
+keep screenshot or GPU captures outside the measured interval. Repeat the same
+route with diagnostics enabled only as a separate comparison: D3D12 diagnostics
+can introduce long frames even when the release configuration stays smooth.
+
 The disc scan finds shader programs. A D3D12 pipeline also depends on the
 vertex and pixel shader modifications, depth/stencil and blend state, and render
 targets used by a particular draw. Unleashed Recompiled supplements its recorded
