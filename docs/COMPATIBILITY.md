@@ -7,7 +7,7 @@ The tested configuration is Windows x64, Direct3D 12 ROV, an i7-10700K, 32 GB of
 ## Known issues
 
 - **First-use stutter.** A new effect can briefly freeze the picture while its graphics pipeline compiles. Reports include explosions and cutscenes. If it happens again on the same effect, mention that in your report.
-- **Stage 4 scenery flicker.** Some objects in the digital sections flicker at 1440p. A screenshot or clip showing the surface would help identify it.
+- **Scenery flicker.** Reports include car piles in Stage 1's junkyard and some objects in Stage 4's digital sections at 1440p. These surface issues remain under investigation.
 - **Reload hangs.** Earlier builds could hang on Continue, Restart or the phone call after the third prologue rescue. Recent checkpoint tests passed. If a hang recurs, include the checkpoint and the game log.
 
 ## Gameplay problems

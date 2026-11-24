@@ -88,6 +88,10 @@ Use an isolated save directory for game checks; copy existing saves there if nee
 
 ## Settings and runtime integration
 
+- D3D12 ROV uses descriptor tables by default. Cache-pressure replays of the Zed
+  encounter reproduced NVIDIA GPU timeouts with bindless resources enabled.
+  `--gpu.d3d12.bindless=true` overrides this default for diagnostics. The shader
+  startup check accepts `-Bindless` to verify that override with cold and warm caches.
 - `src/settings/pc_settings.cpp` validates and atomically saves the PC profile.
   Command-line and environment values override it. `lollipop_60fps` migrates to
   `lollipop_fps`.

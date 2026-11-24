@@ -2,7 +2,8 @@
 param(
     [string]$GameDirectory = (Join-Path $PSScriptRoot '../game'),
     [string]$BuildDirectory = (Join-Path $PSScriptRoot '../out/build/win-amd64-release'),
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot ('../out/shader-startup-' + [Guid]::NewGuid().ToString('N')))
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot ('../out/shader-startup-' + [Guid]::NewGuid().ToString('N'))),
+    [switch]$Bindless
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($OutputDirectory)
@@ -21,6 +22,7 @@ foreach ($pass in @('cold', 'warm')) {
         '--lollipop_gpu_backend=d3d12', '--render_target_path_d3d12=rov', '--store_shaders=true',
         '--d3d12_pipeline_creation_threads=4', '--window_hidden=true', '--fullscreen=false', '--audio_mute=true'
     )
+    if ($Bindless) { $arguments += '--gpu.d3d12.bindless=true' }
     $quoted = $arguments | ForEach-Object { '"' + $_ + '"' }
     $process = Start-Process -FilePath (Join-Path $build 'lollipop.exe') -ArgumentList $quoted -WindowStyle Hidden -PassThru
     try {
@@ -38,6 +40,10 @@ foreach ($pass in @('cold', 'warm')) {
         }
         if ($text -match 'Initializing shader storage for title') {
             throw "The launch path initialized shader storage a second time; see $log"
+        }
+        $binding = & "$PSScriptRoot/../scripts/test-control.ps1" -Directory $control -Command 'get gpu.d3d12.bindless'
+        if ($binding -ne ('ok ' + $Bindless.IsPresent.ToString().ToLowerInvariant())) {
+            throw "Unexpected resource binding mode: $binding; see $log"
         }
         $null = & "$PSScriptRoot/../scripts/test-control.ps1" -Directory $control -Command capture
         $null = & "$PSScriptRoot/../scripts/test-control.ps1" -Directory $control -Command quit

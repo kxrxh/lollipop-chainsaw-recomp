@@ -43,6 +43,8 @@ protected:
     constexpr auto layer = rex::SettingLayer::kTitle;
     // The graphics driver freezes its selection before OnInit.
     REX_TRY_VOID(registry.SetText(layer, "gpu.d3d12.render_target_path", "rov"));
+    // NVIDIA's bindless path can hang during junkyard texture-cache churn.
+    REX_TRY_VOID(registry.SetText(layer, "gpu.d3d12.bindless", "false"));
     // Preserve paths used by builds launched directly before the SDK upgrade.
     auto& paths = REX_PATHS();
     REX_TRY_VOID(paths.user_root.SetText(
