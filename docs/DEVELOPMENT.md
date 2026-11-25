@@ -115,6 +115,10 @@ Use an isolated save directory for game checks; copy existing saves there if nee
   the render thread. Shadow projection uses the allocated target dimensions
   while the selected quality limits each light's viewport.
   Original restores the baseline, and native reloads cannot compound the density.
+- `lollipop_film_grain`, `lollipop_depth_of_field` and `lollipop_vignette` default
+  to `true`. The first two settings act on each scene's resolved post-process proxy.
+  The vignette setting targets the shared stage material and the Stage 3 aiming material.
+  The stage material keeps its original mask while the damage flash is active.
 - Native options load after the save. Apply uses the game's setters and save
   routine on the engine tick thread. `game_bridge` restores the caller's PPC
   context; guest calls must not hold runtime or registry locks.
@@ -313,7 +317,8 @@ saves for console travel and `--cl` launch arguments.
 ## Frame and engine measurements
 
 Run `./tests/live_settings_test.ps1 -GameDirectory <disc> -BuildDirectory <build>`
-to verify 720p / 1440p / 4K switching, frame-rate changes, FXAA, dithering, shadow quality and
+to verify 720p / 1440p / 4K switching, frame-rate changes, FXAA, dithering, shadow quality,
+applying and restoring the three post-processing effects, and
 display rollback with Cheats open in one D3D12 process. Saves and captures stay in a new
 `out/` directory.
 Use `-SaveDirectory <save-folder>` to test a copy of an existing save.

@@ -12,7 +12,9 @@ game files are not included.
   Cheats take effect immediately and reset on restart. **All Off** disables
   every cheat. The game can still save medals and purchases.
 - Change **graphics settings** in-game without restarting, including render and
-  shadow resolution, frame rate, anti-aliasing, and color dithering.
+  shadow resolution, frame rate, anti-aliasing, and color dithering. Open the
+  **Effects** tab to turn film grain, depth of field, or vignette off individually.
+  All three default to **Original**. The damage flash stays visible.
 
 ## Getting started
 

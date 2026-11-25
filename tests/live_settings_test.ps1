@@ -24,6 +24,7 @@ $arguments = @(
     '--resolution_scale=1', '--window_hidden=true', '--fullscreen=false', '--audio_mute=true',
     '--window_width=1280', '--window_height=720',
     '--lollipop_fps=60', '--swap_post_effect=none', '--present_dither=false', '--lollipop_shadow_resolution=0',
+    '--lollipop_film_grain=true', '--lollipop_depth_of_field=true', '--lollipop_vignette=true',
     '--store_shaders=false', '--render_target_path_d3d12=rov', '--d3d12_pipeline_creation_threads=4'
 )
 $quoted = foreach ($argument in $arguments) {
@@ -110,6 +111,26 @@ try {
         if ([DateTime]::UtcNow -ge $deadline) { throw 'Settings did not open.' }
         Start-Sleep -Milliseconds 100
     }
+    function Click-Settings([int]$X, [int]$Y) {
+        $null = Control "ui_mouse $X $Y 1"
+        Start-Sleep -Milliseconds 120
+        $null = Control "ui_mouse $X $Y 0"
+        Start-Sleep -Milliseconds 120
+    }
+    $effects = @('lollipop_film_grain','lollipop_depth_of_field','lollipop_vignette')
+    $null = Control 'input_device keyboard'
+    Click-Settings 1080 189
+    foreach ($y in @(252,293,334)) { Click-Settings 940 $y }
+    Click-Settings 180 592
+    foreach ($effect in $effects) {
+        if ((Control "get $effect") -ne 'ok false') { throw "Effects page did not disable $effect" }
+    }
+    Click-Settings 485 592
+    Click-Settings 180 592
+    foreach ($effect in $effects) {
+        if ((Control "get $effect") -ne 'ok true') { throw "Defaults did not restore $effect" }
+    }
+    Click-Settings 155 189
     $null = Control 'ui_key right 1'
     Start-Sleep -Milliseconds 100
     $null = Control 'ui_key right 0'
@@ -137,7 +158,7 @@ try {
     $null = Control 'set lollipop_cheats_menu false'
     $null = Control quit
     if (-not $process.WaitForExit(10000) -or $process.ExitCode -ne 0) { throw "$api did not exit cleanly" }
-    Write-Output "$api passed: live 720p/1440p/4K, FPS, FXAA, dithering, shadows and display rollback with Cheats open in PID $($process.Id)."
+    Write-Output "$api passed: live 720p/1440p/4K, FPS, FXAA, dithering, shadows, post-processing effects and display rollback with Cheats open in PID $($process.Id)."
 } finally {
     if (-not $process.HasExited) { Stop-Process -Id $process.Id }
     $process.Dispose()

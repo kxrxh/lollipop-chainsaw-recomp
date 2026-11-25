@@ -16,6 +16,9 @@ struct game_options final : rex::SettingOwner {
   REX_SETTING(bool, camera_invert_y, false, "Invert vertical camera");
   REX_SETTING(bool, camera_invert_x, false, "Invert horizontal camera");
   REX_SETTING(bool, manual_aim, false, "Manual blaster aim");
+  REX_SETTING(bool, film_grain, true, "Shows the original grain in rendered scenes.");
+  REX_SETTING(bool, depth_of_field, true, "Blurs near or distant objects to simulate camera focus.");
+  REX_SETTING(bool, vignette, true, "Darkens the edges of the gameplay picture.");
   REX_SETTING(int32_t, shadow_resolution, 0,
               "Character shadow resolution: 0 = original, 256, 512 or 1024",
               rex::Allowed{"0", "256", "512", "1024"});

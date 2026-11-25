@@ -526,7 +526,10 @@ internal static class SetupTests {
     Check(!File.Exists(path) && settings.Values["window_size"] == "2560x1440" &&
               settings.Values["swap_post_effect"] == "none" &&
               !settings.Values.ContainsKey("lollipop_gpu_backend") &&
-              settings.Values["lollipop_shadow_resolution"] == "0",
+              settings.Values["lollipop_shadow_resolution"] == "0" &&
+              settings.Values["lollipop_film_grain"] == "true" &&
+              settings.Values["lollipop_depth_of_field"] == "true" &&
+              settings.Values["lollipop_vignette"] == "true",
           "Reading settings wrote a profile or changed startup defaults");
     var selected = new Dictionary<string, string>(settings.Values);
     settings.Save(destination, Environment.ProcessPath!, selected);
@@ -553,6 +556,8 @@ internal static class SetupTests {
     selected["anisotropic_override"] = "4";
     selected["lollipop_fps"] = "90";
     selected["present_dither"] = "true";
+    selected["lollipop_film_grain"] = "false";
+    selected["lollipop_vignette"] = "false";
     settings.Save(destination, Environment.ProcessPath!, selected);
     var saved = File.ReadAllText(path);
     Check(saved.Contains("lollipop_music_volume = \"6\"\r\nmnk_sensitivity = \"22.5\"\r\n") &&

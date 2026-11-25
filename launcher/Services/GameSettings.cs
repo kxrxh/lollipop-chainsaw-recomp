@@ -34,7 +34,13 @@ internal sealed class GameSettings {
                       "90 and 120 FPS gameplay is still experimental.", "60",
                       "30|30 FPS / Original", "60|60 FPS", "90|90 FPS", "120|120 FPS"),
     new GraphicsField("present_dither", "Color dithering", "Reduces color banding.", "false",
-                      "false|Off", "true|On")
+                      "false|Off", "true|On"),
+    new GraphicsField("lollipop_film_grain", "Film grain", "Shows the original grain in rendered scenes.",
+                      "true", "false|Off", "true|Original"),
+    new GraphicsField("lollipop_depth_of_field", "Depth of field", "Blurs near or distant objects to simulate camera focus.",
+                      "true", "false|Off", "true|Original"),
+    new GraphicsField("lollipop_vignette", "Vignette", "Darkens the edges of the gameplay picture.",
+                      "true", "false|Off", "true|Original")
   };
   private static readonly Regex Assignment =
       new Regex(@"\A\s*([A-Za-z_]\w*)\s+=\s*(?:""((?:\\.|[^""\\])*)""|([^\s""]+))\s*\z");
@@ -131,6 +137,9 @@ internal sealed class GameSettings {
                       "vsync",
                       "present_letterbox",
                       "present_dither",
+                      "lollipop_film_grain",
+                      "lollipop_depth_of_field",
+                      "lollipop_vignette",
                       "mnk_mouse",
                       "vibration",
                       "lollipop_subtitles",

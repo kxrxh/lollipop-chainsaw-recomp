@@ -112,6 +112,31 @@ address = 0x829BD280
 name = "lollipop_update_shadows"
 registers = []
 
+# Uber post-process proxy: final authored or volume-overridden grain strength.
+[[entrypoint.midasm_hook]]
+address = 0x823E42AC
+name = "lollipop_film_grain"
+registers = ["f0"]
+
+# DOF/bloom proxy, after all native overrides, before publishing to the renderer.
+[[entrypoint.midasm_hook]]
+address = 0x8230C3DC
+name = "lollipop_depth_of_field"
+registers = ["r3"]
+
+# Material uniform cache: all scalar expressions are resolved, before vector evaluation.
+[[entrypoint.midasm_hook]]
+address = 0x8237A17C
+name = "lollipop_aim_vignette"
+registers = ["r22", "r24"]
+
+# Material uniform cache: resolved texture, before the native white-texture fallback.
+[[entrypoint.midasm_hook]]
+address = 0x8237A3C4
+name = "lollipop_scene_vignette"
+registers = ["r22", "r24", "r30", "r11"]
+after_instruction = true
+
 # Both projected-shadow setup paths have resolved the light's cap in r10 here.
 [[entrypoint.midasm_hook]]
 address = 0x827FDA70

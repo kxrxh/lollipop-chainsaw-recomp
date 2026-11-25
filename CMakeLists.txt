@@ -47,6 +47,7 @@ add_executable(lollipop WIN32
     src/game/native_quit_dialog.cpp
     src/game/main_menu.cpp
     src/game/package_lzx.cpp
+    src/game/post_process.cpp
     src/game/shader_inventory.cpp
     src/game/shadow_settings.cpp
     src/game/startup_hooks.cpp
@@ -127,7 +128,7 @@ set(LOLLIPOP_HEADERS
     game/dlc_package.h game/costume_dlc.h
     app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h game/cheats.h
     game/native_quit_dialog.h game/main_menu.h game/package_lzx.h
-    game/startup_hooks.h game/timing_hooks.h game/shadow_settings.h
+    game/startup_hooks.h game/timing_hooks.h game/shadow_settings.h game/post_process.h
     game/shader_inventory.h ui/shader_loading.h
     input/keyboard_controls.h input/live_prompts.h input/prompt_artwork.h
     settings/pc_settings.h settings/runtime_settings.h testing/test_bridge.h ui/settings_menu.h ui/exit_flow.h ui/cheats_menu.h)
@@ -159,6 +160,11 @@ add_test(NAME lollipop_settings_shader_default COMMAND lollipop_settings_test
     "${CMAKE_CURRENT_BINARY_DIR}/settings-test/shader-default.toml" --shader-default)
 add_test(NAME lollipop_settings_shader_cli COMMAND lollipop_settings_test
     "${CMAKE_CURRENT_BINARY_DIR}/settings-test/shader-cli.toml" --shader-cli)
+
+add_executable(lollipop_post_process_test tests/post_process_test.cpp src/game/post_process.cpp)
+target_include_directories(lollipop_post_process_test PRIVATE src)
+target_link_libraries(lollipop_post_process_test PRIVATE lollipop_host_sdk)
+add_test(NAME lollipop_post_process COMMAND lollipop_post_process_test)
 
 add_executable(lollipop_shadow_test tests/shadow_settings_test.cpp src/game/shadow_settings.cpp)
 target_include_directories(lollipop_shadow_test PRIVATE src)

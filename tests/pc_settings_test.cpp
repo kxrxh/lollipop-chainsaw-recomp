@@ -38,6 +38,9 @@ int main(int argc, char** argv) try {
   check(values.contains("lollipop_shadow_resolution") &&
             values.at("lollipop_shadow_resolution") == "0",
         "Existing profiles retain original shadow resolution by default");
+  for (const auto* name : {"lollipop_film_grain", "lollipop_depth_of_field", "lollipop_vignette"})
+    check(values.at(name) == "true" && lollipop::settings::Query<bool>(name),
+          "Missing effect settings preserve the original rendering");
   const std::filesystem::path path = argv[1];
   if (argc == 3 && std::string_view(argv[2]) == "--launcher-profile") {
     configure_pc_settings(path);
@@ -46,7 +49,9 @@ int main(int argc, char** argv) try {
                              {"present_letterbox", "false"}, {"resolution_scale", "3"},
                              {"swap_post_effect", "fxaa"},   {"anisotropic_override", "4"},
                              {"lollipop_fps", "90"},         {"present_dither", "true"},
-                             {"lollipop_music_volume", "6"}, {"lollipop_shadow_resolution", "512"}};
+                             {"lollipop_music_volume", "6"}, {"lollipop_shadow_resolution", "512"},
+                             {"lollipop_film_grain", "false"}, {"lollipop_depth_of_field", "true"},
+                             {"lollipop_vignette", "false"}};
     for (const auto& [name, value] : expected)
       check(lollipop::settings::GetFlagByName(name) == value,
             ("Launcher setting not applied: " + name + " = " +
@@ -141,6 +146,9 @@ int main(int argc, char** argv) try {
       {"lollipop_shadow_resolution", "2048"},
       {"lollipop_shadow_resolution", "512.0"},
       {"lollipop_shadow_resolution", "300"},
+      {"lollipop_film_grain", "2"},
+      {"lollipop_depth_of_field", "2"},
+      {"lollipop_vignette", "2"},
       {"swap_post_effect", "dlss"},
       {"window_height", "-1"},
       {"vsync", "true\nsecret = 1"}};

@@ -28,6 +28,8 @@
 namespace lollipop {
 namespace {
 std::array<ImFont*, 4> menu_fonts{};
+constexpr const char* pages[] = {"DISPLAY", "GRAPHICS", "AUDIO", "CAMERA", "CONTROLS", "EFFECTS"};
+constexpr int page_count = std::size(pages);
 constexpr ImU32 ink = IM_COL32(1, 1, 1, 255);
 constexpr ImU32 paper = IM_COL32(245, 231, 194, 255);
 
@@ -337,7 +339,7 @@ private:
       if (key(ImGuiKey_Tab))
         turn = io.KeyShift ? -1 : 1;
       if (turn) {
-        page_ = (page_ + turn + 5) % 5;
+        page_ = (page_ + turn + page_count) % page_count;
         selected_ = 0;
         status_.clear();
       }
@@ -373,9 +375,10 @@ private:
     bool save = false, reset = false, close = back, quit = false;
     // Modal controls overlap these rows; disabled items must not claim their mouse hits.
     ImGui::BeginDisabled(modal_was_open);
-    const char* pages[] = {"DISPLAY", "GRAPHICS", "AUDIO", "CAMERA", "CONTROLS"};
-    for (int p = 0; p < 5; ++p)
-      if (button(pages[p], pages[p], 30.0f + p * 222, 139, 212, 37, page_ == p) &&
+    constexpr float tab_spacing = 1110.0f / page_count;
+    for (int p = 0; p < page_count; ++p)
+      if (button(pages[p], pages[p], 30.0f + p * tab_spacing, 139, tab_spacing - 10, 37,
+                 page_ == p) &&
           !modal_was_open) {
         page_ = p;
         selected_ = 0;
