@@ -41,6 +41,7 @@ add_executable(lollipop WIN32
     src/game/game_settings.cpp
     src/game/cheats.cpp
     src/game/combat_timing.cpp
+    src/game/costume_dlc.cpp
     src/game/game_bridge.cpp
     src/game/game_menus.cpp
     src/game/native_quit_dialog.cpp
@@ -92,6 +93,15 @@ add_executable(lollipop_shader_tool src/app/shader_tool.cpp src/game/shader_inve
 target_include_directories(lollipop_shader_tool PRIVATE src)
 target_link_libraries(lollipop_shader_tool PRIVATE lollipop_host_sdk)
 
+add_executable(lollipop_dlc_tool src/app/dlc_tool.cpp src/game/dlc_package.cpp)
+target_include_directories(lollipop_dlc_tool PRIVATE src)
+target_link_libraries(lollipop_dlc_tool PRIVATE lollipop_host_sdk)
+
+# Helpers also cross SDK module boundaries in player builds without tests.
+foreach(target IN ITEMS lollipop_shader_tool lollipop_dlc_tool)
+    rexglue_link_host_allocator(${target})
+endforeach()
+
 include(CTest)
 if(NOT BUILD_TESTING)
     return()
@@ -114,6 +124,7 @@ target_link_libraries(lollipop_imgui_repaint_test PRIVATE lollipop_host_sdk)
 add_test(NAME lollipop_imgui_repaint COMMAND lollipop_imgui_repaint_test)
 
 set(LOLLIPOP_HEADERS
+    game/dlc_package.h game/costume_dlc.h
     app/application.h game/game_settings.h game/game_bridge.h game/game_menus.h game/cheats.h
     game/native_quit_dialog.h game/main_menu.h game/package_lzx.h
     game/startup_hooks.h game/timing_hooks.h game/shadow_settings.h
@@ -227,7 +238,7 @@ add_test(NAME lollipop_offline_startup COMMAND lollipop_startup_test)
 # Every executable exchanging C++ objects with SDK modules must use the SDK allocator.
 get_property(lollipop_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(target IN LISTS lollipop_targets)
-    if(target MATCHES "^lollipop_.*(_test|_tool)$")
+    if(target MATCHES "^lollipop_.*_test$")
         rexglue_link_host_allocator(${target})
     endif()
 endforeach()

@@ -87,10 +87,17 @@ try {
     $targets = (& $tools.Ninja -C $playerBuild -t targets all) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $targets -notmatch '(?m)^lollipop\.exe:') { throw 'Player build is missing the game target.' }
     if ($targets -notmatch '(?m)^lollipop_shader_tool\.exe:') { throw 'Player build is missing the pipeline collection tool.' }
+    if ($targets -notmatch '(?m)^lollipop_dlc_tool\.exe:') { throw 'Player build is missing the costume DLC reader.' }
     if ($targets -match '(?m)^lollipop_(?:[a-z_]*test|header_check|setup_check)(?:\.exe)?:') {
         throw 'Player build includes development targets.'
     }
-    $commands = (& $tools.Ninja -C $playerBuild -t commands lollipop lollipop_shader_tool) -join "`n"
+    foreach ($helper in 'lollipop_shader_tool', 'lollipop_dlc_tool') {
+        $helperCommands = (& $tools.Ninja -C $playerBuild -t commands $helper) -join "`n"
+        if ($LASTEXITCODE -ne 0 -or $helperCommands -notmatch 'rexglue_host_alloc_stub\.cpp') {
+            throw "Player helper does not link the SDK host allocator: $helper"
+        }
+    }
+    $commands = (& $tools.Ninja -C $playerBuild -t commands lollipop lollipop_shader_tool lollipop_dlc_tool) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $commands -match 'tests[/\\][a-z_]+_test\.(cpp|cs)|header-check|setup_test\.cs') {
         throw 'Player compilation plan includes developer tests.'
     }

@@ -39,8 +39,22 @@ $tools = Get-BuildTools
 Pass `-LlvmDirectory` to `Get-BuildTools` if LLVM is not on PATH. Headers compile
 independently. Development builds enable `BUILD_TESTING` by default and build the
 full test suite, header checks and shader tool. Player installations configure
-`BUILD_TESTING=OFF`, build only `lollipop`, and skip CTest. Launcher payloads omit
+`BUILD_TESTING=OFF`, build `lollipop`, `lollipop_shader_tool` and `lollipop_dlc_tool`,
+and skip CTest. Launcher payloads omit
 test sources.
+
+The standalone launcher checks include synthetic DLC metadata, nested ZIP/folder
+imports, duplicate detection, and safe archive paths. To exercise the native reader
+and review/install UI with your own two costume ZIPs, run:
+
+```powershell
+./out/build/win-amd64-release/lollipop_setup_test.exe --costume-preview `
+    out/costume-import-check out/build/win-amd64-release 'path/to/Ash Outfit.zip' 'path/to/Costumes.zip'
+```
+
+This creates an isolated installation, captures the normal and minimum-size UI,
+and checks installation locks, duplicate imports, and save preservation. Use a new
+output directory for each run. DLC packages and captures stay outside Git.
 
 Launcher builds use `out/build/game-compile/` and the stable source copy in
 `out/source/`. Unchanged sources and manifests retain their timestamps. ReXGlue

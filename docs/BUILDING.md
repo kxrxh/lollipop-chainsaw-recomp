@@ -37,6 +37,17 @@ are imported from LocalAppData. Use **Locate game** if the saved folder has move
 
 ### Portable player setup
 
+The **Costumes & DLC** page imports Xbox 360 STFS costume packages for title
+`565707D0`, from ZIPs or recursively from folders (including Xbox content-tree
+folders). Imports are staged in `out/launcher/dlc/`, validated with the bundled
+ReXGlue container reader, and installed under
+`user/0000000000000000/565707D0/00000002/`, with metadata in the adjacent
+`Headers/00000002/` folder. Installed packs are shared across local profiles.
+Existing packages are kept; installing does not replace disc files or saves.
+Close the game before installing, then restart it to load the packs.
+The recomp opens installed content through the runtime and passes it to UE3's
+native DLC manager at the main menu, so local packs load without Xbox LIVE.
+
 Setup extracts the bundled SDK into `out/tools/sdk/<archive hash>/` and reuses it
 on repair. It compiles the game locally from your disc; Git and an SDK build are
 not required. The launcher contains no game files or generated translations.

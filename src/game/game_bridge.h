@@ -9,7 +9,7 @@ namespace rex {
 namespace kernel {
 class TitleRuntime;
 }
-}
+} // namespace rex
 
 namespace lollipop {
 
@@ -28,6 +28,8 @@ public:
   void write(uint32_t address, uint32_t value);
   uint32_t find(const std::string& name);
   uint32_t invoke(uint32_t object, uint32_t function, uint32_t a = 0, uint32_t b = 0);
+  bool install_costume_dlc(uint32_t manager, uint32_t function, const std::string& name,
+                           const std::string& root);
   void invoke_bools(uint32_t object, uint32_t function, const std::string& path, const char* first,
                     bool a, const char* second = nullptr, bool b = false);
   uint32_t property(uint32_t object, const std::string& name);

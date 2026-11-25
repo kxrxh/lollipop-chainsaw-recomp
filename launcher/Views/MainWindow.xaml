@@ -48,6 +48,7 @@
             <StackPanel>
               <Button Name="HomeNav" Style="{StaticResource Nav}" Content="&#xE80F;" ToolTip="Overview" AutomationProperties.Name="Overview"/>
               <Button Name="ManageNav" Style="{StaticResource Nav}" Content="&#xE8B7;" ToolTip="Manage game" AutomationProperties.Name="Manage game"/>
+              <Button Name="CostumesNav" Style="{StaticResource Nav}" Content="&#xE7B8;" ToolTip="Costumes &amp; DLC" AutomationProperties.Name="Costumes and DLC"/>
               <Button Name="SettingsNav" Style="{StaticResource Nav}" Content="&#xE713;" ToolTip="Game settings" AutomationProperties.Name="Game settings"/>
               <Grid>
                 <Button Name="UpdatesNav" Style="{StaticResource Nav}" Content="&#xE895;" ToolTip="Updates" AutomationProperties.Name="Updates"/>
@@ -169,6 +170,42 @@
               </Expander>
             </StackPanel>
           </ScrollViewer>
+          <Border Name="CostumesPage" Grid.Row="1" Style="{StaticResource Card}" Visibility="Collapsed" Background="#ED12141C" Margin="28,16,28,18" Padding="26">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <StackPanel Margin="0,0,0,16">
+                <DockPanel Margin="0,0,0,8">
+                  <Border DockPanel.Dock="Right" Background="#302D2435" CornerRadius="12" Padding="12,6" VerticalAlignment="Center"><TextBlock Text="XBOX 360 DLC" Foreground="#FF91C3" FontSize="11" FontWeight="SemiBold"/></Border>
+                  <TextBlock Text="Costumes &amp; DLC" FontSize="27" FontWeight="SemiBold"/>
+                </DockPanel>
+                <TextBlock Text="Add your Xbox 360 costume packs from ZIPs or a folder. Review them before installing." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,16"/>
+                <WrapPanel>
+                  <Button Name="ChooseDlcZips" Content="Choose ZIPs" Margin="0,0,10,0"/>
+                  <Button Name="ChooseDlcFolder" Content="Choose folder" Margin="0,0,10,0"/>
+                  <Button Name="RefreshCostumes" Content="Refresh" Background="Transparent"/>
+                </WrapPanel>
+                <TextBlock Name="CostumeStatus" Text="Install the game first, then add your costume DLC here." TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,14,0,0" AutomationProperties.LiveSetting="Polite"/>
+              </StackPanel>
+              <ScrollViewer Name="CostumeScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,10,0" Focusable="False">
+                <StackPanel>
+                  <StackPanel Name="CostumeReview" Visibility="Collapsed">
+                    <TextBlock Text="READY TO INSTALL" Style="{StaticResource Label}"/>
+                    <ItemsControl Name="CostumeCandidates" Margin="0,4,0,12"/>
+                  </StackPanel>
+                  <TextBlock Text="YOUR COSTUME PACKS" Style="{StaticResource Label}" Margin="0,8,0,8"/>
+                  <ItemsControl Name="InstalledCostumes"/>
+                  <TextBlock Name="NoCostumes" Text="No costume packs installed yet." Foreground="{StaticResource Muted}" FontSize="12"/>
+                </StackPanel>
+              </ScrollViewer>
+              <StackPanel Grid.Row="2" Margin="0,16,0,0">
+                <WrapPanel Name="CostumeInstallActions" Visibility="Collapsed" Margin="0,0,0,12">
+                  <Button Name="InstallCostumes" Content="Install costumes" Background="#FFF9FD" Foreground="#141018" BorderBrush="#FFF9FD" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                  <Button Name="ClearCostumes" Content="Clear selection" Background="Transparent"/>
+                </WrapPanel>
+                <TextBlock Text="Restart the game after installing to use your costumes. Your saves and existing costumes are kept." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Grid>
+          </Border>
           <Border Name="SettingsPage" Grid.Row="1" Visibility="Collapsed" Style="{StaticResource Card}" Background="#ED12141C" Margin="28,16,28,18" Padding="26">
             <Grid>
               <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

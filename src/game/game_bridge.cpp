@@ -90,6 +90,21 @@ void game_bridge::invoke_bools(uint32_t object, uint32_t function, const std::st
   process(object, function);
 }
 
+bool game_bridge::install_costume_dlc(uint32_t manager, uint32_t function, const std::string& name,
+                                      const std::string& root) {
+  // OnlineSubsystem.OnlineContent, passed to the native DLC manager as a borrowed bundle.
+  std::memset(memory_ + scratch_, 0, 160);
+  write(scratch_ + 4, 1); // HDD; downloaded content and local user 0 are zero-initialized.
+  string(scratch_ + 8, scratch_ + 256, name.c_str());
+  string(scratch_ + 20, scratch_ + 512, name.c_str());
+  string(scratch_ + 32, scratch_ + 768, root.c_str());
+  write(scratch_ + 56, scratch_ + 128);
+  write(scratch_ + 60, 1);
+  write(scratch_ + 64, 1);
+  string(scratch_ + 128, scratch_ + 1024, (root + "ASHGAMEINFO.INI").c_str());
+  return process(manager, function) != 0;
+}
+
 uint32_t game_bridge::process(uint32_t object, uint32_t function) {
   // Reflected functions can live in the game's low-address static allocations.
   if (!valid_address(object) || !function)

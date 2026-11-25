@@ -82,6 +82,15 @@ internal static class SetupTests {
     var app = new App();
     app.InitializeComponent();
     app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+    if (args[0] is "--costume-preview" or "--costume-review") {
+      try {
+        CostumeDlcTests.Preview(args);
+        return 0;
+      } catch (Exception error) {
+        Console.Error.WriteLine(error);
+        return 1;
+      }
+    }
     var sandbox =
         Path.Combine(Path.GetTempPath(), "lollipop-setup-" + Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(sandbox);
@@ -162,6 +171,7 @@ internal static class SetupTests {
       GraphicsTest(sandbox, args.Length > 1 ? args[1] : null);
       LauncherInstallationTests.Run(sandbox);
       GameLocationTests.Run(sandbox);
+      CostumeDlcTests.Run(sandbox);
       BuildToolchainTests.Run(sandbox);
       SdkPackageTests.Run(args[0], sandbox);
       CompilerPackageTests.Run(args[0], sandbox);

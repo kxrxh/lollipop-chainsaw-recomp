@@ -1,5 +1,6 @@
 #include "game_menus.h"
 #include "game/cheats.h"
+#include "game/costume_dlc.h"
 #include "game/game_bridge.h"
 #include "game/game_settings.h"
 #include "game/native_quit_dialog.h"
@@ -24,6 +25,7 @@ void update_game_ui(rex::kernel::TitleRuntime& runtime, PPCContext& context) {
   // StaticFindObject checks these flags before touching the object table.
   if (game.read(0x83351964) || game.read(0x83340FB0))
     return;
+  load_installed_costumes(runtime, game);
   update_game_settings(game);
   update_game_cheats(game);
   if (!game_options_closing())
@@ -34,6 +36,7 @@ void game_movie_loaded(uint32_t player, uint32_t path) {
   const auto name = game_bridge::read_string(guest_memory.load(), path);
   REXLOG_DEBUG("Native menu movie loaded: {}", name);
   if (name == "UIScene_StartTitle.ASH_UI_TitleMenu") {
+    request_costume_dlc_load();
     game_settings_loaded();
     native_quit().track_main_menu(player);
   }

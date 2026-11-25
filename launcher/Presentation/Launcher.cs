@@ -20,6 +20,7 @@ internal sealed class Launcher {
   internal string CurrentPage = "Home";
   internal bool Busy, CheckingUpdates;
   internal readonly GraphicsSettings Settings;
+  internal readonly CostumePage Costumes;
   private readonly string kit, executable, locationFile;
   private readonly DispatcherTimer timer = new DispatcherTimer();
   private readonly Stopwatch elapsed = new Stopwatch();
@@ -54,6 +55,7 @@ internal sealed class Launcher {
     Find<Button>("HomeNav").Click += delegate { SetPage("Home"); };
     Find<Button>("ManageNav").Click += delegate { SetPage("Manage"); };
     Find<Button>("SettingsNav").Click += delegate { SetPage("Settings"); };
+    Find<Button>("CostumesNav").Click += delegate { SetPage("Costumes"); };
     Find<Button>("UpdatesNav").Click += delegate { SetPage("Updates"); };
     Find<Button>("ManageShortcut").Click += delegate { SetPage("Manage"); };
     Find<Button>("SettingsShortcut").Click += delegate { SetPage("Settings"); };
@@ -128,6 +130,7 @@ internal sealed class Launcher {
           stepLabel + "  /  " + elapsed.Elapsed.ToString(@"hh\:mm\:ss");
     };
     Settings = new GraphicsSettings(this);
+    Costumes = new CostumePage(this, executable);
     var ownFolder = Path.GetDirectoryName(executable);
     Destination = Installer.Ready(ownFolder) || GameUpdate.CanUpdate(ownFolder)
                       ? ownFolder
@@ -217,24 +220,28 @@ internal sealed class Launcher {
 
   private void RefreshPage() {
     var modal = Find<Border>("HelpOverlay").Visibility == Visibility.Visible;
-    Find<Button>("Primary").IsDefault = !modal && CurrentPage != "Settings";
+    Find<Button>("Primary").IsDefault = !modal && CurrentPage is not ("Settings" or "Costumes");
+    Find<Button>("InstallCostumes").IsDefault = !modal && CurrentPage == "Costumes" &&
+                                               Screen != "Busy" &&
+                                               Find<Button>("InstallCostumes").IsEnabled;
     Find<Button>("SaveSettings").IsDefault =
         !modal && CurrentPage == "Settings" && Screen != "Busy";
-    foreach (var name in new[] { "Home", "Manage", "Settings", "Updates" }) {
+    foreach (var name in new[] { "Home", "Manage", "Costumes", "Settings", "Updates" }) {
       Find<FrameworkElement>(name + "Page").Visibility =
           CurrentPage == name ? Visibility.Visible : Visibility.Collapsed;
       Find<Button>(name + "Nav").Tag = CurrentPage == name ? "Selected" : null;
     }
     Find<ScrollViewer>("PageScroll").Visibility =
-        CurrentPage == "Settings" ? Visibility.Collapsed : Visibility.Visible;
+        CurrentPage is "Settings" or "Costumes" ? Visibility.Collapsed : Visibility.Visible;
     foreach (var name in new[] { "Heading", "Description", "Location" })
       Find<TextBlock>(name).Visibility =
-          CurrentPage == "Settings" && Screen != "Busy" && Screen != "Failure"
+          (CurrentPage is "Settings" or "Costumes") && Screen != "Busy" && Screen != "Failure"
               ? Visibility.Collapsed
               : Visibility.Visible;
     Find<TextBlock>("PageHeading").Text = CurrentPage == "Home"       ? "Overview"
                                           : CurrentPage == "Manage"   ? "Manage game"
                                           : CurrentPage == "Settings" ? "Game settings"
+                                          : CurrentPage == "Costumes" ? "Costumes & DLC"
                                                                       : "Updates";
     if (Screen == "Install") {
       Find<Button>("Primary").Content = CurrentPage == "Manage" ? "Install game" : "Set up game";
@@ -273,7 +280,7 @@ internal sealed class Launcher {
                                             ? Visibility.Visible
                                             : Visibility.Collapsed;
     foreach (var name in new[] { "ChooseIso", "ChooseFolder", "HomeNav", "ManageNav", "SettingsNav",
-                                 "UpdatesNav", "ManageShortcut", "SettingsShortcut",
+                                 "UpdatesNav", "CostumesNav", "ManageShortcut", "SettingsShortcut",
                                  "UpdatesShortcut", "UpdateNoticeAction" })
       Find<Button>(name).IsEnabled = !busy;
     Find<Button>("CheckUpdates").IsEnabled = !busy && !CheckingUpdates;
@@ -304,6 +311,7 @@ internal sealed class Launcher {
     Find<Expander>("ErrorLog").Visibility = Visibility.Collapsed;
     Find<TextBox>("LogText").Clear();
     Settings.Refresh(Destination, busy);
+    Costumes.Refresh();
     RefreshPage();
   }
 
