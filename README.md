@@ -15,10 +15,15 @@ Download the [latest launcher](https://github.com/kxrxh/lollipop-chainsaw-recomp
 and run it. Requires Windows x64, internet for setup, and an ISO of the
 [supported Xbox 360 disc](docs/BUILDING.md#supported-game).
 
-The launcher checks for stable releases on startup and shows an in-app notice when
-a newer release is available. Select the notice for release notes, then use
-**Updates → Update launcher**. Apply game updates from
-**Manage game → Apply launcher build / Repair**. Saves and settings are kept.
+## Updates
+
+When a new stable release is available, the launcher shows a notice at startup.
+Select the notice to read the release notes.
+
+- To update the launcher, select **Updates → Update launcher**.
+- To update the game, select **Manage game → Apply launcher build / Repair**.
+
+Updates keep your saves and settings.
 
 ## Launcher
 
