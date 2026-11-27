@@ -4,17 +4,10 @@
   <img src="assets/banner.png" alt="Lollipop Chainsaw Recomp" width="100%">
 </p>
 
-The original Xbox 360 game, recompiled for Windows. Requires your own game copy;
-game files are not included.
+Lollipop Chainsaw recompiled for Windows.
 
-- Press **F6** to open **Cheats**. Toggle unlimited health, gold and platinum
-  medals, or a full Star Soul gauge with a mouse, keyboard, or controller.
-  Cheats take effect immediately and reset on restart. **All Off** disables
-  every cheat. The game can still save medals and purchases.
-- Change **graphics settings** in-game without restarting, including render and
-  shadow resolution, frame rate, anti-aliasing, and color dithering. Open the
-  **Effects** tab to turn film grain, depth of field, or vignette off individually.
-  All three default to **Original**. The damage flash stays visible.
+- Press **F6** for health, medal, and Star Soul cheats.
+- Change resolution, adjust frame rate, or toggle film grain while playing.
 
 ## Getting started
 
