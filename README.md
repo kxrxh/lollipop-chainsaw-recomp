@@ -40,13 +40,15 @@ a newer release is available. Select the notice for release notes, then use
 
 </details>
 
-## Help
+## DLC
 
 Install your own Xbox 360 costume DLC from **Costumes & DLC** in the launcher.
 Choose one or more ZIPs, or a folder containing the original packages, review the
 detected packs, then select **Install**. Restart the game to use your costumes.
 Existing packs and saves are kept. Older installations need
 **Manage game → Apply launcher build / Repair** once to add the DLC reader.
+
+## Help
 
 - [Compatibility and known issues](docs/COMPATIBILITY.md) · [Default controls](docs/COMPATIBILITY.md#controls)
 - [Setup errors](docs/BUILDING.md#setup-and-build-problems) · [Update or repair](docs/BUILDING.md#updating-or-removing-an-installation)
